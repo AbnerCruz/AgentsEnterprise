@@ -7,6 +7,7 @@
 (function (S) {
   'use strict';
   const { clamp, sleep, uid, slug, pick } = S.util;
+  const hashVisual = valor => Math.abs(String(valor || '').split('').reduce((h, c) => ((h * 31) + c.charCodeAt(0)) | 0, 0));
 
   // Quatro setores estáveis. A empresa não precisa manter uma pessoa em cada
   // setor o tempo todo: setores sem demanda podem ficar sem funcionário e a
@@ -78,7 +79,8 @@
         especialidade: ({dados:'operacoes',geral:'producao'}[f.especialidade] || f.especialidade || 'producao'), cor: f.cor,
         mesa: m, pos: { x: m.x, y: m.y + 40 }, alvo: null,
         estado: 'sentado', balao: null, ocupado: false, progresso: 0,
-        tarefa: null, ref: f
+        tarefa: null, ref: f, direcao: 'baixo',
+        visualRow: f.papel === 'gerente' ? 0 : 1 + (hashVisual(f.id) % 3)
       };
     });
     selecionado = null;
@@ -1715,11 +1717,13 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     larguraLog = LAYOUT.largura || 640;
     alturaLog = (LAYOUT.altura ? LAYOUT.altura(rt.length) : Math.max(410, 74 + Math.ceil(Math.max(1, rt.length) / (rt.length > 4 ? 3 : 2)) * 72 + 120));
     const larguraCSS = (cv.parentElement.clientWidth || 0) - 2;
-    if (larguraCSS < 40) return;            // painel oculto: nada a redimensionar
-    const escala = larguraCSS / larguraLog;
+    const alturaCSS = (cv.parentElement.clientHeight || 0) - 2;
+    if (larguraCSS < 40 || alturaCSS < 40) return;
+    const escala = Math.min(larguraCSS / larguraLog, alturaCSS / alturaLog);
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     cv.width = Math.round(larguraLog * escala * dpr);
     cv.height = Math.round(alturaLog * escala * dpr);
+    cv.style.width = Math.round(larguraLog * escala) + 'px';
     cv.style.height = Math.round(alturaLog * escala) + 'px';
     cx.setTransform(escala * dpr, 0, 0, escala * dpr, 0, 0);
   }
@@ -1732,6 +1736,13 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     cx.lineTo(x, y + r); cx.quadraticCurveTo(x, y, x + r, y); cx.closePath();
   }
 
+  function desenharAtlas(nome, coluna, linha, x, y, w, h) {
+    const a = S.assets && S.assets.atlas && S.assets.atlas(nome, coluna, linha);
+    if (!a) return false;
+    cx.drawImage(a.img, a.sx, a.sy, a.sw, a.sh, x, y, w, h);
+    return true;
+  }
+
   function desenhar(agora) {
     if (!cx) return;
     cx.clearRect(0, 0, larguraLog, alturaLog);
@@ -1739,18 +1750,30 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     const tilePiso = S.assets && S.assets.get('tile_piso_madeira');
     const salas = LAYOUT.salas || null;
     if (salas && salas.length) {
-      // Layout de jogo: uma sala por departamento, com tile de verdade quando existe.
-      cx.fillStyle = '#0B0D0F'; cx.fillRect(0, 0, larguraLog, alturaLog);
+      // Planta de jogo: volumes claros, pisos distintos e corredores legíveis.
+      cx.fillStyle = '#080D18'; cx.fillRect(0, 0, larguraLog, alturaLog);
+      cx.fillStyle = '#101A2B'; cx.fillRect(10, 10, larguraLog - 20, alturaLog - 20);
+      cx.fillStyle = '#2A3A50'; cx.fillRect(10, 10, larguraLog - 20, 5);
       salas.forEach(s => {
-        if (tilePiso) { for (let x = s.x; x < s.x + s.w; x += 32) for (let y = s.y; y < s.y + s.h; y += 32) cx.drawImage(tilePiso, x, y, 32, 32); }
-        else { cx.fillStyle = s.cor || '#181E22'; cx.fillRect(s.x, s.y, s.w, s.h); }
-        cx.strokeStyle = '#050607'; cx.lineWidth = 4;
-        if (tileParede) { for (let x = s.x; x < s.x + s.w; x += 32) { cx.drawImage(tileParede, x, s.y - 8, 32, 16); } }
-        else cx.strokeRect(s.x, s.y, s.w, s.h);
-        cx.fillStyle = 'rgba(0,0,0,.55)'; cx.fillRect(s.x, s.y, s.w, 20);
-        cx.fillStyle = '#C8CDD0'; cx.font = '700 11px -apple-system,system-ui,sans-serif'; cx.textAlign = 'left';
-        cx.fillText(s.nome, s.x + 8, s.y + 14);
+        const cor = s.piso === 'tapete' ? '#17243A' : s.piso === 'executivo' ? '#2B211E' : s.piso === 'social' ? '#163034' : '#392A22';
+        const linha = s.piso === 'tapete' ? '#223653' : s.piso === 'social' ? '#205057' : '#4B3528';
+        cx.fillStyle = cor; cx.fillRect(s.x, s.y, s.w, s.h);
+        cx.fillStyle = linha;
+        if (s.piso === 'tapete') {
+          for (let x=s.x+6;x<s.x+s.w-4;x+=12) for(let y=s.y+28;y<s.y+s.h-4;y+=12) cx.fillRect(x,y,2,2);
+        } else {
+          for (let y=s.y+24;y<s.y+s.h;y+=16) cx.fillRect(s.x,y,s.w,1);
+          for (let x=s.x+24;x<s.x+s.w;x+=48) cx.fillRect(x,s.y+24,1,s.h-24);
+        }
+        cx.strokeStyle = '#070B13'; cx.lineWidth = 5; cx.strokeRect(s.x, s.y, s.w, s.h);
+        cx.strokeStyle = '#51637A'; cx.lineWidth = 1; cx.strokeRect(s.x+3, s.y+3, s.w-6, s.h-6);
+        cx.fillStyle = '#101827'; cx.fillRect(s.x + 3, s.y + 3, s.w - 6, 20);
+        cx.fillStyle = '#F2B35D'; cx.fillRect(s.x + 8, s.y + 21, 34, 2);
+        cx.fillStyle = '#D7DEEA'; cx.font = '700 9px monospace'; cx.textAlign = 'left'; cx.fillText(s.nome, s.x + 9, s.y + 16);
       });
+      // Passagem central e janelas externas dão leitura de edifício único.
+      cx.fillStyle='#0B1321'; cx.fillRect(16,183,1168,11);
+      for(let x=46;x<1160;x+=96){cx.fillStyle='#25415A';cx.fillRect(x,13,62,7);cx.fillStyle='#6FA3B6';cx.fillRect(x+3,14,56,3);}
     } else {
     // Piso em pixel art: blocos discretos, paredes, janelas e pequenas áreas de uso.
     cx.fillStyle = '#101418'; cx.fillRect(0, 0, larguraLog, alturaLog);
@@ -1778,33 +1801,38 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     // Objetos persistentes construídos pelos agentes: sprite quando existe,
     // senão um quadrado colorido simples — sem desenho vetorial detalhado.
     const CORES_OBJETO = { planta:'#4F7A60', estante:'#8A6A4E', sofa:'#4B5961', quadro:'#8B6A50', luminaria:'#B69B61', bancada:'#6A5040' };
+    const CELULA_OBJETO = { mesa:[0,1], planta:[1,2], estante:[0,2], luminaria:[3,3], sofa:[3,1], quadro:[1,3], bancada:[3,0] };
     const objs=(S.state.atual()&&S.state.atual().ambiente&&S.state.atual().ambiente.objetos)||[];
     objs.forEach(o=>{
       const x=Number(o.x)||80,y=Number(o.y)||80;
       const spec = OBJETOS_AMBIENTE[o.tipo] || {};
       const w = spec.w || 40, h = spec.h || 28;
       cx.fillStyle='rgba(0,0,0,.3)'; cx.fillRect(x-w/2, y+h/2-4, w, 5);
+      const cel = CELULA_OBJETO[o.tipo];
+      const arte = cel && desenharAtlas('office_atlas', cel[0], cel[1], x - w/2 - 8, y - h/2 - 10, w + 16, h + 20);
       const sprite = S.assets && S.assets.get(o.tipo);
-      if (sprite) { cx.drawImage(sprite, x - w/2, y - h/2, w, h); }
-      else { cx.fillStyle = CORES_OBJETO[o.tipo] || '#5A6368'; cx.fillRect(x - w/2, y - h/2, w, h); }
+      if (!arte && sprite) { cx.drawImage(sprite, x - w/2, y - h/2, w, h); }
+      else if (!arte) { cx.fillStyle = CORES_OBJETO[o.tipo] || '#5A6368'; cx.fillRect(x - w/2, y - h/2, w, h); }
     });
 
     // estações
     Object.keys(ESTACOES).forEach(k => {
       const s = ESTACOES[k];
-      cx.fillStyle = '#181D21'; cx.strokeStyle = '#242B30'; cx.lineWidth = 1;
-      rrect(s.x - 40, s.y - 16, 80, 32, 9); cx.fill(); cx.stroke();
-      cx.fillStyle = '#5F686C'; cx.font = '500 10px -apple-system,system-ui,sans-serif';
-      cx.textAlign = 'center'; cx.fillText(s.rotulo, s.x, s.y + 4);
+      const w=s.w||70,h=s.h||48, cel=s.sprite;
+      const arte=cel && desenharAtlas('office_atlas',cel[0],cel[1],s.x-w/2,s.y-h/2,w,h);
+      if(!arte){cx.fillStyle='#172238';cx.strokeStyle='#40526A';cx.lineWidth=1;rrect(s.x-w/2,s.y-h/2,w,h,3);cx.fill();cx.stroke();}
+      cx.fillStyle='rgba(8,13,24,.84)';cx.fillRect(s.x-34,s.y+h/2-2,68,11);
+      cx.fillStyle='#C8D2E0';cx.font='700 7px monospace';cx.textAlign='center';cx.fillText(String(s.rotulo).toUpperCase(),s.x,s.y+h/2+6);
     });
 
     // mesas
     rt.forEach(p => {
       const spriteMesa = S.assets && S.assets.get('mesa');
-      if (spriteMesa) { cx.drawImage(spriteMesa, p.mesa.x - 46, p.mesa.y - 16, 92, 34); }
-      else { cx.fillStyle = '#2A3237'; cx.fillRect(p.mesa.x - 46, p.mesa.y - 16, 92, 34); }
+      const mesaArte = desenharAtlas('office_atlas', p.papel==='gerente'?3:0, p.papel==='gerente'?0:1, p.mesa.x-48,p.mesa.y-30,96,64);
+      if (!mesaArte && spriteMesa) { cx.drawImage(spriteMesa, p.mesa.x - 46, p.mesa.y - 16, 92, 34); }
+      else if (!mesaArte) { cx.fillStyle = '#2A3237'; cx.fillRect(p.mesa.x - 46, p.mesa.y - 16, 92, 34); }
       cx.fillStyle = p.ocupado ? 'rgba(228,112,62,.32)' : '#171C21';
-      cx.fillRect(p.mesa.x - 16, p.mesa.y - 9, 32, 20);
+      cx.fillRect(p.mesa.x - 10, p.mesa.y - 7, 20, 5);
     });
 
     // pessoas
@@ -1828,8 +1856,13 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
       // asset existe; sem asset, um quadrado da cor do agente é o
       // suficiente — nada de desenho vetorial detalhado por código.
       const pulse = p.ocupado ? Math.sin(agora / 150) * 1.2 : 0;
+      const direcoes={baixo:0,esquerda:1,direita:2,cima:3};
+      const personagem = S.assets && S.assets.atlas && S.assets.atlas('characters_atlas',direcoes[p.direcao]||0,p.visualRow||0);
       const spriteTintado = S.assets && S.assets.tint && S.assets.tint('char_base', p.cor);
-      if (spriteTintado) {
+      if (personagem) {
+        cx.drawImage(personagem.img,personagem.sx,personagem.sy,personagem.sw,personagem.sh,x-27,y-47+pulse,54,68);
+        if(p.estado==='pausa'){cx.fillStyle='rgba(6,10,18,.28)';cx.fillRect(x-13,y-31+pulse,26,38);}
+      } else if (spriteTintado) {
         const w = 32, h = 48;
         cx.drawImage(spriteTintado, x - w / 2, y - h + 14 + pulse, w, h);
       } else {
@@ -1866,6 +1899,7 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     rt.forEach(p => {
       if (p.estado === 'andando' && p.alvo) {
         const dx = p.alvo.x - p.pos.x, dy = p.alvo.y - p.pos.y;
+        p.direcao = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'esquerda' : 'direita') : (dy < 0 ? 'cima' : 'baixo');
         const d = Math.hypot(dx, dy), passo = 78 * dt;
         if (d <= passo) {
           p.pos.x = p.alvo.x; p.pos.y = p.alvo.y; p.alvo = null;

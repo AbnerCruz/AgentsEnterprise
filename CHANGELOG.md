@@ -4,6 +4,40 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v54 — reconstrução visual do jogo em pixel art
+
+## Direção visual e artes
+
+- O modo principal foi redesenhado como um jogo de gerenciamento 2D top-down, com linguagem visual inspirada em jogos de simulação 16-bit e paleta noturna de azul, madeira, âmbar e verde-petróleo.
+- Foram criados dois atlas PNG originais: mobiliário/arquitetura e personagens. Eles incluem pisos, parede, estações de trabalho, mesa executiva, reunião, sofá, estante, planta, café, TV, dormitório, quadro, arquivo, luminária e quatro aparências completas em quatro direções.
+- O renderer usa os atlas diretamente no canvas e preserva fallback para instalações antigas ou carregamento incompleto.
+- Funcionários recebem aparência estável derivada do próprio ID; a gerente possui sprite próprio. A direção visual muda conforme o deslocamento no escritório.
+- Salas agora possuem pisos, padrões, contornos, sinalização, corredor e janelas coerentes, substituindo a composição anterior de grandes retângulos escuros.
+
+## Mobile-first horizontal
+
+- O PWA agora declara orientação `landscape` e mostra uma orientação clara para girar o aparelho quando aberto em retrato.
+- O canvas passou a usar escala `contain` calculada pela largura e pela altura disponíveis, evitando corte vertical em celulares baixos e mantendo a proporção do mundo.
+- HUD foi compactado para toque, respeita recortes e áreas seguras do aparelho e mantém caixa, produtos, equipe e estado da IA acessíveis por rolagem horizontal curta.
+- O painel lateral de identidade deixou de reduzir permanentemente o mapa e virou uma gaveta sobreposta.
+- Gerente, produção, produtos e atividade viraram quatro gavetas inferiores. Tocar abre o painel; tocar novamente devolve a tela inteira ao escritório.
+- Modais, campos, botões, toasts e estados de foco foram refeitos com alvos de toque maiores e contraste apropriado.
+
+## Jogo, agentes e produtos reais
+
+- O canvas do modo jogo agora responde ao toque: selecionar uma pessoa mostra nome, cargo e foco; tocar no cartão abre ficha com estado, energia, humor, entregas, pensamento e contribuição ao acervo.
+- Objetos construídos também podem ser tocados para consultar uso e histórico básico.
+- Construção deixou de ficar escondida na interface clássica: o HUD abre uma loja de mobiliário que usa apenas os créditos internos do ambiente e delega o posicionamento real à equipe.
+- Produtos cliente-visíveis ganharam uma gaveta própria. Produto publicado aparece explicitamente como `PRONTO PARA USO REAL`; esboço, protótipo e candidato final continuam identificados como produção em curso.
+- O status sobre o mapa informa quantos agentes estão produzindo naquele momento, sem transformar animação ociosa em trabalho fictício.
+- Toda a lógica existente de empresa, IA, memória, economia, tarefas e pipeline de produto foi preservada; a reconstrução modifica a apresentação e os controles do mesmo estado persistente.
+
+## Cache
+
+- Service Worker atualizado para `estudio-v54-pixel-office` e os dois atlas passaram a integrar o shell offline.
+
+---
+
 # v53 — autoridade do dono e pipeline real de produto
 
 ## Sala de reuniões

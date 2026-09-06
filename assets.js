@@ -9,6 +9,7 @@
   'use strict';
 
   const NOMES = [
+    'office_atlas', 'characters_atlas',
     'char_base',
     'tile_piso_madeira', 'tile_piso_tapete', 'tile_parede',
     'mesa', 'cadeira', 'computador',
@@ -34,6 +35,20 @@
 
   function get(nome) { return imagens[nome] || null; }
 
+  /* Os dois atlas principais usam uma grade 4x4. O recorte fica aqui para
+     que o renderer não dependa do tamanho físico escolhido pela arte. */
+  function atlas(nome, coluna, linha) {
+    const img = get(nome);
+    if (!img) return null;
+    return {
+      img,
+      sx: Math.round((img.naturalWidth || img.width) * coluna / 4),
+      sy: Math.round((img.naturalHeight || img.height) * linha / 4),
+      sw: Math.round((img.naturalWidth || img.width) / 4),
+      sh: Math.round((img.naturalHeight || img.height) / 4)
+    };
+  }
+
   /* Recolore um sprite em escala de cinza/neutro para a cor do agente,
      preservando luz e sombra do desenho original. Evita precisar gerar
      um sprite por funcionário: 1 char_base.png serve para a equipe inteira. */
@@ -58,7 +73,7 @@
   }
 
   S.assets = {
-    NOMES, pronto, get, tint,
+    NOMES, pronto, get, tint, atlas,
     algumCarregado: () => NOMES.some(n => imagens[n]),
     faltando: () => NOMES.filter(n => !imagens[n])
   };

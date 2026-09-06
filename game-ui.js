@@ -13,22 +13,23 @@
   function hash(str) { let h = 0; for (let i = 0; i < String(str).length; i++) h = (h * 31 + str.charCodeAt(i)) | 0; return Math.abs(h); }
 
   const SALAS = {
-    gerencia:  { id:'gerencia',  nome:'Gerência',      x:10,  y:10,  w:280, h:180 },
-    reuniao:   { id:'reuniao',   nome:'Reunião',        x:300, y:10,  w:300, h:180 },
-    criacao:   { id:'criacao',   nome:'Design',          x:610, y:10,  w:290, h:180 },
-    producao:  { id:'producao',  nome:'Desenvolvimento', x:910, y:10,  w:280, h:180 },
-    comercial: { id:'comercial', nome:'Marketing',       x:10,  y:200, w:280, h:180 },
-    operacoes: { id:'operacoes', nome:'Operações & Dados', x:300, y:200, w:300, h:180 },
-    geral:     { id:'geral',     nome:'Equipe',          x:610, y:200, w:580, h:180 }
+    gerencia:  { id:'gerencia',  nome:'DIREÇÃO',          x:24,  y:24,  w:220, h:158, piso:'executivo' },
+    reuniao:   { id:'reuniao',   nome:'SALA DE REUNIÃO',  x:250, y:24,  w:290, h:158, piso:'tapete' },
+    criacao:   { id:'criacao',   nome:'PRODUTO & DESIGN', x:546, y:24,  w:300, h:158, piso:'madeira' },
+    producao:  { id:'producao',  nome:'TECNOLOGIA',       x:852, y:24,  w:324, h:158, piso:'madeira' },
+    comercial: { id:'comercial', nome:'CRESCIMENTO',      x:24,  y:194, w:240, h:182, piso:'madeira' },
+    operacoes: { id:'operacoes', nome:'OPERAÇÕES & QA',   x:270, y:194, w:270, h:182, piso:'tapete' },
+    geral:     { id:'geral',     nome:'CONVIVÊNCIA',      x:546, y:194, w:630, h:182, piso:'social' }
   };
   const salaDe = f => (f.papel === 'gerente') ? SALAS.gerencia : (SALAS[f.especialidade] || SALAS.geral);
 
   function slotEmSala(f, sala) {
-    const cols = Math.max(1, Math.floor((sala.w - 60) / 130));
-    const rows = Math.max(1, Math.floor((sala.h - 90) / 82));
+    const cols = Math.max(1, Math.floor((sala.w - 28) / 108));
+    const rows = 1;
     const slot = hash(f.id) % (cols * rows);
     const col = slot % cols, row = Math.floor(slot / cols);
-    return { x: sala.x + 90 + col * 130, y: sala.y + 70 + row * 82 };
+    const faixa = sala.w - 116;
+    return { x: sala.x + 58 + (cols > 1 ? col * faixa / (cols - 1) : faixa / 2), y: sala.y + 78 + row * 82 };
   }
 
   const GAME_LAYOUT = {
@@ -40,12 +41,12 @@
       return slotEmSala(f || { id: 'x' }, sala);
     },
     estacoes: {
-      cafe:       { x: SALAS.geral.x + 60,  y: SALAS.geral.y + 60,  rotulo: 'café' },
-      descanso:   { x: SALAS.geral.x + 200, y: SALAS.geral.y + 60,  rotulo: 'descanso' },
-      tv:         { x: SALAS.geral.x + 340, y: SALAS.geral.y + 60,  rotulo: 'televisão' },
-      dormitorio: { x: SALAS.geral.x + 480, y: SALAS.geral.y + 60,  rotulo: 'dormitório' },
-      quadro:     { x: SALAS.reuniao.x + 90, y: SALAS.reuniao.y + 60, rotulo: 'quadro' },
-      reuniao:    { x: SALAS.reuniao.x + 210, y: SALAS.reuniao.y + 60, rotulo: 'mesa de reunião' }
+      cafe:       { x: 640,  y:270, rotulo:'café', sprite:[2,2], w:50, h:54 },
+      descanso:   { x: 770,  y:286, rotulo:'descanso', sprite:[3,1], w:94, h:54 },
+      tv:         { x: 900,  y:246, rotulo:'televisão', sprite:[3,2], w:82, h:52 },
+      dormitorio: { x:1060,  y:284, rotulo:'dormitório', sprite:[0,3], w:68, h:76 },
+      quadro:     { x: 340,  y: 70, rotulo:'quadro', sprite:[1,3], w:84, h:46 },
+      reuniao:    { x: 420,  y:125, rotulo:'reunião', sprite:[2,1], w:112, h:76 }
     },
     zonas: {
       trabalho: SALAS.geral, arquivo: SALAS.operacoes, planejamento: SALAS.reuniao,
@@ -149,7 +150,64 @@
     S.studio.reuniaoFalar(texto).catch(() => {});
   }
 
-  function pintarTudo() { pintarHud(); pintarRail(); pintarTarefas(); pintarLog(); pintarChat(); }
+  /* Produtos reais merecem uma gaveta própria no jogo. */
+  function pintarProdutos() {
+    const e = S.state.atual(); const el = $('#dockProdutos'); if (!e) { el.innerHTML = ''; return; }
+    const itens = (e.arquivos || []).filter(a => a.classe === 'produto' || a.clienteVisivel).slice(0, 14);
+    el.innerHTML = itens.length ? itens.map(a => {
+      const etapa = a.classe === 'produto' ? 'PRONTO PARA USO REAL' : ({esboco:'esboço',prototipo:'protótipo',candidato:'candidato final'}[a.classe] || a.classe);
+      return `<div class="item"><b>${esc(a.nome)}</b><small>${esc(etapa)} · ${esc(a.tipo || 'arquivo')} · ${esc(a.autor || 'equipe')}</small></div>`;
+    }).join('') : '<div class="item"><b>Nenhum produto ainda</b><small>Esboços, protótipos e produtos finais aparecerão aqui conforme a equipe produzir.</small></div>';
+  }
+
+  function pintarStatusMundo() {
+    const n = S.studio.pessoas().filter(p => p.ocupado).length;
+    $('#mundoStatus').textContent = n ? `${n} agente${n > 1 ? 's' : ''} produzindo agora` : 'Escritório em rotina autônoma';
+  }
+
+  function pintarSelecao() {
+    const card = $('#selectionCard'), p = S.studio.pessoa(S.studio.selecionado());
+    if (!p) { card.classList.add('oculto'); card.innerHTML = ''; return; }
+    const foco = (p.ref && (p.ref.foco || p.ref.pensamento)) || p.estado || 'disponível';
+    card.innerHTML = `<b>${esc(p.nome)} · ${esc(p.cargo)}</b><small>${esc(foco)}</small>`;
+    card.classList.remove('oculto');
+  }
+
+  function abrirPessoa(p) {
+    if (!p) return;
+    const f = p.ref || {}, e = S.state.atual();
+    const tarefa = p.tarefa || ((e && e.tarefas) || []).find(t => t.para === p.id && t.status !== 'feita');
+    abrirModal(`
+      <span class="modal-fecha" id="pFechar">✕</span><h2>${esc(p.nome)}</h2>
+      <div class="agent-sheet"><div class="agent-avatar">${p.papel === 'gerente' ? '♛' : '●'}</div><div><b>${esc(p.cargo)}</b>
+        <p style="font:12px/1.45 system-ui,sans-serif;color:#aeb8c8;margin:5px 0 0">${esc((f.personalidade && (f.personalidade.estilo || f.personalidade.comunicacao)) || 'Profissional autônomo da equipe.')}</p>
+        <div class="agent-metrics"><div class="agent-metric"><small>ESTADO</small><b>${esc(p.estado)}</b></div><div class="agent-metric"><small>ENERGIA</small><b>${Math.round(Number(f.energia || 0))}%</b></div><div class="agent-metric"><small>ENTREGAS</small><b>${Number(f.entregas || 0)}</b></div><div class="agent-metric"><small>HUMOR</small><b>${Math.round(Number(f.humor || 0))}%</b></div></div>
+      </div></div>
+      <label>Foco atual</label><p style="font:13px/1.5 system-ui,sans-serif">${esc(f.foco || (tarefa && tarefa.titulo) || 'Disponível para a próxima necessidade real.')}</p>
+      <label>Pensamento atual</label><p style="font:13px/1.5 system-ui,sans-serif">${esc(f.pensamento || 'Observando o estúdio.')}</p>
+      <label>Contribuição ao acervo</label><p style="font:13px/1.5 system-ui,sans-serif">${esc((f.contribuicaoAcervo && f.contribuicaoAcervo.ultima) || 'Ainda não registrou uma entrega nesta empresa.')}</p>`);
+    $('#pFechar').onclick = fecharModal;
+  }
+
+  document.querySelectorAll('.painel-head').forEach(head => head.addEventListener('click', () => {
+    const painel = head.closest('.painel'), estava = painel.classList.contains('is-open');
+    document.querySelectorAll('.painel').forEach(x => x.classList.remove('is-open'));
+    if (!estava) painel.classList.add('is-open');
+  }));
+  $('#btnEmpresa').addEventListener('click', () => $('#rail').classList.toggle('is-open'));
+  $('#railFechar').addEventListener('click', () => $('#rail').classList.remove('is-open'));
+  $('#floor').addEventListener('pointerup', ev => {
+    const alvo = S.studio.cliqueNoChao(ev);
+    if (alvo && alvo.objeto) {
+      const o = alvo.objeto;
+      abrirModal(`<span class="modal-fecha" id="oFechar">✕</span><h2>${esc(o.nome || o.tipo)}</h2><p style="font:13px/1.5 system-ui,sans-serif;color:#cbd3df">Construído pela equipe · usado ${Number(o.uso || 0)} vez(es).</p>`);
+      $('#oFechar').onclick = fecharModal;
+    }
+    pintarSelecao();
+  });
+  $('#selectionCard').addEventListener('click', () => abrirPessoa(S.studio.pessoa(S.studio.selecionado())));
+
+  function pintarTudo() { pintarHud(); pintarRail(); pintarTarefas(); pintarProdutos(); pintarLog(); pintarChat(); pintarStatusMundo(); pintarSelecao(); }
 
   /* ---------- fundar empresa ---------- */
   function abrirFundar() {
@@ -193,6 +251,30 @@
     };
   }
   $('#btnFundar').addEventListener('click', abrirFundar);
+
+  /* Construção é uma decisão espacial real: usa os créditos internos do
+     ambiente e os objetos passam a participar da rotina dos agentes. */
+  function abrirConstrucao() {
+    const e = S.state.atual(); if (!e) { toast('Funde uma empresa primeiro.', 'erro'); return; }
+    const a = e.ambiente || { moedas:0, objetos:[] }, specs = S.studio.OBJETOS_AMBIENTE || {};
+    abrirModal(`
+      <span class="modal-fecha" id="bFechar">✕</span><h2>Construir no escritório</h2>
+      <p style="font:12px/1.5 system-ui,sans-serif;color:#aeb8c8">Saldo do ambiente: <b style="color:#f1ae52">${Number(a.moedas || 0)} Cr</b> · ${(a.objetos || []).length} objeto(s). A equipe posiciona cada compra na zona em que ela é útil.</p>
+      <div class="build-grid">${S.studio.tiposAmbiente().map(tipo => {
+        const q = specs[tipo];
+        return `<button class="build-item" data-tipo="${esc(tipo)}"><div><b>${esc(q.nome)}</b><small>${esc(q.zona)}</small></div><span>${Number(q.custo)} Cr</span></button>`;
+      }).join('')}</div>`);
+    $('#bFechar').onclick = fecharModal;
+    document.querySelectorAll('.build-item').forEach(btn => btn.onclick = async () => {
+      const tipo = btn.dataset.tipo, q = specs[tipo];
+      if (Number(a.moedas || 0) < Number(q.custo || 0)) { toast('Créditos internos insuficientes.', 'erro'); return; }
+      btn.disabled = true;
+      const ok = await S.studio.construirAmbiente(S.studio.gerente(), tipo, 'decisão do proprietário para melhorar o escritório');
+      if (ok) { fecharModal(); toast(`${q.nome} construído no escritório.`, 'ok'); pintarTudo(); }
+      else { btn.disabled = false; toast('A equipe não conseguiu concluir essa construção.', 'erro'); }
+    });
+  }
+  $('#btnConstruir').addEventListener('click', abrirConstrucao);
 
   /* ---------- economia ---------- */
   function abrirEconomia(){
@@ -265,12 +347,13 @@
     S.studio.montar();
     ajustar();
     pintarTudo();
-    S.bus.on('estudio', () => { pintarHud(); pintarRail(); ajustar(); });
-    S.bus.on('trabalho', pintarTarefas);
+    S.bus.on('estudio', () => { pintarHud(); pintarRail(); pintarStatusMundo(); pintarSelecao(); ajustar(); });
+    S.bus.on('trabalho', () => { pintarTarefas(); pintarStatusMundo(); });
     S.bus.on('log', pintarLog);
     S.bus.on('reuniao', pintarChat);
-    S.bus.on('equipe', pintarHud);
-    S.bus.on('arquivos', pintarHud);
+    S.bus.on('equipe', () => { pintarHud(); pintarStatusMundo(); pintarSelecao(); });
+    S.bus.on('arquivos', () => { pintarHud(); pintarProdutos(); });
+    S.bus.on('ambiente', () => { pintarStatusMundo(); });
     S.bus.on('trocou', () => { S.studio.montar(); ajustar(); pintarTudo(); });
     S.bus.on('ia', pintarHud);
     setInterval(pintarHud, 5000);

@@ -1,12 +1,13 @@
 /* Service worker do Estúdio.
    Só o shell é cacheado. A IA é remota (OpenRouter) e nunca passa por aqui:
    requisições para outras origens são ignoradas de propósito. */
-const CACHE = 'estudio-v53-pipeline-release';
+const CACHE = 'estudio-v54-pixel-office';
 const SHELL = [
   './', './index.html', './classico.html', './manifest.webmanifest',
   './app.css', './game.css',
   './core.js', './ai.js',
-  './factory.js', './assets.js', './agency.js', './studio.js', './ui.js', './game-ui.js'
+  './factory.js', './assets.js', './agency.js', './studio.js', './ui.js', './game-ui.js',
+  './assets/office_atlas.png', './assets/characters_atlas.png'
 ];
 
 self.addEventListener('install', ev => {

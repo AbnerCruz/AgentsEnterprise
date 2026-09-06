@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<meta name="theme-color" content="#0B0D0F">
+<meta name="theme-color" content="#11182A">
 <meta name="description" content="Estúdio: agentes de IA fundam e operam uma empresa de verdade, em um escritório 2D top-down.">
 <title>Estúdio</title>
 <link rel="manifest" href="manifest.webmanifest">
@@ -12,7 +12,7 @@
 </head>
 <body>
 
-<header id="hud" class="hud">
+<header id="hud" class="hud" aria-label="Estado da empresa">
   <div class="hud-marca">
     <span class="hud-logo" id="hudLogo">E</span>
     <div>
@@ -22,15 +22,19 @@
   </div>
   <div class="hud-stats" id="hudStats"></div>
   <div class="hud-acoes">
-    <button id="btnMenu" class="hud-icone" title="Painéis / exportar (versão clássica)">☰</button>
-    <button id="btnEconomia" class="hud-icone" title="Economia da empresa">$</button>
-    <button id="btnConfig" class="hud-icone" title="Motor de IA">⚙</button>
+    <button id="btnEmpresa" class="hud-icone" title="Identidade da empresa" aria-label="Identidade da empresa">◆</button>
+    <button id="btnConstruir" class="hud-icone" title="Construir no escritório" aria-label="Construir no escritório">▦</button>
+    <button id="btnEconomia" class="hud-icone" title="Economia da empresa" aria-label="Economia da empresa">$</button>
+    <button id="btnConfig" class="hud-icone" title="Motor de IA" aria-label="Motor de IA">⚙</button>
+    <button id="btnMenu" class="hud-icone" title="Administração e arquivos" aria-label="Administração e arquivos">☰</button>
   </div>
 </header>
 
 <main class="mundo">
   <div class="chao-wrap">
     <canvas id="floor"></canvas>
+    <div class="mundo-legenda"><span class="status-ponto"></span><span id="mundoStatus">Escritório ativo</span></div>
+    <button id="selectionCard" class="selection-card oculto" type="button" aria-label="Abrir detalhes do funcionário"></button>
     <div id="vazio" class="vazio oculto">
       <div class="vazio-card">
         <h1>Nenhuma empresa fundada</h1>
@@ -39,7 +43,8 @@
       </div>
     </div>
   </div>
-  <aside id="rail" class="rail">
+  <aside id="rail" class="rail" aria-label="Identidade e direção da empresa">
+    <button id="railFechar" class="rail-fechar" aria-label="Fechar painel">×</button>
     <div class="rail-card">
       <b id="railNome">—</b>
       <p id="railPosicionamento" class="rail-sub">—</p>
@@ -60,23 +65,33 @@
 </main>
 
 <footer class="dock">
-  <section class="painel">
-    <div class="painel-head"><span>👑 Gerente</span></div>
+  <section class="painel" data-dock="gerente">
+    <button class="painel-head" type="button"><span class="painel-icone">♛</span><span>Gerente</span></button>
     <div id="dockGerente" class="painel-corpo chat"></div>
     <div class="chat-input">
       <input id="chatMsg" type="text" placeholder="Falar com a equipe…" maxlength="400">
       <button id="chatEnviar">Enviar</button>
     </div>
   </section>
-  <section class="painel">
-    <div class="painel-head"><span>📋 Tarefas em andamento</span></div>
+  <section class="painel" data-dock="tarefas">
+    <button class="painel-head" type="button"><span class="painel-icone">▤</span><span>Produção</span></button>
     <div id="dockTarefas" class="painel-corpo lista"></div>
   </section>
-  <section class="painel">
-    <div class="painel-head"><span>📈 Atividades recentes</span></div>
+  <section class="painel" data-dock="produtos">
+    <button class="painel-head" type="button"><span class="painel-icone">◆</span><span>Produtos</span></button>
+    <div id="dockProdutos" class="painel-corpo lista"></div>
+  </section>
+  <section class="painel" data-dock="log">
+    <button class="painel-head" type="button"><span class="painel-icone">◷</span><span>Atividade</span></button>
     <div id="dockLog" class="painel-corpo lista"></div>
   </section>
 </footer>
+
+<div class="orientation-hint" aria-hidden="true">
+  <span class="rotate-phone">▯</span>
+  <b>Gire o celular</b>
+  <small>O escritório foi feito para jogar na horizontal.</small>
+</div>
 
 <div id="modal" class="modal oculto">
   <div class="modal-caixa" id="modalCaixa"></div>
