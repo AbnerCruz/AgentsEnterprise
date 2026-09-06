@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0B0D0F">
+<meta name="description" content="Estúdio: agentes de IA fundam e operam uma empresa de verdade, em um escritório 2D top-down.">
+<title>Estúdio</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230E1113'/><path d='M9 22V10h7a4 4 0 0 1 0 8h-4l5 4' stroke='%23E4703E' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<link rel="stylesheet" href="game.css">
+</head>
+<body>
+
+<header id="hud" class="hud">
+  <div class="hud-marca">
+    <span class="hud-logo" id="hudLogo">E</span>
+    <div>
+      <b id="hudNome">Estúdio</b>
+      <small id="hudRamo">carregando…</small>
+    </div>
+  </div>
+  <div class="hud-stats" id="hudStats"></div>
+  <div class="hud-acoes">
+    <button id="btnMenu" class="hud-icone" title="Painéis / exportar (versão clássica)">☰</button>
+    <button id="btnEconomia" class="hud-icone" title="Economia da empresa">$</button>
+    <button id="btnConfig" class="hud-icone" title="Motor de IA">⚙</button>
+  </div>
+</header>
+
+<main class="mundo">
+  <div class="chao-wrap">
+    <canvas id="floor"></canvas>
+    <div id="vazio" class="vazio oculto">
+      <div class="vazio-card">
+        <h1>Nenhuma empresa fundada</h1>
+        <p>Diga o que você quer construir. A gerente decide identidade, plano de negócio, primeiro produto e monta a equipe.</p>
+        <button id="btnFundar" class="botao">Fundar empresa</button>
+      </div>
+    </div>
+  </div>
+  <aside id="rail" class="rail">
+    <div class="rail-card">
+      <b id="railNome">—</b>
+      <p id="railPosicionamento" class="rail-sub">—</p>
+    </div>
+    <div class="rail-card">
+      <span class="rail-rotulo">Missão</span>
+      <p id="railMissao">—</p>
+    </div>
+    <div class="rail-card">
+      <span class="rail-rotulo">Fundação</span>
+      <p id="railFundacao">—</p>
+    </div>
+    <div class="rail-card">
+      <span class="rail-rotulo">Primeiro produto</span>
+      <p id="railProduto">—</p>
+    </div>
+  </aside>
+</main>
+
+<footer class="dock">
+  <section class="painel">
+    <div class="painel-head"><span>👑 Gerente</span></div>
+    <div id="dockGerente" class="painel-corpo chat"></div>
+    <div class="chat-input">
+      <input id="chatMsg" type="text" placeholder="Falar com a equipe…" maxlength="400">
+      <button id="chatEnviar">Enviar</button>
+    </div>
+  </section>
+  <section class="painel">
+    <div class="painel-head"><span>📋 Tarefas em andamento</span></div>
+    <div id="dockTarefas" class="painel-corpo lista"></div>
+  </section>
+  <section class="painel">
+    <div class="painel-head"><span>📈 Atividades recentes</span></div>
+    <div id="dockLog" class="painel-corpo lista"></div>
+  </section>
+</footer>
+
+<div id="modal" class="modal oculto">
+  <div class="modal-caixa" id="modalCaixa"></div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<script src="./core.js"></script>
+<script src="./ai.js"></script>
+<script src="./factory.js"></script>
+<script src="./assets.js"></script>
+<script src="./agency.js"></script>
+<script src="./studio.js"></script>
+<script src="./game-ui.js"></script>
+</body>
+</html>
