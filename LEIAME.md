@@ -1,4 +1,22 @@
-# Estúdio — v53
+# Estúdio — v55
+
+## Operação atual
+
+- Configure uma única IA global — chave de API, Management Key e modelos — antes de fundar empresas.
+- Cada empresa mantém caixa próprio. A alocação pode ser manual ou dividida igualmente; a soma de todos os caixas nunca supera o saldo real do OpenRouter.
+- O único objetivo autônomo é materializar produtos reais que o dono possa baixar, vender ou distribuir. Estratégia e documentos internos só existem para apoiar esse resultado.
+- O trabalho não depende mais de esperas arbitrárias: a existência de tarefa, entrega pendente ou fila vazia determina a próxima ação. Apenas limites reais do provedor mantêm tempo de espera.
+- O fluxo de entrega verificado é `tarefa → esboço → protótipo → candidato → produto imutável → download/ZIP → identificação de venda`.
+- Execute a verificação automatizada com `node tests/flow-smoke.test.js`.
+
+## Acervo soberano do usuário
+
+- O acervo é global e pertence ao usuário, não a uma empresa. Ele pode ser montado antes da fundação com arquivos do dispositivo.
+- Somente o usuário pode editar ou apagar uma referência. Os agentes recebem cópias de leitura das referências vinculadas ao projeto e são instruídos a não contradizê-las.
+- Cada projeto possui resumo, requisitos, público, riscos, atividade, tarefas, produtos e vínculos próprios com o acervo.
+- Produtos finais podem ser enviados ao acervo e então servir de base máxima ou inspiração para projetos futuros.
+- Se a equipe considerar necessária uma mudança, a gerente entrega uma solicitação especial na sala de reuniões. O usuário escolhe entre editar sozinho, recusar ou autorizar uma branch.
+- A branch nunca muda o original: abre um novo projeto, herda a referência imutável e percorre o pipeline completo até um produto final independente.
 
 ## Economia lastreada no OpenRouter
 - Cada empresa possui um **caixa em USD** separado dos créditos internos de decoração/vida.
@@ -55,9 +73,8 @@ A sala de reuniões também respeita a autoridade do dono: ordens explícitas ch
 - A gerente contrata, demite e planeja de verdade: essas decisões alteram o
   quadro de pessoal e o plano, em vez de morrerem na deliberação.
 
-- Uma falha de IA na fundação espera 60s antes de tentar de novo, então não há
-  mais sequência de chamadas pagas sem resultado.
-- Teste sem navegador: `node teste/fundacao.test.js`.
+- Uma falha de IA na fundação não cria repetição paga por cronômetro; a tentativa é controlada por estado da sessão e pode ser retomada explicitamente.
+- Teste sem navegador: `node tests/flow-smoke.test.js`.
 
 # Estúdio — v48
 

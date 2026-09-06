@@ -51,7 +51,8 @@
   const cfg = Object.assign(
     { provedor: 'openrouter', roteamento: 'manual', tier: 'paid', providerSelecionadoEm: 0,
       pensamento: 'openai/gpt-oss-20b', producao: 'openai/gpt-oss-120b', imagem: 'google/gemini-2.5-flash-image',
-      orcamentoUSD: 3, periodoDias: 30, modoOrcamento: 'normal', margemSegurancaUSD: 0 },
+      orcamentoUSD: 3, periodoDias: 30, modoOrcamento: 'normal', margemSegurancaUSD: 0,
+      distribuicaoCaixa:'manual', openRouterTotalCreditos:null },
     S.local.json(K_CFG, {})
   );
   cfg.provedor = 'openrouter';
@@ -67,6 +68,7 @@
   cfg.orcamentoUSD = Math.max(0.10, Math.min(1000, Number(cfg.orcamentoUSD) || 3));
   cfg.periodoDias = 30;
   cfg.modoOrcamento = cfg.modoOrcamento === 'intensivo' ? 'intensivo' : 'normal';
+  cfg.distribuicaoCaixa = cfg.distribuicaoCaixa === 'igual' ? 'igual' : 'manual';
   cfg.margemSegurancaUSD = 0;
   delete cfg.decisao; delete cfg.revisao; delete cfg.maestro;
   delete cfg.limiteTokensDia; delete cfg.limiteDiarioUSD; delete cfg.diarioAutomatico;
@@ -248,7 +250,10 @@
       o.totalUsoConta=usado;
       o.saldoConta=(total!==null && usado!==null) ? Math.max(0,total-usado) : null;
       o.ultimoSyncCreditos=Date.now();
-      if(S.economia && S.economia.reconciliarFornecedor) S.economia.reconciliarFornecedor(total,usado,o.saldoConta);
+      const anterior=numeroOpcional(cfg.openRouterTotalCreditos);
+      const delta=(total!==null&&anterior!==null)?Math.max(0,total-anterior):0;
+      if(total!==null){cfg.openRouterTotalCreditos=total;S.local.setJson(K_CFG,cfg);}
+      if(S.economia && S.economia.reconciliarFornecedor) S.economia.reconciliarFornecedor(total,usado,o.saldoConta,delta,cfg.distribuicaoCaixa);
       o.erroCreditos=null;
       if(o.saldoConta!==null && o.saldoConta<=0) o.status='esgotado';
       else if(o.saldoConta!==null) o.status='disponivel';
@@ -358,7 +363,12 @@
 
   function registrarChamada(reg) {
     estado.chamadas.unshift(reg);
-    if (estado.chamadas.length > 24) estado.chamadas.pop();
+    if (estado.chamadas.length > 100) estado.chamadas.pop();
+    const empresa=S.state&&S.state.atual&&S.state.atual();
+    if(empresa&&reg.ok){const f=(empresa.equipe||[]).find(x=>x.nome===reg.quem||x.id===reg.quem);if(f){f.uso=f.uso||{};f.uso.chamadas=Number(f.uso.chamadas||0)+1;f.uso.tokens=Number(f.uso.tokens||0)+Number(reg.tokens||0);f.uso.entrada=Number(f.uso.entrada||0)+Number(reg.entrada||0);f.uso.saida=Number(f.uso.saida||0)+Number(reg.saida||0);f.uso.ms=Number(f.uso.ms||0)+Number(reg.ms||0);}}
+    if(S.state&&S.state.atual&&S.state.atual()&&S.state.registrar){
+      S.state.registrar(`IA ${reg.ok?'concluiu':'falhou'} · ${reg.quem||'agente'} · ${reg.motivo||'chamada'} · ${reg.modelo||'modelo'} · ${Number(reg.tokens||0)} tokens (${Number(reg.entrada||0)} entrada/${Number(reg.saida||0)} saída) · US$ ${Number(reg.custo||0).toFixed(5)} · ${S.fmt.dur(reg.ms||0)}${reg.erro?' · '+String(reg.erro).slice(0,180):''}`,reg.ok?'ia':'erro');
+    }
     S.bus.emit('ia');
   }
 
@@ -498,7 +508,9 @@
       }
 
       estado.falhas=0; estado.orcamentoPreventivo=false; l.falhas=0; l.bloqueadaAte=0; sp.status='disponivel';
-      registrarChamada({quem:agente||agenteId,motivo:motivo||tipo,modelo,provedor:provedorUsado,ms,ok:true,tokens:(dados.usage||{}).total_tokens||0,em:Date.now()});
+      registrarChamada({quem:agente||agenteId,motivo:motivo||tipo,modelo,provedor:provedorUsado,ms,ok:true,
+        entrada:Number((dados.usage||{}).prompt_tokens||0),saida:Number((dados.usage||{}).completion_tokens||0),
+        tokens:Number((dados.usage||{}).total_tokens||0),custo:numeroOpcional((dados.usage||{}).cost)||estimarCusto(provedorUsado,modelo,(dados.usage||{}).prompt_tokens,(dados.usage||{}).completion_tokens),em:Date.now()});
       situar('pronta','IA pronta',`última resposta em ${(ms/1000).toFixed(1)}s`);
       return {texto,usage:dados.usage||{},ms,modelo};
     }catch(err){
@@ -604,8 +616,9 @@
     const mudouConta = k !== openRouterManagementKey;
     openRouterManagementKey=k;
     if(mudouConta){
-      const e=S.state&&S.state.atual&&S.state.atual();
-      if(e&&e.economia&&e.economia.provedor){ e.economia.provedor.totalCreditos=null; e.economia.provedor.totalUso=null; e.economia.provedor.saldo=null; e.economia.provedor.ultimoSync=0; S.state.gravar(); }
+      cfg.openRouterTotalCreditos=null;S.local.setJson(K_CFG,cfg);
+      ((S.DB&&S.DB.estudios)||[]).forEach(e=>{if(e&&e.economia&&e.economia.provedor){e.economia.provedor.totalCreditos=null;e.economia.provedor.totalUso=null;e.economia.provedor.saldo=null;e.economia.provedor.ultimoSync=0;}});
+      if(S.state&&S.state.gravar)S.state.gravar();
     }
     if(k) S.local.set(K_OR_MGMT,k); else S.local.del(K_OR_MGMT);
     if(openRouterCreditsTimer) { clearInterval(openRouterCreditsTimer); openRouterCreditsTimer=null; }
@@ -644,6 +657,17 @@
     situar(chave() ? 'pronta' : 'off', chave() ? 'IA pronta' : 'IA desligada', chave() ? 'configuração salva · OpenRouter' : 'sem chave');
   }
 
+  function salvarDistribuicaoCaixa(modo){
+    cfg.distribuicaoCaixa=modo==='igual'?'igual':'manual';
+    S.local.setJson(K_CFG,cfg);
+    const saldo=saldoOpenRouterDisponivel();
+    if(cfg.distribuicaoCaixa==='igual'&&Number.isFinite(saldo)&&S.economia&&S.economia.distribuirIgualmente)S.economia.distribuirIgualmente(saldo,'Distribuição automática global ativada');
+    return cfg.distribuicaoCaixa;
+  }
+  function configuracaoCompleta(){
+    return Boolean(chave()&&openRouterManagementKey&&MODELOS_OPENROUTER.some(m=>m.id===cfg.pensamento)&&MODELOS_OPENROUTER.some(m=>m.id===cfg.producao));
+  }
+
   function orcamento() {
     renovarPeriodoSeNecessario();
     const q=usoHoje(), h=q.headers;
@@ -658,7 +682,7 @@
     const ritmo=diasEco>0?restante/diasEco:0;
     const diario=limiteDiarioCalculado();
     const gastoDia=custoDoDia();
-    return {requisicoes:q.requisicoes,tokens:q.tokens,entrada:q.entrada,saida:q.saida,pctReq,fonte:(temTok||temReq)?cfg.provedor:'aguardando headers',provedor:cfg.provedor,ref:null,headers:h,porModelo:q.porModelo,custo:gastoDia,custoDiaUSD:gastoDia,limiteDiarioUSD:diario,restanteDiaUSD:Math.max(0,diario-gastoDia),modoOrcamento:cfg.modoOrcamento,custoPeriodo:custoPeriodo(),orcamentoUSD:eco?Number(eco.caixaUSD)||0:Number(periodo.limiteUSD)||0,margemUSD:0,restanteUSD:restante,diasRestantes:diasEco,ritmoDiarioUSD:ritmo,periodoInicio:(S.state.atual()&&S.state.atual().economia&&S.state.atual().economia.cicloInicio)||periodo.inicio,periodoFim:((S.state.atual()&&S.state.atual().economia&&S.state.atual().economia.cicloInicio)||periodo.inicio)+30*86400000,esgotado:orcamentoEsgotado(),esgotadoDia:(cfg.modoOrcamento !== 'intensivo' && orcamentoDiarioEsgotado()),tier:'paid',roteamento:'manual',openrouterSaldo:stateProvedor('openrouter').saldoConta,openrouterLimiteChave:stateProvedor('openrouter').limiteRestante,openrouterSaldoEfetivo:saldoOpenRouterDisponivel(),openrouterManagementConfigured:Boolean(openRouterManagementKey),openrouterSync:stateProvedor('openrouter').ultimoSyncCreditos,receitaUSD:eco?eco.receitaUSD:0,receitaNaoIdentificadaUSD:eco?eco.receitaNaoIdentificadaUSD:0};
+    return {requisicoes:q.requisicoes,tokens:q.tokens,entrada:q.entrada,saida:q.saida,pctReq,fonte:(temTok||temReq)?cfg.provedor:'aguardando headers',provedor:cfg.provedor,ref:null,headers:h,porModelo:q.porModelo,custo:gastoDia,custoDiaUSD:gastoDia,limiteDiarioUSD:diario,restanteDiaUSD:Math.max(0,diario-gastoDia),modoOrcamento:cfg.modoOrcamento,custoPeriodo:custoPeriodo(),orcamentoUSD:eco?Number(eco.caixaUSD)||0:Number(periodo.limiteUSD)||0,margemUSD:0,restanteUSD:restante,diasRestantes:diasEco,ritmoDiarioUSD:ritmo,periodoInicio:(S.state.atual()&&S.state.atual().economia&&S.state.atual().economia.cicloInicio)||periodo.inicio,periodoFim:((S.state.atual()&&S.state.atual().economia&&S.state.atual().economia.cicloInicio)||periodo.inicio)+30*86400000,esgotado:orcamentoEsgotado(),esgotadoDia:(cfg.modoOrcamento !== 'intensivo' && orcamentoDiarioEsgotado()),tier:'paid',roteamento:'manual',openrouterSaldo:stateProvedor('openrouter').saldoConta,openrouterLimiteChave:stateProvedor('openrouter').limiteRestante,openrouterSaldoEfetivo:saldoOpenRouterDisponivel(),openrouterManagementConfigured:Boolean(openRouterManagementKey),openrouterSync:stateProvedor('openrouter').ultimoSyncCreditos,receitaUSD:eco?eco.receitaUSD:0,receitaNaoIdentificadaUSD:eco?eco.receitaNaoIdentificadaUSD:0,distribuicaoCaixa:cfg.distribuicaoCaixa,chamadas:estado.chamadas.slice()};
   }
 
   S.ai = {
@@ -673,7 +697,7 @@
       cfg.producao = lista.some(m=>m.id===cfg.producao) ? cfg.producao : (lista[1]||lista[0]).id;
       S.local.setJson(K_CFG,cfg); estado.bloqueadaAte=0; estado.falhas=0;
       situar(chave()?'pronta':'off',chave()?'IA pronta':'IA desligada',chave()?'usando OpenRouter':'informe a chave do OpenRouter');
-    },    provedorAtual: () => cfg.provedor, cfg, estado, chamar, gerarImagem, deliberar, perguntar, campos, corpo, testar, salvarCfg, salvarChaves, salvarChaveGerenciamentoOpenRouter,
+    },    provedorAtual: () => cfg.provedor, cfg, estado, chamar, gerarImagem, deliberar, perguntar, campos, corpo, testar, salvarCfg, salvarChaves, salvarChaveGerenciamentoOpenRouter, salvarDistribuicaoCaixa, configuracaoCompleta,
     orcamento, pronta, disponivel, PRECOS_POR_PROVEDOR, orcamentoEsgotado, orcamentoDiarioEsgotado, orcamentoIndisponivel, restanteUSD, restanteDiaUSD, custoPeriodo, custoDoDia,
     sincronizarFornecedor: sincronizarOpenRouter, sincronizarCreditosOpenRouter: sincronizarOpenRouterCreditos,
     statusFornecedores: () => ({ openrouter: stateProvedor('openrouter'), roteamento: 'manual', openrouterSaldo: saldoOpenRouterDisponivel(), openrouterManagementConfigured: Boolean(openRouterManagementKey) }),

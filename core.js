@@ -88,8 +88,17 @@ window.S = window.S || {};
     return { nivel: n, base, topo, pct: clamp(((xp - base) / (topo - base)) * 100, 0, 100), falta: Math.max(0, topo - xp) };
   }
 
-  const DB = { estudios: [], atual: null, versao: 3 };
+  const DB = { estudios: [], atual: null, versao: 4, acervoUsuario: [] };
   S.DB = DB;
+
+  function normalizarItemAcervo(a){
+    if(!a||typeof a!=='object')return null;
+    const nome=String(a.nome||'').replace(/[\x00-\x1f]/g,'').trim();if(!nome)return null;
+    return {id:String(a.id||uid('ref')),nome:nome.slice(0,180),tipo:String(a.tipo||'txt').replace(/^\./,'').toLowerCase().slice(0,16),conteudo:String(a.conteudo||''),
+      tamanho:Math.max(0,Number(a.tamanho)||String(a.conteudo||'').length),criadoEm:Number(a.criadoEm)||Date.now(),atualizadoEm:Number(a.atualizadoEm)||Number(a.criadoEm)||Date.now(),
+      origem:String(a.origem||'dispositivo'),produtoOrigemId:a.produtoOrigemId||null,empresaOrigemId:a.empresaOrigemId||null,projetoOrigemId:a.projetoOrigemId||null,
+      descricao:String(a.descricao||'').slice(0,1200),imutavelParaAgentes:true,versao:Math.max(1,Number(a.versao)||1)};
+  }
 
   function normalizarEstudio(e) {
     if (!e || typeof e !== 'object') return null;
@@ -212,6 +221,13 @@ window.S = window.S || {};
       pr.tarefaIds = Array.isArray(pr.tarefaIds) ? pr.tarefaIds : [];
       pr.arquivoIds = Array.isArray(pr.arquivoIds) ? pr.arquivoIds : [];
       pr.atividade = Array.isArray(pr.atividade) ? pr.atividade.slice(-40) : [];
+      pr.acervoIds = Array.isArray(pr.acervoIds) ? [...new Set(pr.acervoIds.map(String))] : [];
+      pr.dados = pr.dados && typeof pr.dados==='object' ? pr.dados : {};
+      pr.dados.resumo=String(pr.dados.resumo||pr.objetivo||'').slice(0,1200);
+      pr.dados.requisitos=String(pr.dados.requisitos||'').slice(0,3000);
+      pr.dados.publico=String(pr.dados.publico||e.publico||'').slice(0,500);
+      pr.dados.riscos=String(pr.dados.riscos||'').slice(0,1600);
+      pr.dados.atualizadoEm=Number(pr.dados.atualizadoEm)||pr.criadoEm||Date.now();
     });
     e.site = e.site && typeof e.site === 'object' ? e.site : {};
     e.site.projetoId = e.site.projetoId || (e.projetos[0] && e.projetos[0].id) || null;
@@ -230,6 +246,7 @@ window.S = window.S || {};
       // template de produto. Preservamos o kit novo quando conhecido.
       t.kit = ['autonomo','texto','visual','pagina','dados','comercial'].includes(t.kit) ? t.kit : 'autonomo';
       t.dependsOn = Array.isArray(t.dependsOn) ? t.dependsOn : [];
+      t.acervoBaseIds=Array.isArray(t.acervoBaseIds)?[...new Set(t.acervoBaseIds.map(String))]:[];
       t.handoff = t.handoff || null;
       const tt=String((t.titulo||'')+' '+(t.briefing||'')).toLowerCase();
       const interno=/plano de neg[oó]cio|roadmap|relat[oó]rio|auditoria|checklist|briefing|pesquisa|m[eé]trica|aprova[cç][aã]o|ata|planejamento|documenta[cç][aã]o interna/.test(tt);
@@ -299,7 +316,17 @@ window.S = window.S || {};
     e.reuniao.relatorios = Array.isArray(e.reuniao.relatorios) ? e.reuniao.relatorios.slice(-20) : [];
     e.reuniao.reunioes = Array.isArray(e.reuniao.reunioes) ? e.reuniao.reunioes.slice(-30) : [];
     e.diretrizesDono = Array.isArray(e.diretrizesDono) ? e.diretrizesDono.slice(-40) : [];
-    e.log = Array.isArray(e.log) ? e.log.slice(-160) : [];
+    e.solicitacoesAcervo=Array.isArray(e.solicitacoesAcervo)?e.solicitacoesAcervo.slice(-120):[];
+    e.log = Array.isArray(e.log) ? e.log.slice(-500) : [];
+    // Nenhuma execução assíncrona sobrevive a um fechamento da página. Estados
+    // transitórios persistidos precisam voltar à fila; caso contrário uma tarefa
+    // "fazendo" ou uma reunião interrompida congelam a empresa para sempre.
+    let recuperadas=0;
+    e.tarefas.forEach(t=>{delete t.proximaTentativa;delete t._agenteEmExecucao;if(t.status==='fazendo'){t.status='aberta';recuperadas++;}});
+    e.arquivos.forEach(a=>{delete a.proximaAvaliacao;});
+    if(e.reuniao.reuniaoAtiva){delete e.reuniao.reuniaoAtiva;e.reuniao.mensagens.push({id:uid('m'),t:Date.now(),quem:'Sistema',texto:'Reunião interrompida pelo fechamento do jogo foi encerrada; o trabalho voltou à fila.',tipo:'recuperacao'});e.reuniao.mensagens=e.reuniao.mensagens.slice(-180);recuperadas++;}
+    if(recuperadas)e.log.push({t:Date.now(),texto:`Recuperação de sessão: ${recuperadas} estado(s) transitório(s) voltaram ao fluxo operacional.`,tag:'recuperacao',agente:null});
+    if(e.log.length>500)e.log.splice(0,e.log.length-500);
     e.uso = e.uso || { chamadas: 0, tokens: 0, entrada: 0, saida: 0, ms: 0 };
     return e;
   }
@@ -309,6 +336,7 @@ window.S = window.S || {};
     if (bruto && Array.isArray(bruto.estudios)) {
       DB.estudios = bruto.estudios.map(normalizarEstudio).filter(Boolean);
       DB.atual = bruto.atual || (DB.estudios[0] && DB.estudios[0].id) || null;
+      DB.acervoUsuario=Array.isArray(bruto.acervoUsuario)?bruto.acervoUsuario.map(normalizarItemAcervo).filter(Boolean):[];
     } else {
       migrarV1();
     }
@@ -377,7 +405,7 @@ window.S = window.S || {};
     timerGravacao = setTimeout(() => { timerGravacao = null; gravarJa(); }, 700);
   }
   function gravarJa() {
-    const ok = gravarLocal(CHAVE, { versao: 2, atual: DB.atual, estudios: DB.estudios });
+    const ok = gravarLocal(CHAVE, { versao: 4, atual: DB.atual, estudios: DB.estudios, acervoUsuario:DB.acervoUsuario });
     if (!ok) S.bus.emit('storage-falhou');
     return ok;
   }
@@ -387,7 +415,7 @@ window.S = window.S || {};
   function registrar(texto, tag, agenteId) {
     const e = atual(); if (!e) return;
     e.log.push({ t: Date.now(), texto: String(texto), tag: tag || 'info', agente: agenteId || null });
-    if (e.log.length > 160) e.log.splice(0, e.log.length - 160);
+    if (e.log.length > 500) e.log.splice(0, e.log.length - 500);
     S.bus.emit('log');
     gravar();
   }
@@ -446,6 +474,14 @@ window.S = window.S || {};
     if(mudou) gravar();
   }
   function caixaDisponivel(e){ return Math.max(0,Number(e&&e.economia&&e.economia.caixaUSD)||0); }
+  function totalCaixas(excluirId){
+    return DB.estudios.reduce((n,x)=>n+(x.id===excluirId?0:caixaDisponivel(x)),0);
+  }
+  function saldoNaoAlocado(saldoProvedor,excluirId){
+    if(saldoProvedor===null||saldoProvedor===undefined||saldoProvedor==='')return null;
+    const saldo=Number(saldoProvedor);
+    return Number.isFinite(saldo)?Math.max(0,saldo-totalCaixas(excluirId)):null;
+  }
   function debitarIA(valor,meta){
     const e=atual(); if(!e) return;
     const v=Math.max(0,Number(valor)||0); if(!v)return;
@@ -458,40 +494,61 @@ window.S = window.S || {};
   }
   function definirCaixa(valor,saldoProvedor){
     const e=atual(); if(!e) throw new Error('Nenhuma empresa selecionada.');
+    if(saldoProvedor===null||saldoProvedor===undefined||saldoProvedor==='')throw new Error('Sincronize o saldo do OpenRouter com a Management Key antes de definir o caixa.');
     const v=Math.max(0,Number(valor)||0), saldo=Number(saldoProvedor);
     if(!Number.isFinite(saldo)) throw new Error('Sincronize o saldo do OpenRouter com a Management Key antes de definir o caixa.');
-    if(v>saldo+1e-6) throw new Error(`O caixa não pode exceder o saldo real do provedor (US$ ${saldo.toFixed(4)}).`);
+    const livre=saldoNaoAlocado(saldo,e.id);
+    if(v>livre+1e-6) throw new Error(`Só há US$ ${livre.toFixed(4)} não alocados. A soma dos caixas nunca pode exceder o saldo real do OpenRouter.`);
     const antes=caixaDisponivel(e);
     e.economia.caixaUSD=v;
     if(!e.economia.caixaInicialUSD) e.economia.caixaInicialUSD=v;
     registrarMovimento(e,'ajuste_caixa',v-antes,'Caixa definido pelo jogador',{saldoProvedorUSD:saldo});
     gravar(); S.bus.emit('economia'); return v;
   }
-  function reconciliarFornecedor(totalCreditos,totalUso,saldo){
+  function distribuirIgualmente(saldoProvedor,motivo){
+    if(saldoProvedor===null||saldoProvedor===undefined||saldoProvedor==='')throw new Error('Sincronize o saldo do OpenRouter antes de distribuir o caixa.');
+    const saldo=Math.max(0,Number(saldoProvedor));
+    if(!Number.isFinite(saldo)) throw new Error('Sincronize o saldo do OpenRouter antes de distribuir o caixa.');
+    if(!DB.estudios.length) return 0;
+    const cota=saldo/DB.estudios.length;
+    DB.estudios.forEach(x=>{
+      const antes=caixaDisponivel(x);
+      x.economia.caixaUSD=cota;
+      if(!x.economia.caixaInicialUSD)x.economia.caixaInicialUSD=cota;
+      if(Math.abs(cota-antes)<=0.000001)return;
+      registrarMovimento(x,'distribuicao_caixa',cota-antes,motivo||'Saldo OpenRouter distribuído igualmente entre as empresas',{saldoProvedorUSD:saldo,empresas:DB.estudios.length});
+      x.log.push({t:Date.now(),texto:`Caixa global redistribuído: US$ ${cota.toFixed(4)} para esta empresa (${DB.estudios.length} empresa(s)).`,tag:'economia',agente:null});
+      if(x.log.length>500)x.log.splice(0,x.log.length-500);
+    });
+    gravar();S.bus.emit('economia');S.bus.emit('log');return cota;
+  }
+  function reconciliarLastroGlobal(saldoProvedor){
+    const saldo=Number(saldoProvedor),total=totalCaixas();
+    if(!Number.isFinite(saldo)||total<=saldo+0.000001||total<=0)return false;
+    const fator=Math.max(0,saldo)/total;
+    DB.estudios.forEach(x=>{const antes=caixaDisponivel(x),depois=antes*fator;x.economia.caixaUSD=depois;registrarMovimento(x,'ajuste_lastro',depois-antes,'Caixa ajustado proporcionalmente ao saldo global real',{saldoProvedorUSD:saldo,totalAlocadoAntesUSD:total});x.log.push({t:Date.now(),texto:`Lastro global reconciliado: caixa ajustado de US$ ${antes.toFixed(4)} para US$ ${depois.toFixed(4)}.`,tag:'economia',agente:null});if(x.log.length>500)x.log.splice(0,x.log.length-500);});
+    gravar();S.bus.emit('economia');S.bus.emit('log');return true;
+  }
+  function reconciliarFornecedor(totalCreditos,totalUso,saldo,deltaGlobal,modoDistribuicao){
     const e=atual(); if(!e || !e.economia) return {novaReceitaUSD:0};
     const p=e.economia.provedor||(e.economia.provedor={});
     const tc=Number(totalCreditos), tu=Number(totalUso), sa=Number(saldo);
-    let nova=0;
-    if(Number.isFinite(tc) && p.totalCreditos!=null && Number.isFinite(Number(p.totalCreditos))){
-      const delta=tc-Number(p.totalCreditos);
-      if(delta>0.000001){
-        nova=delta;
-        e.economia.caixaUSD=caixaDisponivel(e)+delta;
-        e.economia.receitaUSD=(Number(e.economia.receitaUSD)||0)+delta;
-        e.economia.receitaNaoIdentificadaUSD=(Number(e.economia.receitaNaoIdentificadaUSD)||0)+delta;
-        registrarMovimento(e,'receita_detectada',delta,'Crédito novo detectado no OpenRouter — venda ainda não identificada',{totalCreditosOpenRouter:tc});
-        registrar(`Economia: entrada de US$ ${delta.toFixed(4)} detectada no OpenRouter e adicionada ao caixa como venda a identificar.`,'ok');
+    const nova=Math.max(0,Number(deltaGlobal)||0);
+    if(nova>0.000001){
+      if(modoDistribuicao!=='igual'){
+        e.economia.caixaUSD=caixaDisponivel(e)+nova;
+        e.economia.receitaUSD=(Number(e.economia.receitaUSD)||0)+nova;
+        e.economia.receitaNaoIdentificadaUSD=(Number(e.economia.receitaNaoIdentificadaUSD)||0)+nova;
+        registrarMovimento(e,'receita_detectada',nova,'Crédito novo detectado no OpenRouter — venda ainda não identificada',{totalCreditosOpenRouter:tc});
+        registrar(`Economia: entrada de US$ ${nova.toFixed(4)} detectada no OpenRouter e adicionada ao caixa como venda a identificar.`,'ok');
+      }else{
+        e.economia.receitaUSD=(Number(e.economia.receitaUSD)||0)+nova;
+        e.economia.receitaNaoIdentificadaUSD=(Number(e.economia.receitaNaoIdentificadaUSD)||0)+nova;
       }
     }
-    if(Number.isFinite(sa) && caixaDisponivel(e)>sa+0.000001){
-      const ajuste=caixaDisponivel(e)-sa;
-      e.economia.caixaUSD=Math.max(0,sa);
-      registrarMovimento(e,'ajuste_lastro',-ajuste,'Caixa ajustado ao saldo real do provedor (consumo externo ou outra chave).',{saldoProvedorUSD:sa});
-    }
-    if(Number.isFinite(tc))p.totalCreditos=tc;
-    if(Number.isFinite(tu))p.totalUso=tu;
-    if(Number.isFinite(sa))p.saldo=sa;
-    p.ultimoSync=Date.now();
+    if(modoDistribuicao==='igual'&&Number.isFinite(sa))distribuirIgualmente(sa,nova?'Novo crédito detectado; redistribuição automática global':'Reconciliação automática com o saldo real');
+    if(modoDistribuicao!=='igual'&&Number.isFinite(sa))reconciliarLastroGlobal(sa);
+    DB.estudios.forEach(x=>{const px=x.economia.provedor||(x.economia.provedor={});if(Number.isFinite(tc))px.totalCreditos=tc;if(Number.isFinite(tu))px.totalUso=tu;if(Number.isFinite(sa))px.saldo=sa;px.ultimoSync=Date.now();});
     gravar(); if(nova)S.bus.emit('economia');
     return {novaReceitaUSD:nova};
   }
@@ -516,7 +573,59 @@ window.S = window.S || {};
       gastoHojeUSD:Number(e.economia.dia.gastoUSD)||0,receitaNaoIdentificadaUSD:Number(e.economia.receitaNaoIdentificadaUSD)||0,
       vendas:(e.economia.vendas||[]).slice(),historico:(e.economia.historico||[]).slice(),provedor:Object.assign({},e.economia.provedor||{})};
   }
-  S.economia={resumo:resumoEconomia,caixa:()=>{const e=atual();return caixaDisponivel(e);},debitarIA,definirCaixa,reconciliarFornecedor,registrarVenda,processarFolhaInterna};
+  S.economia={resumo:resumoEconomia,caixa:()=>{const e=atual();return caixaDisponivel(e);},debitarIA,definirCaixa,distribuirIgualmente,reconciliarLastroGlobal,totalCaixas,saldoNaoAlocado,reconciliarFornecedor,registrarVenda,processarFolhaInterna};
+
+  /* ---------- acervo soberano do usuário ----------
+     Vive fora das empresas. Agentes só recebem cópias de leitura no contexto;
+     nenhuma rotina de produção possui operação de escrita neste conjunto. */
+  const TIPOS_ACERVO_TEXTO=new Set(['txt','md','markdown','html','htm','css','js','json','csv','tsv','xml','yaml','yml','svg','py','sql']);
+  function todosAcervo(){return DB.acervoUsuario.slice().sort((a,b)=>b.atualizadoEm-a.atualizadoEm);}
+  function itemAcervo(id){return DB.acervoUsuario.find(a=>a.id===id)||null;}
+  function adicionarAcervo(dados){
+    dados=dados||{};const conteudo=String(dados.conteudo||'');
+    if(!String(dados.nome||'').trim())throw new Error('O artefato precisa de nome.');
+    if(!conteudo)throw new Error('O artefato está vazio.');
+    if(conteudo.length>3500000)throw new Error('O artefato excede 3,5 MB no armazenamento local.');
+    const a=normalizarItemAcervo(Object.assign({},dados,{id:uid('ref'),criadoEm:Date.now(),atualizadoEm:Date.now(),versao:1,imutavelParaAgentes:true}));
+    DB.acervoUsuario.unshift(a);gravarJa();S.bus.emit('acervo',a);return a;
+  }
+  function atualizarAcervoPeloUsuario(id,dados){
+    const a=itemAcervo(id);if(!a)throw new Error('Artefato do acervo não encontrado.');dados=dados||{};
+    if(dados.nome!==undefined&&String(dados.nome).trim())a.nome=String(dados.nome).replace(/[\x00-\x1f]/g,'').trim().slice(0,180);
+    if(dados.descricao!==undefined)a.descricao=String(dados.descricao||'').slice(0,1200);
+    if(dados.conteudo!==undefined){const c=String(dados.conteudo||'');if(!c)throw new Error('O artefato não pode ficar vazio.');if(c.length>3500000)throw new Error('O artefato excede 3,5 MB.');a.conteudo=c;a.tamanho=c.length;}
+    a.atualizadoEm=Date.now();a.versao=Number(a.versao||1)+1;a.imutavelParaAgentes=true;gravarJa();S.bus.emit('acervo',a);return a;
+  }
+  function removerAcervo(id){
+    const a=itemAcervo(id);if(!a)return false;DB.acervoUsuario=DB.acervoUsuario.filter(x=>x.id!==id);
+    DB.estudios.forEach(e=>{(e.projetos||[]).forEach(p=>p.acervoIds=(p.acervoIds||[]).filter(x=>x!==id));(e.solicitacoesAcervo||[]).forEach(s=>{if(s.acervoId===id&&s.status==='pendente')s.status='referencia_removida';});});
+    gravarJa();S.bus.emit('acervo',a);return true;
+  }
+  function vincularAcervo(id,projectId){
+    const e=atual(),a=itemAcervo(id);if(!e||!a)throw new Error('Projeto ou artefato não encontrado.');const p=(e.projetos||[]).find(x=>x.id===projectId);if(!p)throw new Error('Projeto não encontrado.');
+    p.acervoIds=Array.isArray(p.acervoIds)?p.acervoIds:[];if(!p.acervoIds.includes(id))p.acervoIds.push(id);p.dados=p.dados||{};p.dados.atualizadoEm=Date.now();registrar(`${a.nome} foi vinculado como referência imutável de ${p.nome}.`,'acervo');gravarJa();S.bus.emit('acervo',a);return true;
+  }
+  function desvincularAcervo(id,projectId){const e=atual(),p=e&&(e.projetos||[]).find(x=>x.id===projectId);if(!p)return false;p.acervoIds=(p.acervoIds||[]).filter(x=>x!==id);gravarJa();S.bus.emit('acervo');return true;}
+  function promoverProduto(produtoId){
+    const e=atual();if(!e)throw new Error('Nenhuma empresa selecionada.');const p=(e.arquivos||[]).find(x=>x.id===produtoId&&x.classe==='produto');if(!p)throw new Error('Somente produtos finais podem entrar no acervo do usuário.');
+    const existente=DB.acervoUsuario.find(x=>x.produtoOrigemId===p.id);if(existente)return existente;
+    const a=adicionarAcervo({nome:p.nome,tipo:p.tipo,conteudo:p.conteudo,tamanho:String(p.conteudo||'').length,origem:'produto final',produtoOrigemId:p.id,empresaOrigemId:e.id,projetoOrigemId:p.projectId,descricao:`Produto final v${p.versao||1} criado por ${p.autor||'equipe'}.`});
+    if(p.projectId)vincularAcervo(a.id,p.projectId);registrar(`${p.nome} foi promovido pelo dono ao acervo soberano.`,'acervo');return a;
+  }
+  function contextoAcervo(projectId,limite){
+    const e=atual(),p=e&&(e.projetos||[]).find(x=>x.id===projectId),ids=new Set(p&&p.acervoIds||[]),max=Math.max(1200,Number(limite)||7000);let usado=0;
+    const itens=DB.acervoUsuario.filter(a=>ids.has(a.id));if(!itens.length)return 'Nenhuma referência soberana vinculada a este projeto.';
+    return itens.map(a=>{let corpo=TIPOS_ACERVO_TEXTO.has(a.tipo)?String(a.conteudo||''):'[conteúdo binário; respeite nome, tipo e descrição]';corpo=corpo.slice(0,Math.max(0,max-usado));usado+=corpo.length;return `ACERVO ${a.id} — ${a.nome} [${a.tipo}, v${a.versao}]\nDESCRIÇÃO: ${a.descricao||'não informada'}\n${corpo}`;}).filter(x=>x.length).join('\n\n').slice(0,max);
+  }
+  function solicitarMudancaAcervo(acervoId,projectId,agenteId,texto){
+    const e=atual(),a=itemAcervo(acervoId),p=e&&(e.projetos||[]).find(x=>x.id===projectId);if(!e||!a||!p||!(p.acervoIds||[]).includes(acervoId))return null;const msg=String(texto||'').trim().slice(0,1200);if(!msg)return null;
+    const duplicada=(e.solicitacoesAcervo||[]).find(s=>s.status==='pendente'&&s.acervoId===acervoId&&s.projectId===projectId&&s.texto===msg);if(duplicada)return duplicada;
+    const agente=(e.equipe||[]).find(x=>x.id===agenteId),s={id:uid('sol'),t:Date.now(),acervoId,acervoNome:a.nome,projectId,projectNome:p.nome,agenteId:agenteId||null,agente:agente&&agente.nome||'Gerente',texto:msg,status:'pendente'};
+    e.solicitacoesAcervo=e.solicitacoesAcervo||[];e.solicitacoesAcervo.push(s);e.reuniao=e.reuniao||{mensagens:[]};e.reuniao.mensagens=e.reuniao.mensagens||[];e.reuniao.mensagens.push({id:uid('m'),t:Date.now(),quem:'Gerente · solicitação especial',texto:`O acervo soberano “${a.nome}” sugere esta consideração: ${msg} O original não será alterado. Você pode editar sozinho, recusar ou autorizar uma branch de produto.`,tipo:'solicitacao_acervo',solicitacaoId:s.id});e.reuniao.mensagens=e.reuniao.mensagens.slice(-180);
+    registrar(`Solicitação especial sobre ${a.nome}: ${msg}`,'solicitacao_acervo',agenteId);gravarJa();S.bus.emit('reuniao');S.bus.emit('acervo',a);return s;
+  }
+  function atualizarProjetoDados(projectId,dados){const e=atual(),p=e&&(e.projetos||[]).find(x=>x.id===projectId);if(!p)throw new Error('Projeto não encontrado.');p.dados=Object.assign({},p.dados||{});['resumo','requisitos','publico','riscos'].forEach(k=>{if(dados&&dados[k]!==undefined)p.dados[k]=String(dados[k]||'').slice(0,k==='requisitos'?3000:1600);});p.dados.atualizadoEm=Date.now();gravarJa();S.bus.emit('projetos');return p.dados;}
+  S.acervo={todos:todosAcervo,item:itemAcervo,adicionar:adicionarAcervo,atualizarPeloUsuario:atualizarAcervoPeloUsuario,remover:removerAcervo,vincular:vincularAcervo,desvincular:desvincularAcervo,promoverProduto,contexto:contextoAcervo,solicitarMudanca:solicitarMudancaAcervo,atualizarProjetoDados};
 
   S.state = {
     PALETA, carregar, gravar, gravarJa, atual, registrar, registrarPessoa, ganharXP,

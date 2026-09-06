@@ -83,6 +83,10 @@
       <span>Entregas</span>
       <i class="nav-badge" id="badgeEntregas" hidden></i>
     </button>
+    <button class="nav-item" data-view="acervo" type="button">
+      <svg viewBox="0 0 24 24"><path d="M4 5h16v15H4zM8 3v4m8-4v4M8 11h8m-8 4h5"/></svg>
+      <span>Acervo</span>
+    </button>
     <button class="nav-item" data-view="economia" type="button">
       <svg viewBox="0 0 24 24"><path d="M4 7h16v10H4z"/><path d="M7 12h4M16 10v4"/></svg>
       <span>Economia</span>
@@ -105,13 +109,14 @@
         <h1>Um estúdio que entrega arquivos de verdade</h1>
         <p>É um ambiente de simulação: você observa uma equipe de agentes trabalhando sozinha em projetos contínuos. O que ela produz não é cenário — são páginas, textos, planilhas e marcas reais.</p>
         <div class="steps">
-          <div class="step"><b>1</b><span>Funde o estúdio e escolha o ramo.</span></div>
-          <div class="step"><b>2</b><span>Conecte sua chave do OpenRouter no Motor.</span></div>
+          <div class="step"><b>1</b><span>Configure uma única IA global no Motor.</span></div>
+          <div class="step"><b>2</b><span>Funde a empresa e defina seu caixa dedicado.</span></div>
           <div class="step"><b>3</b><span>Observe a equipe transformar trabalho em artefatos persistentes.</span></div>
         </div>
         <div class="hero-actions">
-          <button class="btn btn-primary btn-lg" id="fundarBtn" type="button">Fundar estúdio</button>
-          <button class="btn btn-ghost btn-lg" id="irMotorBtn" type="button">Conectar IA</button>
+          <button class="btn btn-primary btn-lg" id="irMotorBtn" type="button">1. Configurar IA</button>
+          <button class="btn btn-ghost btn-lg" id="fundarBtn" type="button">2. Fundar empresa</button>
+          <button class="btn btn-ghost btn-lg" id="acervoInicialBtn" type="button">Montar acervo</button>
         </div>
       </div>
     </section>
@@ -209,6 +214,19 @@
       </div>
     </section>
 
+    <!-- ACERVO SOBERANO -->
+    <section class="view" id="v-acervo">
+      <div class="panel">
+        <div class="panel-head"><span class="panel-label">Acervo soberano do usuário</span><span class="tag tag-real">SOMENTE LEITURA PARA AGENTES</span></div>
+        <p class="panel-foot">Referências globais que pertencem a você. A equipe deve respeitá-las e pode apenas sugerir mudanças pela sala de reuniões.</p>
+        <div class="field"><label for="acervoUpload">Adicionar do dispositivo</label><input id="acervoUpload" type="file" multiple></div>
+        <div class="row-actions"><button class="btn" id="voltarAcervoBtn" type="button">Voltar</button></div>
+      </div>
+      <div class="panel" id="acervoProjetoPanel"></div>
+      <div class="panel"><div class="panel-head"><span class="panel-label">Referências</span><span class="chip" id="acervoCount">0</span></div><div id="acervoList"></div></div>
+      <div class="panel" id="acervoProdutosPanel"></div>
+    </section>
+
     <!-- ECONOMIA -->
     <section class="view" id="v-economia">
       <div class="panel" id="economiaResumoPanel"></div>
@@ -267,6 +285,11 @@
           <label for="orcamentoMensalInput">Caixa da empresa para IA</label>
           <input id="orcamentoMensalInput" type="number" min="0" max="100000" step="0.01" inputmode="decimal" value="0.00">
           <p class="hint">Precisa ser menor ou igual ao saldo real sincronizado do OpenRouter. Gastos de IA reduzem este caixa; novos créditos no provedor entram como receita.</p>
+        </div>
+        <div class="field">
+          <label for="distribuicaoCaixaSel">Distribuição do saldo entre empresas</label>
+          <select id="distribuicaoCaixaSel"><option value="manual">Manual por empresa</option><option value="igual">Dividir igualmente automaticamente</option></select>
+          <p class="hint">Os modelos e chaves são globais. Somente o caixa é dedicado a cada empresa; a soma nunca ultrapassa o saldo real.</p>
         </div>
         <div class="field">
           <label>Limite diário de IA</label>

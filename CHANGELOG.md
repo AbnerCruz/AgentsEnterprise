@@ -4,6 +4,61 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v55 — fluxo produtivo contínuo, IA global e escritório vivo
+
+## Acervo soberano e projetos independentes
+
+- Criado um acervo global que pertence ao usuário e existe fora das empresas. Arquivos podem ser enviados do dispositivo, baixados, editados e apagados somente pelo proprietário.
+- Produtos finais podem ser promovidos ao acervo diretamente nas telas de produto/entrega. A promoção é idempotente e preserva origem, empresa, projeto e versão.
+- Cada projeto mantém seus próprios dados — resumo, requisitos, público e riscos — e uma lista explícita de referências do acervo. A fundação também permite selecionar referências antes de a empresa ser criada.
+- O contexto de fundação, agência, produção, revisão e conversa com a gerente recebe apenas as referências vinculadas ao projeto, marcadas como autoridade máxima e somente leitura.
+- Agentes não possuem operação de escrita no acervo. Quando identificam uma mudança desejável, criam uma solicitação especial na sala de reuniões; o usuário pode recusar, editar pessoalmente ou autorizar uma branch.
+- Autorizar uma branch preserva o original, cria um projeto independente com seu próprio acervo e dados, e abre uma tarefa cliente-visível que deve percorrer esboço → protótipo → candidato → produto final.
+- Remover uma referência também remove seus vínculos de todos os projetos e encerra solicitações pendentes que perderam a base.
+- O acervo soberano continua preservado quando as empresas são apagadas, porque pertence ao usuário e não a um estúdio específico.
+
+## Regressão de trabalho e objetivo comercial
+
+- Removidos os bloqueios artificiais de tempo da gerência, das retentativas e das revisões. A fila agora é orientada por estado: tarefas executáveis são assumidas no próximo ciclo e uma fila vazia dispara imediatamente a próxima decisão da gerente.
+- O limite real informado pelo OpenRouter continua respeitado e agora aparece com motivo e tempo restante; ele é uma restrição externa observável, não um cronômetro oculto do jogo.
+- Se a IA gerencial sugerir uma ação desconectada quando a fila estiver vazia, a invariante operacional abre uma frente cliente-visível baseada no produto atual; contratação, reunião ou decoração não substituem o objetivo comercial.
+- A fundação cria, além do documento estratégico interno, uma tarefa cliente-visível explícita para materializar o primeiro produto que o dono poderá vender ou distribuir no mundo real.
+- Decisões autônomas sem destino explícito passam a favorecer produto real. Planejamento da gerente em fila vazia precisa resultar em uma materialização concreta, não em um relatório desconectado.
+- Funcionários em pausa ou lazer são acordados quando existe trabalho compatível; o estado Sims-like deixa de impedir a execução produtiva.
+- Ao reabrir o jogo, tarefas persistidas como `fazendo` voltam para `aberta` e reuniões interrompidas são encerradas com log de recuperação; nenhum estado assíncrono órfão pode congelar a empresa.
+
+## Configuração global e caixas por empresa
+
+- Chave de API, Management Key e modelos são configurados antes da primeira empresa e valem globalmente para todas as empresas.
+- O caixa continua dedicado por empresa. No modo manual, o valor máximo já desconta tudo o que está alocado às outras empresas; a soma dos caixas não pode superar o saldo real do OpenRouter.
+- Adicionado modo automático que redistribui igualmente o saldo global entre todas as empresas na criação e nas reconciliações do provedor.
+- A linha de base de créditos do OpenRouter passou a ser global, evitando que a mesma entrada seja reconhecida como receita novamente ao trocar de empresa.
+- O modo clássico recebeu a mesma ordem de onboarding e os mesmos controles de distribuição.
+
+## Artefatos e pipeline auditados
+
+- Corrigida a perda silenciosa de artefatos antigos causada por um corte fixo de 90 itens. Entregas reais não são mais apagadas por contador.
+- Bundles multi-arquivo agora eliminam caminhos duplicados e validam cada arquivo individualmente, em vez de aplicar a validação agregada a todos.
+- Evoluções de imagens agora continuam usando o modelo visual e preservam base/linhagem entre esboço, protótipo e candidato; antes, a segunda etapa caía indevidamente no modelo de texto e não conseguia gerar bytes de imagem válidos.
+- Um artefato incompleto não é salvo parcialmente: nome, tipo e conteúdo são verificados antes de qualquer mutação do acervo.
+- Renomeações manuais removem travessia de diretórios, caracteres de controle e extensão incompatível antes de entrar em downloads ou ZIPs.
+- Falha de integridade durante o release devolve o candidato à revisão, evitando que ele fique marcado como avaliado sem gerar produto.
+- Produtos finais agora podem ser baixados diretamente pela gaveta mobile de Produtos; o download também entra no log persistente.
+- Logs de entrega passaram a registrar tarefa, projeto, base, etapa, tipo, tamanho e resultado da validação. Releases registram versão, linhagem e tamanho.
+- Adicionado teste automatizado do fluxo completo: esboço → protótipo → candidato → produto, nova versão, bloqueio de candidato inválido, bundle, retenção de acervo, divisão de caixa e ZIP real.
+
+## Informação operacional e visual
+
+- As gavetas inferiores foram ampliadas e ganharam resumos de produção, contagem por etapa, bloqueios, tentativas e até 100 eventos detalhados.
+- Nova gaveta de IA mostra chamadas, tokens de entrada/saída, custo, latência, modelo, agente, motivo, falhas e limite do provedor. Cada chamada também entra no histórico persistente da empresa.
+- A ficha individual agora exibe consumo de IA e log do personagem.
+- O escritório ganhou recepção, arquivo, showroom de produtos reais, mesas coletivas, portas, mobiliário, monitores e efeitos ambientais animados.
+- Personagens agora respiram, caminham com balanço e passos, trabalham com partículas e exibem animação de sono. O canvas atualiza a animação em cadência visual independente do motor de trabalho.
+
+## Atualização
+
+- Cache do service worker atualizado para `estudio-v55-sovereign-library`.
+
 # v54 — reconstrução visual do jogo em pixel art
 
 ## Direção visual e artes

@@ -141,6 +141,8 @@ p{margin:0;}
   stroke-linecap:round;stroke-linejoin:round;}
 .nav-item span{font-size:10px;letter-spacing:.01em;}
 .nav-item.is-on{color:var(--ember);}
+.nav{overflow-x:auto}.nav-item{min-width:52px}
+.meeting-msg.special{border:1px solid var(--gold);border-left:4px solid var(--ember);background:rgba(228,112,62,.09)}.acervo-ref{border-left:3px solid var(--gold)}.check-row{display:flex!important;align-items:center;gap:8px;text-transform:none!important}.check-row input{width:auto!important}
 .nav-badge{
   position:absolute;top:5px;right:calc(50% - 18px);
   width:6px;height:6px;border-radius:99px;background:var(--ember);

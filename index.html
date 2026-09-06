@@ -22,6 +22,7 @@
   </div>
   <div class="hud-stats" id="hudStats"></div>
   <div class="hud-acoes">
+    <button id="btnAcervo" class="hud-icone" title="Acervo soberano e projetos" aria-label="Acervo soberano e projetos">▣</button>
     <button id="btnEmpresa" class="hud-icone" title="Identidade da empresa" aria-label="Identidade da empresa">◆</button>
     <button id="btnConstruir" class="hud-icone" title="Construir no escritório" aria-label="Construir no escritório">▦</button>
     <button id="btnEconomia" class="hud-icone" title="Economia da empresa" aria-label="Economia da empresa">$</button>
@@ -38,8 +39,8 @@
     <div id="vazio" class="vazio oculto">
       <div class="vazio-card">
         <h1>Nenhuma empresa fundada</h1>
-        <p>Diga o que você quer construir. A gerente decide identidade, plano de negócio, primeiro produto e monta a equipe.</p>
-        <button id="btnFundar" class="botao">Fundar empresa</button>
+        <p>Configure uma única IA para todas as empresas. Depois, a gerente transforma sua ideia em produtos reais para vender ou distribuir.</p>
+        <button id="btnFundar" class="botao">Configurar IA e fundar</button>
       </div>
     </div>
   </div>
@@ -84,6 +85,10 @@
   <section class="painel" data-dock="log">
     <button class="painel-head" type="button"><span class="painel-icone">◷</span><span>Atividade</span></button>
     <div id="dockLog" class="painel-corpo lista"></div>
+  </section>
+  <section class="painel" data-dock="ia">
+    <button class="painel-head" type="button"><span class="painel-icone">◉</span><span>IA</span></button>
+    <div id="dockIA" class="painel-corpo lista"></div>
   </section>
 </footer>
 

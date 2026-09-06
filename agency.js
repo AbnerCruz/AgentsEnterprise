@@ -48,6 +48,8 @@
     const toksOrg=termos.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9]+/).filter(x=>x.length>3);
     const memOrg=(e.memoriaOrganizacional||[]).slice().sort((a,b)=>{const sc=m=>{const t=String(m.texto||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');return Number(m.peso||2)*2+toksOrg.slice(0,35).reduce((n,k)=>n+(t.includes(k)?1:0),0)};return sc(b)-sc(a)}).slice(0,10);
     const decisoes = (e.decisoes || []).slice(0, 8).map(d => max(d.texto,180)).join(' | ');
+    const dadosProjeto=pr&&pr.dados||{};
+    const acervoSoberano=S.acervo&&pr?S.acervo.contexto(pr.id,6000):'Nenhuma referência soberana vinculada a este projeto.';
     return {
       projeto: pr,
       texto: [
@@ -56,6 +58,8 @@
         `PLANO DE NEGÓCIO DA GERENTE: ${max(e.fundacao?.planoNegocio||'ainda não consolidado',2200)}`,
         `PLANEJAMENTO DO PRIMEIRO PRODUTO: ${max(e.fundacao?.primeiroProduto||'ainda não consolidado',2200)}`,
         `PROJETO: ${pr ? pr.nome : 'nenhum'} | objetivo: ${pr ? pr.objetivo : e.missao} | status: ${pr ? pr.status : 'sem projeto'}`,
+        `DADOS DO PROJETO: resumo=${dadosProjeto.resumo||'n/d'} | requisitos=${dadosProjeto.requisitos||'n/d'} | público=${dadosProjeto.publico||e.publico||'n/d'} | riscos=${dadosProjeto.riscos||'n/d'}`,
+        `ACERVO SOBERANO DO USUÁRIO (SOMENTE LEITURA):\n${acervoSoberano}`,
         `ARTEFATOS EXISTENTES: ${arqs.length ? arqs.map(a => `${a.id}:${a.nome}[${a.classe}, kit=${a.kit||'?'}, v${a.versao||1}]`).join('; ') : 'nenhum'}`,
         `TRABALHO ABERTO: ${tarefas.length ? tarefas.map(t => `${t.id}:${t.titulo}[${t.status}, responsável=${t.para||'livre'}, base=${t.baseArquivoId||'nenhuma'}]`).join('; ') : 'nenhum'}`,
         `CAPACIDADE DE PRODUÇÃO: criação e edição de arquivos reais; texto/código em html, md, txt, csv, tsv, json, jsonl, js, ts, tsx, jsx, css, scss, xml, yaml, svg, py, sql, sh e webmanifest; projetos multi-arquivo exportáveis em ZIP; e imagens reais quando a tarefa pedir arte visual.`,
@@ -75,7 +79,7 @@
 
   function normalizar(c, ctx) {
     const acaoRaw = String(c.acao || '').trim().toLowerCase();
-    const permitidas = ['executar_tarefa','criar_tarefa','revisar','estudar','colaborar','reuniao','planejar','construir','reorganizar','contratar','demitir','esperar'];
+    const permitidas = ['executar_tarefa','criar_tarefa','revisar','estudar','colaborar','reuniao','planejar','sugerir_acervo','construir','reorganizar','contratar','demitir','esperar'];
     let acao = permitidas.includes(acaoRaw) ? acaoRaw : 'esperar';
     const kit = String(c.kit || '').trim();
     const taskId = String(c.tarefa || '').trim();
@@ -92,6 +96,8 @@
       colega: max(c.colega || c.para, 60),
       especialidade: max(c.especialidade || c.cargo, 40),
       funcionario: max(c.funcionario || c.candidato, 1200),
+      acervoId: max(c.acervo_id || c.acervo, 120),
+      solicitacaoAcervo: max(c.solicitacao_acervo || c.sugestao_acervo, 1200),
       destino: max(c.destino, 24),
       projetoId: ctx.projeto ? ctx.projeto.id : '',
       executivo: !!(ctx && ctx.executivo),
@@ -121,7 +127,7 @@ Sua autonomia é limitada pelo propósito da empresa, pela realidade dos dados a
 
 Pense profundamente antes de decidir. Compare o valor das alternativas, observe dependências, procure oportunidades de melhorar o que já existe e considere se outra pessoa precisa ser envolvida. O resultado persistido deve ser apenas a decisão operacional, nunca seu raciocínio privado passo a passo.
 
-Ações possíveis: executar_tarefa, criar_tarefa, revisar, estudar, colaborar, reuniao, planejar, construir, reorganizar, contratar, demitir, esperar.
+Ações possíveis: executar_tarefa, criar_tarefa, revisar, estudar, colaborar, reuniao, planejar, sugerir_acervo, construir, reorganizar, contratar, demitir, esperar.
 - executar_tarefa: escolha uma tarefa aberta que realmente combine com você.
 - criar_tarefa: crie trabalho concreto que seja consequência do estado atual, preferindo evolução ou integração de algo existente.
 - revisar: examine uma entrega ou problema existente; só use se houver algo concreto para revisar.
@@ -129,6 +135,7 @@ Ações possíveis: executar_tarefa, criar_tarefa, revisar, estudar, colaborar, 
 - colaborar: procure outro membro porque existe uma dependência ou decisão que se beneficia de colaboração; indique COLEGA.
 - reuniao: convoque uma reunião quando uma decisão conjunta ou conflito realmente exigir conversa; indique COLEGA se houver alguém específico.
 - planejar: só quando houver uma decisão de escopo/ordem que realmente precise ser tomada.
+- sugerir_acervo: somente quando uma referência soberana vinculada contém um ponto específico que merece consideração do dono. Informe ACERVO_ID e SOLICITACAO_ACERVO. Isso apenas cria uma notificação; nunca autoriza edição.
 - construir: só quando uma mudança física no ambiente tiver valor para trabalho, bem-estar ou identidade da equipe; escolha um tipo simples de mobiliário.
 - reorganizar: só quando mover um objeto existente resolver um problema concreto de fluxo, colaboração ou uso do espaço.
 - contratar: somente para a gerente; use quando houver demanda/capacidade insuficiente real. Informe ESPECIALIDADE com um cargo-base e crie uma ficha individual em FUNCIONARIO. O mesmo cargo pode ter várias pessoas.
@@ -138,6 +145,7 @@ Ações possíveis: executar_tarefa, criar_tarefa, revisar, estudar, colaborar, 
 Se criar_tarefa, descreva exatamente o resultado que deve ser produzido. Não escolha um template de produto: a ferramenta de produção interpretará sua decisão. Prefira evoluir um artefato existente quando isso trouxer valor.
 REGRA DE CONTINUIDADE: você é responsável por encontrar uma próxima ação útil. Trabalho aberto, artefato incompleto, decisão pendente, dependência ou oportunidade concreta devem orientar sua escolha. Se a melhor ação for pensar, transforme esse pensamento em conversa, revisão ou trabalho persistente; não use atividade vazia como substituto de contribuição.
 REGRA DE PIPELINE: toda tarefa que produz algo destinado diretamente ao cliente deve ser marcada DESTINO=cliente. O runtime obrigará a linhagem a passar por esboço → protótipo → candidato final → produto; nunca trate um plano interno, checklist, relatório, ata ou anotação de equipe como produto publicável. Candidato final deve conter somente o conteúdo que o cliente recebe, sem notas internas ou metatexto de produção.
+REGRA DO ACERVO SOBERANO: as referências do usuário são a autoridade máxima e são imutáveis para todos os agentes. Todo trabalho deve ser coerente com elas e não pode contradizê-las. Se houver uma razão concreta para alterá-las, use sugerir_acervo; o original continuará intocado até o dono decidir editar pessoalmente ou autorizar uma branch independente.
 REGRA DE CONCRETUDE: revisar exige um artefato real; estudar exige uma lacuna concreta; esperar exige uma dependência real.
 REGRA SOCIAL: quando outra pessoa pode melhorar a decisão, converse com ela e registre a conversa; quando uma decisão precisa da autoridade da gerente, convoque reunião.
 Não invente clientes, pedidos, métricas, preços, datas, aprovações, resultados ou fatos ausentes.
@@ -159,7 +167,9 @@ ABORDAGEM: <como pretende agir, até 45 palavras>
 RISCO: <principal risco ou incerteza, até 30 palavras>
 OBJETO: <se construir, um de mesa, planta, estante, luminaria, sofa, quadro, bancada; senão vazio>
 ESPECIALIDADE: <se contratar, criacao | producao | operacoes | comercial; senão vazio>
-FUNCIONARIO: <se contratar, uma ficha curta no formato nome=...; tracos=...; comunicacao=...; prioridades=...; estilo=...; colaboracao=...; aversoes=...; experiencia=...; se demitir, o ID exato; senão vazio>`;
+FUNCIONARIO: <se contratar, uma ficha curta no formato nome=...; tracos=...; comunicacao=...; prioridades=...; estilo=...; colaboracao=...; aversoes=...; experiencia=...; se demitir, o ID exato; senão vazio>
+ACERVO_ID: <id exato da referência, somente se sugerir_acervo; senão vazio>
+SOLICITACAO_ACERVO: <consideração objetiva, somente se sugerir_acervo; senão vazio>`;
 
     try {
       const r = await S.ai.chamar({

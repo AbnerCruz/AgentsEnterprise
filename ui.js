@@ -10,6 +10,10 @@
   let viewAtual = 'estudio';
   let filtroClasse = 'todos';
   let abertos = {};   // arquivos com o corpo expandido
+  let acervoProjetoId = '';
+  const TIPOS_ACERVO_TEXTO=new Set(['txt','md','markdown','html','htm','css','js','json','csv','tsv','xml','yaml','yml','svg','py','sql']);
+  const tipoArquivo=n=>{const p=String(n||'').split('.');return p.length>1?p.pop().toLowerCase():'txt';};
+  const lerArquivo=f=>new Promise((ok,erro)=>{const r=new FileReader();r.onload=()=>ok(String(r.result||''));r.onerror=()=>erro(new Error(`Não foi possível ler ${f.name}.`));TIPOS_ACERVO_TEXTO.has(tipoArquivo(f.name))?r.readAsText(f):r.readAsDataURL(f);});
 
   /* ---------- avisos ---------- */
   function toast(texto, tipo) {
@@ -32,7 +36,7 @@
   /* ---------- navegação ---------- */
   function mostrar(view) {
     const e = S.state.atual();
-    if (!e) view = 'vazio';
+    if (!e && view !== 'acervo') view = 'vazio';
     viewAtual = view;
     $$('.view').forEach(v => v.classList.toggle('is-on', v.id === 'v-' + view));
     $$('.nav-item').forEach(b => b.classList.toggle('is-on', b.dataset.view === view));
@@ -41,6 +45,7 @@
     if (view === 'motor') pintarMotor();
     if (view === 'economia') { pintarEconomia(); if(S.ai.orcamento().openrouterManagementConfigured) void S.ai.sincronizarCreditosOpenRouter(); }
     if (view === 'entregas') { pintarArquivos(); }
+    if (view === 'acervo') pintarAcervo();
     if (view === 'trabalho') pintarTrabalho();
     if (view === 'reuniao') pintarReuniao();
   }
@@ -191,6 +196,22 @@
      ============================================================ */
   function pintarTrabalho() { pintarProjetos(); pintarIdeias(); pintarBacklog(); pintarLog(); pintarPendencias(); pintarBadges(); }
 
+  function pintarAcervo(){
+    const e=S.state.atual(),refs=S.acervo.todos(),projetos=e&&e.projetos||[];
+    const pr=projetos.find(p=>p.id===acervoProjetoId)||projetos.find(p=>p.status==='ativo')||projetos[0]||null;if(pr)acervoProjetoId=pr.id;
+    const ligados=new Set(pr&&pr.acervoIds||[]),count=$('#acervoCount');if(count)count.textContent=String(refs.length);
+    const pp=$('#acervoProjetoPanel');if(pp)pp.innerHTML=pr?`<div class="panel-head"><span class="panel-label">Dados e referências do projeto</span><span class="chip">${esc(pr.status)}</span></div><div class="field"><label>Projeto</label><select id="acervoProjetoSel">${projetos.map(p=>`<option value="${esc(p.id)}" ${p.id===pr.id?'selected':''}>${esc(p.nome)}</option>`).join('')}</select></div><div class="field"><label>Resumo</label><textarea id="acResumo" rows="3">${esc(pr.dados&&pr.dados.resumo||'')}</textarea></div><div class="field"><label>Requisitos</label><textarea id="acRequisitos" rows="4">${esc(pr.dados&&pr.dados.requisitos||'')}</textarea></div><div class="field"><label>Público</label><input id="acPublico" value="${esc(pr.dados&&pr.dados.publico||'')}"></div><div class="field"><label>Riscos</label><input id="acRiscos" value="${esc(pr.dados&&pr.dados.riscos||'')}"></div><button class="btn btn-primary" id="acSalvarProjeto">Salvar dados do projeto</button>`:'<div class="empty">Monte o acervo agora e vincule as referências ao fundar a empresa.</div>';
+    const list=$('#acervoList');if(list)list.innerHTML=refs.length?refs.map(a=>`<div class="item acervo-ref"><div class="item-body"><div class="item-title">${esc(a.nome)}</div><div class="item-meta"><span>${esc(a.tipo)}</span><span>· v${Number(a.versao||1)}</span><span>· ${esc(a.origem||'dispositivo')}</span></div><p class="panel-foot">${esc(a.descricao||'Sem descrição.')}</p><div class="row-actions">${pr?`<button class="btn btn-mini" data-ac-vincular="${esc(a.id)}">${ligados.has(a.id)?'Desvincular':'Usar no projeto'}</button>`:''}<button class="btn btn-mini" data-ac-baixar="${esc(a.id)}">Baixar</button>${TIPOS_ACERVO_TEXTO.has(a.tipo)?`<button class="btn btn-mini" data-ac-editar="${esc(a.id)}">Editar como usuário</button>`:''}<button class="btn btn-mini btn-danger" data-ac-apagar="${esc(a.id)}">Apagar</button></div></div></div>`).join(''):'<div class="empty">Envie um arquivo ou promova um produto final.</div>';
+    const produtos=e?(e.arquivos||[]).filter(a=>a.classe==='produto'):[],prod=$('#acervoProdutosPanel');if(prod)prod.innerHTML=e?`<div class="panel-head"><span class="panel-label">Produtos finais</span><span class="chip">${produtos.length}</span></div>${produtos.map(a=>{const ja=refs.some(r=>r.produtoOrigemId===a.id);return `<div class="item"><div class="item-body"><div class="item-title">${esc(a.nome)}</div><button class="btn btn-mini" data-ac-promover="${esc(a.id)}" ${ja?'disabled':''}>${ja?'No acervo':'Enviar ao acervo'}</button></div></div>`;}).join('')||'<div class="empty">Nenhum produto final.</div>'}`:'';
+    if($('#acervoProjetoSel'))$('#acervoProjetoSel').onchange=ev=>{acervoProjetoId=ev.target.value;pintarAcervo();};
+    if($('#acSalvarProjeto'))$('#acSalvarProjeto').onclick=()=>{S.acervo.atualizarProjetoDados(pr.id,{resumo:$('#acResumo').value,requisitos:$('#acRequisitos').value,publico:$('#acPublico').value,riscos:$('#acRiscos').value});toast('Dados do projeto salvos.','ok');};
+    $$('[data-ac-vincular]').forEach(b=>b.onclick=()=>{ligados.has(b.dataset.acVincular)?S.acervo.desvincular(b.dataset.acVincular,pr.id):S.acervo.vincular(b.dataset.acVincular,pr.id);pintarAcervo();});
+    $$('[data-ac-baixar]').forEach(b=>b.onclick=()=>{const a=S.acervo.item(b.dataset.acBaixar);if(!a)return;const blob=/^data:/.test(a.conteudo)?S.arquivo.dataUrlBlob(a.conteudo):new Blob([a.conteudo],{type:'text/plain;charset=utf-8'});S.arquivo.baixarBlob(blob,a.nome);});
+    $$('[data-ac-editar]').forEach(b=>b.onclick=()=>{const a=S.acervo.item(b.dataset.acEditar);if(!a)return;folha(`<h2>Editar como proprietário</h2><p class="sub">Agentes continuam sem permissão de escrita. Ao salvar, você cria a versão ${Number(a.versao||1)+1}.</p><div class="field"><label>Nome</label><input id="refNome" value="${esc(a.nome)}"></div><div class="field"><label>Descrição</label><textarea id="refDesc">${esc(a.descricao||'')}</textarea></div><div class="field"><label>Conteúdo</label><textarea id="refConteudo" rows="16">${esc(a.conteudo||'')}</textarea></div><div class="sheet-actions"><button class="btn" id="refCancelar">Cancelar</button><button class="btn btn-primary" id="refSalvar">Salvar versão</button></div>`,box=>{box.querySelector('#refCancelar').onclick=fecharFolha;box.querySelector('#refSalvar').onclick=()=>{S.acervo.atualizarPeloUsuario(a.id,{nome:box.querySelector('#refNome').value,descricao:box.querySelector('#refDesc').value,conteudo:box.querySelector('#refConteudo').value});fecharFolha();pintarAcervo();toast('Referência atualizada por você.','ok');};});});
+    $$('[data-ac-apagar]').forEach(b=>b.onclick=()=>confirmar('Apagar referência?','Ela será removida do acervo global e desvinculada dos projetos.',()=>{S.acervo.remover(b.dataset.acApagar);pintarAcervo();}));
+    $$('[data-ac-promover]').forEach(b=>b.onclick=()=>{S.acervo.promoverProduto(b.dataset.acPromover);pintarAcervo();toast('Produto enviado ao acervo soberano.','ok');});
+  }
+
   function pintarBadges() {
     const e = S.state.atual(); if (!e) return;
     const candidatos = e.arquivos.filter(a => a.classe === 'candidato').length;
@@ -285,7 +306,7 @@
 
   function pintarLog() {
     const e = S.state.atual(); if (!e) return;
-    const linhas = e.log.slice(-40).reverse();
+    const linhas = e.log.slice(-100).reverse();
     $('#logList').innerHTML = linhas.length ? linhas.map(l =>
       `<div class="log-line ${esc(l.tag)}"><span class="log-ts">${F.hora(l.t)}</span><span class="log-txt">${esc(l.texto)}</span></div>`
     ).join('') : '<div class="empty">Nada registrado ainda.</div>';
@@ -331,6 +352,7 @@
           <button class="btn btn-mini" data-codigo="${a.id}" type="button">${aberto === 'codigo' ? 'Fechar' : 'Ver conteúdo'}</button>
           <button class="btn btn-mini btn-primary" data-baixar="${a.id}" type="button">Baixar</button>
           ${a.classe === 'candidato' && a.clienteVisivel ? `<button class="btn btn-mini" data-publicar="${a.id}" type="button">Tentar release</button>` : ''}
+          ${a.classe === 'produto' ? `<button class="btn btn-mini" data-acervo-produto="${a.id}" type="button">Enviar ao acervo</button>` : ''}
           ${a.classe !== 'produto' ? `<button class="btn btn-mini" data-editar="${a.id}" type="button">Editar</button>` : ''}
           ${a.classe !== 'produto' ? `<button class="btn btn-mini btn-danger" data-apagar="${a.id}" type="button">Apagar</button>` : ''}
         </div>
@@ -356,6 +378,7 @@
       if (p) toast('Produto liberado: ' + p.nome, 'ok');
       else toast('Release bloqueado pelo pipeline ou pelo gate final. Veja o log da gerência.', 'erro');
     });
+    $$('#filesList [data-acervo-produto]').forEach(b=>b.onclick=()=>{try{S.acervo.promoverProduto(b.dataset.acervoProduto);toast('Produto enviado ao acervo soberano.','ok');}catch(err){toast(err.message,'erro');}});
     $$('#filesList [data-editar]').forEach(b => b.onclick = () => {
       const a = e.arquivos.find(x => x.id === b.dataset.editar); if (!a || a.classe === 'produto') return;
       folha(`
@@ -502,7 +525,9 @@
     if (producao) producao.innerHTML = opcoes('producao');
     if (imagem) imagem.innerHTML = (S.ai.MODELOS_IMAGEM||[]).map(m=>`<option value="${m.id}" ${S.ai.cfg.imagem===m.id?'selected':''}>${esc(m.nome)}</option>`).join('');
     const caixaInput=$('#orcamentoMensalInput');
-    if(caixaInput && document.activeElement!==caixaInput) caixaInput.value=Number(S.ai.orcamento().restanteUSD||0).toFixed(4);
+    if(caixaInput && document.activeElement!==caixaInput) caixaInput.value=e?Number(S.ai.orcamento().restanteUSD||0).toFixed(4):'0.0000';
+    if(caixaInput)caixaInput.disabled=!e||S.ai.cfg.distribuicaoCaixa==='igual';
+    const dist=$('#distribuicaoCaixaSel');if(dist)dist.value=S.ai.cfg.distribuicaoCaixa||'manual';
     const diario = $('#limiteDiarioAutomaticoDisplay');
     if (diario) diario.textContent = `US$ ${Number(S.ai.orcamento().limiteDiarioUSD || 0).toFixed(4)} hoje · calculado automaticamente`;
 
@@ -540,7 +565,7 @@
       <div class="call">
         <div class="call-head"><b>${esc(c.quem)}</b><span>${esc(c.motivo)}</span>
           <span class="tag ${c.ok ? 'tag-real' : 'tag-rust'}">${c.ok ? 'ok' : 'falhou'}</span></div>
-        <div class="call-meta">${esc(c.modelo)}${c.provedor ? ' · '+esc(c.provedor) : ''} · ${F.dur(c.ms)}${c.tokens ? ' · ' + F.num(c.tokens) + ' tokens' : ''} · ${F.hora(c.em)}</div>
+        <div class="call-meta">${esc(c.modelo)}${c.provedor ? ' · '+esc(c.provedor) : ''} · ${F.dur(c.ms)} · ${F.num(c.tokens||0)} tokens (${F.num(c.entrada||0)} entrada / ${F.num(c.saida||0)} saída) · US$ ${Number(c.custo||0).toFixed(5)} · ${F.dataHora(c.em)}</div>
         ${c.erro ? `<div class="call-meta" style="color:#E08573">${esc(c.erro).slice(0, 160)}</div>` : ''}
       </div>`).join('') : '<div class="empty">Nenhuma chamada ainda nesta sessão.</div>';
 
@@ -578,7 +603,11 @@
   /* ============================================================
      Diálogos
      ============================================================ */
-  function dialogoFundar() {
+  async function dialogoFundar() {
+    if(!S.ai.configuracaoCompleta()){fecharFolha();mostrar('motor');toast('Configure a chave da API e a Management Key antes de fundar a empresa.','info');return;}
+    await S.ai.sincronizarCreditosOpenRouter();
+    const orcFund=S.ai.orcamento(),igualFund=S.ai.cfg.distribuicaoCaixa==='igual',livreFund=S.economia.saldoNaoAlocado(orcFund.openrouterSaldoEfetivo,null);
+    if(!Number.isFinite(orcFund.openrouterSaldoEfetivo)){mostrar('motor');toast('A Management Key precisa sincronizar o saldo real antes da fundação.','erro');return;}
     folha(`
       <h2>Fundar nova empresa</h2>
       <p class="sub">Você fornece só as decisões estruturais. A nova gerente decide o nome, identidade visual, missão, manifesto, plano de negócio e primeiro produto. Ela também define os cargos iniciais e cria as fichas dos funcionários que a empresa realmente precisa.</p>
@@ -587,10 +616,12 @@
       <div class="field"><label for="fTipo">Tipo de produto</label><input id="fTipo" type="text" placeholder="ex.: software, livro, curso, serviço, ferramenta"></div>
       <div class="field"><label for="fPublico">Público que você imagina</label><input id="fPublico" type="text" placeholder="Pode ser uma hipótese; a gerente vai refiná-la."></div>
       <div class="field"><label for="fRestricoes">Recursos ou restrições importantes</label><textarea id="fRestricoes" rows="2" placeholder="ex.: tecnologia, conhecimento, orçamento, prazo, país"></textarea></div>
+      ${S.acervo.todos().length?`<div class="field"><label>Referências soberanas do primeiro projeto</label>${S.acervo.todos().map(a=>`<label class="check-row"><input type="checkbox" name="fAcervo" value="${esc(a.id)}"> ${esc(a.nome)} · v${Number(a.versao||1)}</label>`).join('')}</div>`:''}
+      ${igualFund?`<p class="hint">O saldo global será dividido igualmente entre todas as empresas.</p>`:`<div class="field"><label for="fCaixa">Caixa inicial desta empresa (US$)</label><input id="fCaixa" type="number" min="0" max="${Number(livreFund||0)}" step="0.0001" value="0"><p class="hint">Disponível sem alocação: US$ ${Number(livreFund||0).toFixed(4)}.</p></div>`}
       <p class="hint">A gerente geral é criada primeiro. A IA define os cargos e cria as fichas dos funcionários necessários; depois a gerente mantém o quadro, podendo contratar ou demitir conforme a demanda real.</p>
       <div class="sheet-actions"><button class="btn" id="cancelFundar" type="button">Cancelar</button><button class="btn btn-primary" id="okFundar" type="button">Fundar e deixar a gerente decidir</button></div>`, box => {
       box.querySelector('#cancelFundar').onclick=fecharFolha;
-      box.querySelector('#okFundar').onclick=async()=>{const b=box.querySelector('#okFundar'),d={ideia:box.querySelector('#fIdeia').value.trim(),objetivo:box.querySelector('#fObjetivo').value.trim(),tipoProduto:box.querySelector('#fTipo').value.trim(),publico:box.querySelector('#fPublico').value.trim(),restricoes:box.querySelector('#fRestricoes').value.trim(),ramo:box.querySelector('#fTipo').value.trim()||'empresa de produto'};if(!d.ideia&&!d.objetivo&&!d.tipoProduto){toast('Informe pelo menos a ideia, o objetivo ou o tipo de produto.','erro');return;}b.disabled=true;b.textContent='Criando empresa…';try{const e=S.studio.fundar(d);await S.studio.processarFundacaoAtual(true);fecharFolha();mostrar('estudio');pintarTudo();const ok=e.fundacao&&e.fundacao.estado==='operacional';toast(ok?'Empresa fundada. A gerente definiu a estratégia e montou a equipe.':'Empresa criada. A gerente concluirá a fundação quando a IA estiver disponível.',ok?'ok':'info');}catch(err){b.disabled=false;b.textContent='Fundar e deixar a gerente decidir';toast(err.message||'Falha ao fundar a empresa.','erro');}};
+      box.querySelector('#okFundar').onclick=async()=>{const b=box.querySelector('#okFundar'),d={ideia:box.querySelector('#fIdeia').value.trim(),objetivo:box.querySelector('#fObjetivo').value.trim(),tipoProduto:box.querySelector('#fTipo').value.trim(),publico:box.querySelector('#fPublico').value.trim(),restricoes:box.querySelector('#fRestricoes').value.trim(),ramo:box.querySelector('#fTipo').value.trim()||'empresa de produto',acervoIds:Array.from(box.querySelectorAll('[name="fAcervo"]:checked')).map(x=>x.value)};if(!d.ideia&&!d.objetivo&&!d.tipoProduto){toast('Informe pelo menos a ideia, o objetivo ou o tipo de produto.','erro');return;}b.disabled=true;b.textContent='Criando empresa…';try{const e=S.studio.fundar(d);if(igualFund)S.economia.distribuirIgualmente(orcFund.openrouterSaldoEfetivo,'Nova empresa criada; redistribuição automática');else S.economia.definirCaixa(Number(box.querySelector('#fCaixa').value||0),orcFund.openrouterSaldoEfetivo);await S.studio.processarFundacaoAtual(true);fecharFolha();mostrar('estudio');pintarTudo();const ok=e.fundacao&&e.fundacao.estado==='operacional';toast(ok?'Empresa fundada. A gerente definiu a estratégia e montou a equipe.':'Empresa criada. A gerente concluirá a fundação quando a IA estiver disponível.',ok?'ok':'info');}catch(err){b.disabled=false;b.textContent='Fundar e deixar a gerente decidir';toast(err.message||'Falha ao fundar a empresa.','erro');}};
     });
   }
 
@@ -672,7 +703,10 @@
     const box=$('#meetingMessages');
     if(!box) return;
     const msgs=(r.mensagens||[]).slice(-80);
-    box.innerHTML=msgs.length?msgs.map(m=>`<div class="meeting-msg ${m.tipo==='usuario'?'mine':''} ${m.tipo==='relatorio'?'system':''}"><div class="who">${esc(m.quem)}</div><div class="txt">${esc(m.texto)}</div><div class="time">${F.hora(m.t)}</div></div>`).join(''):'<div class="empty">A sala está vazia. Comece uma conversa com a equipe.</div>';
+    box.innerHTML=msgs.length?msgs.map(m=>{const s=(e.solicitacoesAcervo||[]).find(x=>x.id===m.solicitacaoId),pendente=m.tipo==='solicitacao_acervo'&&s&&s.status==='pendente';return `<div class="meeting-msg ${m.tipo==='usuario'?'mine':''} ${m.tipo==='relatorio'?'system':''} ${m.tipo==='solicitacao_acervo'?'special':''}"><div class="who">${esc(m.quem)}</div><div class="txt">${esc(m.texto)}</div>${pendente?`<div class="row-actions"><button class="btn btn-mini" data-sol-branch="${esc(m.solicitacaoId)}">Autorizar branch</button><button class="btn btn-mini" data-sol-editar="${esc(m.solicitacaoId)}">Editar sozinho</button><button class="btn btn-mini btn-danger" data-sol-recusar="${esc(m.solicitacaoId)}">Recusar</button></div>`:''}<div class="time">${F.hora(m.t)}</div></div>`;}).join(''):'<div class="empty">A sala está vazia. Comece uma conversa com a equipe.</div>';
+    $$('[data-sol-branch]').forEach(b=>b.onclick=()=>{S.studio.decidirSolicitacaoAcervo(b.dataset.solBranch,'branch');toast('Branch autorizada e projeto criado.','ok');pintarReuniao();});
+    $$('[data-sol-editar]').forEach(b=>b.onclick=()=>{const s=S.studio.decidirSolicitacaoAcervo(b.dataset.solEditar,'editar');if(s){acervoProjetoId=s.projectId;mostrar('acervo');}});
+    $$('[data-sol-recusar]').forEach(b=>b.onclick=()=>{S.studio.decidirSolicitacaoAcervo(b.dataset.solRecusar,'recusar');pintarReuniao();});
     box.scrollTop=box.scrollHeight;
   }
 
@@ -694,7 +728,10 @@
     $$('.nav-item').forEach(b => b.onclick = () => mostrar(b.dataset.view));
     $('#brandBtn').onclick = () => (S.DB.estudios.length ? dialogoEstudios() : dialogoFundar());
     $('#fundarBtn').onclick = dialogoFundar;
-    $('#irMotorBtn').onclick = () => { if (!S.state.atual()) { toast('Funde um estúdio primeiro.'); return; } mostrar('motor'); };
+    $('#acervoInicialBtn').onclick = () => mostrar('acervo');
+    $('#voltarAcervoBtn').onclick = () => mostrar(S.state.atual()?'estudio':'vazio');
+    $('#acervoUpload').onchange=async ev=>{const files=Array.from(ev.target.files||[]);for(const f of files){try{if(f.size>2500000)throw new Error(`${f.name} excede 2,5 MB.`);const a=S.acervo.adicionar({nome:f.name,tipo:tipoArquivo(f.name),conteudo:await lerArquivo(f),tamanho:f.size,origem:'dispositivo',descricao:'Referência enviada pelo proprietário.'});const e=S.state.atual(),pr=e&&((e.projetos||[]).find(p=>p.id===acervoProjetoId)||(e.projetos||[])[0]);if(pr)S.acervo.vincular(a.id,pr.id);}catch(err){toast(err.message,'erro');}}pintarAcervo();};
+    $('#irMotorBtn').onclick = () => mostrar('motor');
     $('#pulseBtn').onclick = () => mostrar('motor');
     $('#sheetClose').onclick = fecharFolha;
     $('#sheetBackdrop').onclick = ev => { if (ev.target === $('#sheetBackdrop')) fecharFolha(); };
@@ -727,9 +764,11 @@
     const salvarIABtn = $('#salvarIABtn');
     if (salvarIABtn) salvarIABtn.onclick = async () => {
       try {
-        const key = $('#apiKeyInput'), pensamento=$('#modeloPensamentoSel'), producao=$('#modeloProducaoSel'), imagem=$('#modeloImagemSel'), mensal=$('#orcamentoMensalInput'), modoOrcamento=$('#modoOrcamentoSel'), mgmt=$('#openrouterManagementKeyInput');
+        const key = $('#apiKeyInput'), pensamento=$('#modeloPensamentoSel'), producao=$('#modeloProducaoSel'), imagem=$('#modeloImagemSel'), mensal=$('#orcamentoMensalInput'), modoOrcamento=$('#modoOrcamentoSel'), mgmt=$('#openrouterManagementKeyInput'), dist=$('#distribuicaoCaixaSel');
         if (mgmt && mgmt.value.trim()) { await S.ai.salvarChaveGerenciamentoOpenRouter(mgmt.value); mgmt.value=''; }
-        S.ai.salvarCfg(key && key.value.trim() ? key.value : undefined, pensamento ? pensamento.value : undefined, producao ? producao.value : undefined, undefined, mensal ? mensal.value : undefined, undefined, undefined, modoOrcamento ? modoOrcamento.value : undefined, 'manual', imagem ? imagem.value : undefined);
+        const atual=S.state.atual();
+        S.ai.salvarCfg(key && key.value.trim() ? key.value : undefined, pensamento ? pensamento.value : undefined, producao ? producao.value : undefined, undefined, atual&&(!dist||dist.value==='manual')&&mensal ? mensal.value : undefined, undefined, undefined, modoOrcamento ? modoOrcamento.value : undefined, 'manual', imagem ? imagem.value : undefined);
+        S.ai.salvarDistribuicaoCaixa(dist?dist.value:'manual');
         if(key) key.value='';
         toast('Configuração salva.', 'ok'); pintarMotor();
       } catch (err) { toast(err.message, 'erro'); }
@@ -738,9 +777,10 @@
     if (testarIABtn) testarIABtn.onclick = async () => {
       const b=testarIABtn; b.disabled=true; b.textContent='testando…';
       try {
-        const key=$('#apiKeyInput'), pensamento=$('#modeloPensamentoSel'), producao=$('#modeloProducaoSel'), imagem=$('#modeloImagemSel'), mensal=$('#orcamentoMensalInput'), modoOrcamento=$('#modoOrcamentoSel'), mgmt=$('#openrouterManagementKeyInput');
+        const key=$('#apiKeyInput'), pensamento=$('#modeloPensamentoSel'), producao=$('#modeloProducaoSel'), imagem=$('#modeloImagemSel'), mensal=$('#orcamentoMensalInput'), modoOrcamento=$('#modoOrcamentoSel'), mgmt=$('#openrouterManagementKeyInput'), dist=$('#distribuicaoCaixaSel');
         if (mgmt && mgmt.value.trim()) { await S.ai.salvarChaveGerenciamentoOpenRouter(mgmt.value); mgmt.value=''; }
-        if (key && key.value.trim()) S.ai.salvarCfg(key.value, pensamento ? pensamento.value : undefined, producao ? producao.value : undefined, undefined, mensal ? mensal.value : undefined, undefined, undefined, modoOrcamento ? modoOrcamento.value : undefined, 'manual', imagem ? imagem.value : undefined);
+        if (key && key.value.trim()) S.ai.salvarCfg(key.value, pensamento ? pensamento.value : undefined, producao ? producao.value : undefined, undefined, S.state.atual()&&(!dist||dist.value==='manual')&&mensal ? mensal.value : undefined, undefined, undefined, modoOrcamento ? modoOrcamento.value : undefined, 'manual', imagem ? imagem.value : undefined);
+        S.ai.salvarDistribuicaoCaixa(dist?dist.value:'manual');
         const r=await S.ai.testar(); toast('Conexão ok — o OpenRouter respondeu: '+r.slice(0,40),'ok');
       } catch(err) { toast(err.message,'erro'); }
       b.disabled=false; b.textContent='Testar'; pintarMotor();
@@ -777,6 +817,8 @@
     S.bus.on('arquivos', () => { pintarBadges(); if (viewAtual === 'entregas') pintarArquivos(); if (viewAtual === 'trabalho') pintarPendencias(); });
     S.bus.on('log', () => { if (viewAtual === 'trabalho') pintarLog(); });
     S.bus.on('reuniao', () => { if (viewAtual === 'reuniao') pintarReuniao(); });
+    S.bus.on('acervo', () => { if(viewAtual==='acervo')pintarAcervo(); });
+    S.bus.on('projetos', () => { if(viewAtual==='acervo')pintarAcervo(); if(viewAtual==='trabalho')pintarTrabalho(); });
         S.bus.on('ambiente', () => { if (viewAtual === 'estudio') pintarAmbienteBar(); });
   S.bus.on('ideias', () => { if (viewAtual === 'trabalho') pintarIdeias(); });
     S.bus.on('relogio', () => { pintarRelogio(); });
@@ -788,7 +830,7 @@
   function pintarTudo() {
     pintarTopo(); pintarRelogio();
     if (!S.state.atual()) return;
-    pintarEquipe(); pintarAmbienteBar(); pintarXP(); pintarTrabalho(); pintarArquivos(); pintarMotor(); pintarReuniao();
+    pintarEquipe(); pintarAmbienteBar(); pintarXP(); pintarTrabalho(); pintarArquivos(); pintarMotor(); pintarReuniao(); pintarAcervo();
   }
 
   /* ---------- início ---------- */

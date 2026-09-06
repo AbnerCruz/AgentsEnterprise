@@ -65,8 +65,8 @@
   function pareceImagem(briefing){return /\b(imagem|ilustra[cç][aã]o|capa|poster|p[oô]ster|banner|logo|logotipo|arte visual|concept art|sprite|thumbnail|miniatura|fotografia|mockup visual)\b/i.test(String(briefing||''));}
   function pareceProjetoCompleto(briefing){return /\b(projeto completo|site completo|aplica[cç][aã]o completa|pacote completo|zipado|zip|m[uú]ltiplos arquivos|estrutura de arquivos)\b/i.test(String(briefing||''));}
   function parseBundle(corpo){
-    const re=/<<<ARQUIVO:\s*([^>\n]+)>>>\s*([\s\S]*?)(?=<<<ARQUIVO:|$)/gi,out=[];let m;
-    while((m=re.exec(String(corpo||'')))&&out.length<10){const nome=String(m[1]||'').trim();const ext=(nome.match(/\.([a-z0-9]+)$/i)||[])[1]?.toLowerCase();if(!ext||!TIPOS_TEXTO.includes(ext))continue;const conteudo=String(m[2]||'').replace(/<<<FIM_ARQUIVO>>>/gi,'').trim();if(conteudo.length>=20)out.push({nome:limparCaminho(nome,ext),tipo:ext,conteudo});}
+    const re=/<<<ARQUIVO:\s*([^>\n]+)>>>\s*([\s\S]*?)(?=<<<ARQUIVO:|$)/gi,out=[],nomes=new Set();let m;
+    while((m=re.exec(String(corpo||'')))&&out.length<10){const nome=String(m[1]||'').trim();const ext=(nome.match(/\.([a-z0-9]+)$/i)||[])[1]?.toLowerCase();if(!ext||!TIPOS_TEXTO.includes(ext))continue;const caminho=limparCaminho(nome,ext);if(nomes.has(caminho.toLowerCase()))continue;const conteudo=String(m[2]||'').replace(/<<<FIM_ARQUIVO>>>/gi,'').trim();if(conteudo.length>=20){nomes.add(caminho.toLowerCase());out.push({nome:caminho,tipo:ext,conteudo});}}
     return out;
   }
 
@@ -148,16 +148,18 @@
     const base = op && op.baseArquivoId ? (e.arquivos || []).find(a => a.id === op.baseArquivoId) : null;
     const projeto = (e.projetos || []).find(p => p.id === (op && op.projectId)) ||
                     (e.projetos || []).find(p => p.status === 'ativo') || (e.projetos || [])[0] || null;
+    const acervoSoberano=S.acervo&&S.acervo.contexto?S.acervo.contexto(projeto&&projeto.id,8500):'Nenhuma referência soberana vinculada.';
     // Artes visuais usam um modelo dedicado; não desperdiçamos uma chamada de
     // texto pedindo que um LLM descreva uma imagem que outro modelo terá de criar.
-    if (pareceImagem(briefing) && !base) {
+    const baseVisual=base&&TIPOS_IMAGEM.includes(String(base.tipo||'').toLowerCase());
+    if ((pareceImagem(briefing) && !base) || baseVisual) {
       const identidade=(e.fundacao&&e.fundacao.identidade)||{};
-      const promptImagem=`Crie um ativo visual utilizável para ${e.nome}. Tarefa: ${briefing}. Projeto: ${projeto?projeto.nome:'principal'}. Identidade visual: cores=${identidade.cores||'livre'}; estilo=${identidade.estiloVisual||'coerente com a marca'}; tom=${e.tom}. Evite texto ilegível; só inclua palavras quando forem essenciais ao briefing.`;
+      const promptImagem=`${baseVisual?`Crie a próxima versão visual de ${base.nome}, preservando sua função, identidade e conceito aprovados.`:`Crie um ativo visual utilizável para ${e.nome}.`} Tarefa: ${briefing}. Projeto: ${projeto?projeto.nome:'principal'}. Identidade visual: cores=${identidade.cores||'livre'}; estilo=${identidade.estiloVisual||'coerente com a marca'}; tom=${e.tom}. Etapa: ${etapa}. Referências soberanas imutáveis do usuário: ${acervoSoberano.slice(0,2500)}. Não contradiga essas referências. Evite texto ilegível; só inclua palavras quando forem essenciais ao briefing.`;
       const img=await S.ai.gerarImagem({prompt:promptImagem,agente:agente.nome,agenteId:agente.id,motivo:'produção visual'});
       const bruto=`data:${img.mediaType};base64,${img.b64}`,compacta=await compactarImagemLocal(bruto);
-      const nome=limparNome((op&&op.titulo)||'imagem',compacta.ext);
+      const nome=baseVisual?limparNome(base.nome,compacta.ext):limparNome((op&&op.titulo)||'imagem',compacta.ext);
       const conteudo=compacta.dataUrl;
-      return {arquivos:[{nome,tipo:compacta.ext,conteudo}],resumo:'Ativo visual gerado por modelo de imagem.',validacao:(etapa==='candidato'&&clienteVisivel?validarFinal(conteudo,compacta.ext):validar(conteudo,compacta.ext)),classe:etapa,kit,viaIA:true,linhagem:null,baseArquivoId:null,operacao:'substituir',imagem:true};
+      return {arquivos:[{nome,tipo:compacta.ext,conteudo}],resumo:baseVisual?'Nova versão do ativo visual gerada pelo modelo de imagem.':'Ativo visual gerado por modelo de imagem.',validacao:(etapa==='candidato'&&clienteVisivel?validarFinal(conteudo,compacta.ext):validar(conteudo,compacta.ext)),classe:etapa,kit,viaIA:true,linhagem:baseVisual?base.linhagem:null,baseArquivoId:baseVisual?base.id:null,operacao:'substituir',imagem:true};
     }
     const incremental = Boolean(base && (String(base.conteudo||'').length > 12000 || pedeCrescimento(briefing)));
     const basePrompt = base ? trechoBaseParaPrompt(base, incremental) : '';
@@ -170,6 +172,8 @@
       `MISSÃO: ${e.missao}`,
       `IDENTIDADE: ${(e.fundacao && e.fundacao.identidade && e.fundacao.identidade.posicionamento) || 'n/d'}`,
       `PROJETO: ${projeto ? projeto.nome : 'principal'} | objetivo: ${projeto ? projeto.objetivo : e.missao}`,
+      `DADOS DO PROJETO: ${projeto&&projeto.dados?`resumo=${projeto.dados.resumo||''}; requisitos=${projeto.dados.requisitos||''}; público=${projeto.dados.publico||''}; riscos=${projeto.dados.riscos||''}`:'não registrados'}`,
+      `ACERVO SOBERANO DO USUÁRIO — SOMENTE LEITURA:\n${acervoSoberano}`,
       `BRIEFING DA TAREFA: ${briefing}`,
       `DESTINO: ${clienteVisivel ? 'produto que poderá chegar diretamente ao cliente' : 'artefato interno de trabalho'}`,
       regraEtapa,
@@ -181,6 +185,8 @@
       `- Entregue o conteúdo integral do arquivo, sem resumo, sem comentários sobre o processo e sem pedir aprovação.`,
       `- Nada de texto de exemplo, lorem ipsum, TODO, colchetes para preencher ou dados inventados sobre o mundo real.`,
       `- Não invente clientes, vendas, métricas, datas ou aprovações. Hipóteses devem ser declaradas como hipóteses.`,
+      `- O ACERVO SOBERANO é a fonte máxima deste projeto. Não o altere, não o contradiga e não substitua fatos, decisões, linguagem ou identidade que ele fixa. Use-o como referência e inspiração.`,
+      `- Se uma mudança no acervo parecer necessária, não a aplique silenciosamente: preserve o original e descreva a consideração fora do produto para a gerente encaminhar ao dono.`,
       `- Você só pode produzir/editar arquivos dentro deste simulador. Não prometa enviar e-mail, criar tarefa no Asana, obter assinatura, fazer upload externo ou executar qualquer ação em serviço externo.`,
       `- Se o briefing pedir uma ação externa impossível, converta-a em algo interno e verificável (ex.: checklist ou minuta) sem fingir que a ação aconteceu. Se esta for a etapa CANDIDATO FINAL, essa dependência deve ficar fora do conteúdo destinado ao cliente.`,
       clienteVisivel && etapa === 'candidato' ? `- PRODUTO FINAL: o corpo do arquivo não pode conter notas internas, status de aprovação, checklist editorial, instruções para a equipe, nomes placeholder, comentários de revisão ou qualquer metatexto de produção.` : '',
@@ -192,6 +198,8 @@
       `RESUMO: <uma frase sobre o que foi entregue>`,
       `OPERACAO: <substituir | anexar>`,
       `PRONTO: sim | nao`,
+      `ACERVO_ID: <id exato da referência que merece consideração ou vazio>`,
+      `SOLICITACAO_ACERVO: <sugestão objetiva para o dono ou vazio; nunca altere a referência>`,
       `---`,
       pareceProjetoCompleto(briefing) && !base ? `Se a tarefa exigir vários arquivos, depois de --- use blocos <<<ARQUIVO: caminho/nome.ext>>> seguidos do conteúdo de cada arquivo. Gere até 10 arquivos coerentes e realmente integrados; não inclua binários.` : `<conteúdo integral do arquivo a partir daqui>`
     ].filter(Boolean).join('\n');
@@ -211,7 +219,7 @@
     let conteudo = S.ai.corpo(texto);
     if (!conteudo) {
       // Sem o separador, aproveitamos o que veio removendo as linhas de cabeçalho.
-      conteudo = texto.split(/\n/).filter(l => !/^\s*(ARQUIVO|TIPO|RESUMO|OPERACAO|PRONTO)\s*:/i.test(l)).join('\n').trim();
+      conteudo = texto.split(/\n/).filter(l => !/^\s*(ARQUIVO|TIPO|RESUMO|OPERACAO|PRONTO|ACERVO_ID|SOLICITACAO_ACERVO)\s*:/i.test(l)).join('\n').trim();
     }
     conteudo = conteudo.replace(/^```[a-z]*\n?|```$/gi, '').trim();
     if (conteudo.length < 80) throw new Error('A IA de produção não devolveu conteúdo utilizável.');
@@ -240,7 +248,8 @@
           arquivos: bundle,
           resumo: String(campos.resumo || `Projeto multi-arquivo com ${bundle.length} arquivos.`).slice(0, 300),
           validacao: { pronto: validacoes.every(v => v.pronto), prontoEstrutural: validacoes.every(v => v.pronto), declaradoPronto: String(campos.pronto || '').toLowerCase() === 'sim', notas, verificadoEm: Date.now(), tipo:'bundle', arquivos:bundle.length },
-          classe:etapa, kit, viaIA:true, linhagem:null, baseArquivoId:null, operacao:'substituir', bundle:true
+          classe:etapa, kit, viaIA:true, linhagem:null, baseArquivoId:null, operacao:'substituir', bundle:true,
+          acervoId:String(campos.acervo_id||'').trim(),solicitacaoAcervo:String(campos.solicitacao_acervo||'').trim().slice(0,1200)
         };
       }
     }
@@ -266,7 +275,8 @@
       viaIA: true,
       linhagem: base ? base.linhagem : null,
       baseArquivoId: base ? base.id : null,
-      operacao
+      operacao,
+      acervoId:String(campos.acervo_id||'').trim(),solicitacaoAcervo:String(campos.solicitacao_acervo||'').trim().slice(0,1200)
     };
   }
 
