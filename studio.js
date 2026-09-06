@@ -160,9 +160,24 @@
     return mesma.concat(publicados, outros).slice(0,6);
   }
 
+  function pontoBloqueado(x,y){
+    const raio=9,fixas=Array.isArray(LAYOUT.colisoes)?LAYOUT.colisoes:[],e=S.state.atual(),moveis=e&&e.ambiente&&e.ambiente.objetos||[];
+    if(fixas.some(r=>x+raio>r.x&&x-raio<r.x+r.w&&y+raio>r.y&&y-raio<r.y+r.h))return true;
+    return moveis.some(o=>{const q=OBJETOS_AMBIENTE[o.tipo]||{},w=(q.w||36)/2,h=(q.h||28)/2;return x+raio>(o.x||0)-w&&x-raio<(o.x||0)+w&&y+raio>(o.y||0)-h&&y-raio<(o.y||0)+h;});
+  }
+  function caminhoEmGrid(inicio,fim){
+    const tile=Number(LAYOUT.tile)||24,lim=LAYOUT.limites||LAYOUT_PADRAO.limites;
+    const distancia=Math.hypot(fim.x-inicio.x,fim.y-inicio.y),amostras=Math.max(1,Math.ceil(distancia/(tile/2)));let linhaLivre=!pontoBloqueado(fim.x,fim.y);
+    for(let i=1;linhaLivre&&i<amostras;i++){const t=i/amostras;if(pontoBloqueado(inicio.x+(fim.x-inicio.x)*t,inicio.y+(fim.y-inicio.y)*t))linhaLivre=false;}
+    if(linhaLivre)return [{x:fim.x,y:fim.y}];
+    const gx=x=>Math.round((x-lim.minX)/tile),gy=y=>Math.round((y-lim.minY)/tile),px=x=>lim.minX+x*tile,py=y=>lim.minY+y*tile;
+    const sx=gx(inicio.x),sy=gy(inicio.y),tx=gx(fim.x),ty=gy(fim.y),chave=(x,y)=>x+','+y,q=[[sx,sy]],pais=new Map([[chave(sx,sy),null]]);let achou=null;
+    for(let i=0;i<q.length&&i<5000;i++){const [x,y]=q[i];if(x===tx&&y===ty){achou=[x,y];break;}for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const nx=x+dx,ny=y+dy,k=chave(nx,ny),wx=px(nx),wy=py(ny);if(pais.has(k)||wx<lim.minX||wx>lim.maxX||wy<lim.minY||wy>lim.maxY||pontoBloqueado(wx,wy))continue;pais.set(k,[x,y]);q.push([nx,ny]);}}
+    if(!achou)return [{x:fim.x,y:fim.y}];const rota=[];let n=achou;while(n&&!(n[0]===sx&&n[1]===sy)){rota.unshift({x:px(n[0]),y:py(n[1])});n=pais.get(chave(n[0],n[1]));}rota.push({x:fim.x,y:fim.y});return rota;
+  }
   function irPara(p, alvo) {
-    p.estado = 'andando'; p.alvo = alvo;
-    return new Promise(res => { p._chegou = res; setTimeout(() => { if (p._chegou === res) { p._chegou = null; res(); } }, 6000); });
+    const rota=caminhoEmGrid(p.pos,alvo);p.estado='andando';p.destinoFinal={x:alvo.x,y:alvo.y};p.caminho=rota;p.alvo=p.caminho.shift()||p.destinoFinal;
+    return new Promise(res => { p._chegou=res;setTimeout(()=>{if(p._chegou===res){p._chegou=null;p.alvo=null;p.caminho=[];p.estado=p.ocupado?'trabalhando':'sentado';res();}},15000); });
   }
   async function falar(p, texto, ms) {
     p.balao = texto; p.estado = 'falando';
@@ -276,11 +291,11 @@
     await Promise.all(participantes.map((p,i)=>irPara(p,{x:mesa.x+(i-1)*26,y:mesa.y})));
     participantes.forEach(p=>{p.estado='falando';p.balao='ouvindo a equipe';});
     const projeto=e.projetos.find(x=>x.status==='ativo')||e.projetos[0];
-    const estado=`MISSÃO=${e.missao}\nPROJETO=${projeto?projeto.nome:'principal'}\nOBJETIVO=${projeto?projeto.objetivo:e.missao}\nTAREFAS=${e.tarefas.filter(t=>t.status!=='feita').slice(0,8).map(t=>t.id+' '+t.titulo).join(' | ')||'nenhuma'}\nARTEFATOS=${e.arquivos.slice(0,8).map(a=>a.id+' '+a.nome+' ['+a.classe+']').join(' | ')||'nenhum'}\nSITE CENTRAL=${e.site&&e.site.projetoId?'sim — arquitetura livre, definida pela equipe':'a definir'}\nMOTIVO=${motivo}`;
+    const estado=`MISSÃO=${e.missao}\nPROJETO=${projeto?projeto.nome:'principal'}\nOBJETIVO=${projeto?projeto.objetivo:e.missao}\nTAREFAS=${e.tarefas.filter(t=>t.status!=='feita').slice(0,8).map(t=>t.id+' '+t.titulo).join(' | ')||'nenhuma'}\nARTEFATOS=${e.arquivos.slice(0,8).map(a=>a.id+' '+a.nome+' ['+a.classe+']').join(' | ')||'nenhum'}\nMOTIVO=${motivo}`;
     const falas=[];
     for(const p of participantes.filter(x=>x!==g)){
       const hist=falas.map(x=>`[${x.nome}] ${x.texto}`).join('\n')||'ninguém falou';
-      const r=await S.ai.perguntar({sistema:`Você é ${p.nome}, ${p.cargo}. Reunião presencial de trabalho. Fale em voz alta, sem revelar raciocínio privado. Traga uma observação ou proposta que possa mudar a decisão. O produto e o site central devem nascer do contexto desta empresa; não use modelo ou layout pré-pronto.\n${estado}\nRETORNE: FALA: <até 65 palavras>`,pedido:`Histórico:\n${hist}\nDiga o que deve ser feito a seguir.`,tokens:150,agente:p.nome,agenteId:p.id,motivo:'reunião de trabalho'});
+      const r=await S.ai.perguntar({sistema:`Você é ${p.nome}, ${p.cargo}. Reunião presencial de trabalho. Fale em voz alta, sem revelar raciocínio privado. Traga uma observação ou proposta que possa mudar a decisão. O produto deve nascer do contexto e do acervo desta empresa; não use solução genérica.\n${estado}\nRETORNE: FALA: <até 65 palavras>`,pedido:`Histórico:\n${hist}\nDiga o que deve ser feito a seguir.`,tokens:150,agente:p.nome,agenteId:p.id,motivo:'reunião de trabalho'});
       const texto=r?String(r.campos.fala||'').trim():'';if(texto){falas.push({id:p.id,nome:p.nome,texto});registrarReuniao(p.nome,texto,'reuniao');logPessoa(p,`contribuiu: ${texto}`,'reuniao');p.ref.pensamento=texto.slice(0,220);p.balao=texto.slice(0,70);}
     }
     let decisao=null;
@@ -408,14 +423,16 @@
 
 
   const ACOES_OCIOSAS=[
-    {estado:'celular',balao:'mexendo no celular',estacao:'descanso',rotina:'lazer'},
-    {estado:'lendo',balao:'lendo um livro',estacao:'descanso',rotina:'leitura'},
-    {estado:'andando',balao:'dando uma volta',estacao:'quadro',rotina:'caminhada'},
+    {estado:'celular',balao:'descansando no jardim',estacao:'jardim',rotina:'lazer'},
+    {estado:'lendo',balao:'lendo no banco',estacao:'banco',rotina:'leitura'},
+    {estado:'andando',balao:'caminhando na praça',estacao:'parque',rotina:'caminhada'},
     {estado:'assistindo',balao:'assistindo TV',estacao:'tv',rotina:'lazer'},
     {estado:'comendo',balao:'pegando um café',estacao:'cafe',rotina:'refeicao'}
   ];
   function estaOcioso(p){return !!(p&&!p.ocupado&&['sentado','ocioso','celular','lendo','assistindo','comendo'].includes(p.estado));}
   function tarefaAdequadaLocal(e,p){
+    const funcionarios=new Set(rt.filter(x=>x.papel==='func').map(x=>x.id));
+    (e.tarefas||[]).forEach(t=>{if(t.status==='aberta'&&t.para&&!funcionarios.has(t.para))t.para=null;});
     const abertas=tarefasAbertas().filter(t=>dependenciasOK(t)&&!t.bloqueada&&!t._agenteEmExecucao);
     const propria=abertas.find(t=>t.para===p.id); if(propria)return propria;
     const livres=abertas.filter(t=>!t.para);
@@ -435,25 +452,14 @@
   }
   function acordarParaTrabalho(p){if(!p||p.ocupado)return;p.balao='nova tarefa';p.estado='andando';return irPara(p,assento(p)).then(()=>{p.estado='sentado';p.balao=null;p.ref.cuidados=p.ref.cuidados||{};p.ref.cuidados.rotina='trabalho';});}
   async function conversarOciosos(){
-    const e=S.state.atual();if(!e||Date.now()-ultimaConversaOciosa<SOCIAL_OCIOSO_MIN_MS||!S.ai.pronta()||(S.ai.orcamentoIndisponivel&&S.ai.orcamentoIndisponivel()))return;
+    // Vida social ociosa é local e não consome tokens. IA fica reservada a
+    // decisões, revisões e produção que realmente alteram o projeto.
+    const e=S.state.atual();if(!e||Date.now()-ultimaConversaOciosa<SOCIAL_OCIOSO_MIN_MS)return;
     const ps=rt.filter(p=>p.papel==='func'&&estaOcioso(p)&&Number(p.ref.energia)>25);if(ps.length<2)return;
-    const a=ps[0],b=ps[1]; if(!S.ai.disponivel(a.id))return; ultimaConversaOciosa=Date.now();
-    const projeto=e.projetos.find(x=>x.status==='ativo')||e.projetos[0];
-    const memA=(a.ref.memoria||[]).slice(-4).map(x=>x.texto||x).join(' | '), memB=(b.ref.memoria||[]).slice(-4).map(x=>x.texto||x).join(' | ');
-    try{
-      const r=await S.ai.perguntar({sistema:`Conversa casual curta entre dois colegas em tempo livre. Não invente fatos externos nem finja trabalho concluído. Eles podem comentar a empresa, uma ideia, uma entrega ou simplesmente trocar uma observação humana. Uma única chamada deve gerar as duas falas.
-EMPRESA=${e.nome}
-PROJETO=${projeto?.nome||'principal'}
-${a.nome}: ${memA||'sem memória recente'}
-${b.nome}: ${memB||'sem memória recente'}
-RETORNE SOMENTE:
-FALA_A: <até 24 palavras>
-FALA_B: <até 24 palavras>`,pedido:`${a.nome} e ${b.nome} estão sem tarefa e se encontraram no escritório. Gere uma conversa breve e natural.`,tokens:100,reasoning_effort:'low',agente:a.nome,agenteId:a.id,motivo:'conversa ociosa econômica'});
-      if(!r)return;const fa=String(r.campos.fala_a||'').trim(),fb=String(r.campos.fala_b||'').trim();
-      if(fa){a.balao=fa.slice(0,70);registrarReuniao(a.nome,fa,'interacao');} if(fb){b.balao=fb.slice(0,70);registrarReuniao(b.nome,fb,'interacao');}
-      if(fa||fb)memorizarInteracao(a,b,`${fa} ${fb}`.trim());
-      setTimeout(()=>{if(estaOcioso(a))a.balao=null;if(estaOcioso(b))b.balao=null;S.bus.emit('equipe');},4500);
-    }catch(_){ }
+    const a=ps[0],b=ps[1],projeto=e.projetos.find(x=>x.status==='ativo')||e.projetos[0];ultimaConversaOciosa=Date.now();
+    const fa=`Disponível para ajudar em ${String(projeto&&projeto.nome||'nosso projeto').slice(0,34)}.`,fb='Também. Quando entrar trabalho, eu assumo.';
+    a.balao=fa;b.balao=fb;memorizarInteracao(a,b,`${fa} ${fb}`);
+    setTimeout(()=>{if(estaOcioso(a))a.balao=null;if(estaOcioso(b))b.balao=null;S.bus.emit('equipe');},4000);
   }
   function socializar(){void conversarOciosos();}
 
@@ -572,7 +578,7 @@ FALA_B: <até 24 palavras>`,pedido:`${a.nome} e ${b.nome} estão sem tarefa e se
         autor: p ? p.nome : 'equipe', autorId: p ? p.id : null, criadoEm: Date.now(), quando: S.fmt.dataHora(),
         taskId: meta.taskId || null, baseArquivoId: meta.baseArquivoId || null,
         briefing: String(meta.briefing || '').slice(0, 500), liberadoPublicacao: false,
-        siteCentral: Boolean(meta.siteCentral), sitePath: meta.sitePath || (meta.siteCentral?a.nome:null), clienteVisivel: Boolean(meta.clienteVisivel)
+        clienteVisivel: Boolean(meta.clienteVisivel)
       };
       e.arquivos.unshift(arq);
       return arq;
@@ -732,16 +738,6 @@ FALA_B: <até 24 palavras>`,pedido:`${a.nome} e ${b.nome} estão sem tarefa e se
       if (!proj.arquivoIds.includes(produto.id)) proj.arquivoIds.unshift(produto.id);
       proj.atividade.unshift({ t: Date.now(), tipo: 'publicacao', texto: `${produto.nome} entrou no projeto.` });
       proj.atividade = proj.atividade.slice(-40);
-      // Tudo que é cliente-visível pertence ao site central da empresa.
-      // A equipe decide a arquitetura e a linguagem; o código não fornece template.
-      if (!base.siteCentral && base.clienteVisivel) {
-        const siteArquivos = e.arquivos.filter(a => a.siteCentral && a.projectId === proj.id);
-        const siteBase = siteArquivos.find(a => /(^|\/)index\.html$/i.test(a.sitePath || a.nome)) || siteArquivos[0];
-        if (siteBase) {
-          const jaExiste = e.tarefas.some(t => t.status !== 'feita' && t.projectId === proj.id && /integrar|site central/i.test(t.titulo));
-          if (!jaExiste) novaTarefa({titulo:`Integrar ${produto.nome} ao site central`,kit:'autonomo',briefing:`Integrar ${produto.nome} ao site central da empresa sem impor template. Leia a arquitetura atual, preserve o que funciona e faça a alteração necessária para o cliente encontrar e usar o produto.`,projectId:proj.id,baseArquivoId:siteBase.id,origem:'integração ao site central'});
-        }
-      }
     }
     // Publicar congela uma versão que a gerente considerou pronta para sair.
     // Não existe mercado, cliente ou receita simulados neste aplicativo.
@@ -1456,7 +1452,7 @@ MANIFESTO
       montar();
       const pr=e.projetos?.find(x=>x.status==='ativo')||e.projetos?.[0],produtoTit=limparTexto(((e.fundacao.primeiroProduto.match(/(?:^|\n)#{0,3}\s*(?:Nome do produto|Produto|Nome)\s*:?\s*(.+)/i)||[])[1]||'Primeiro produto')).slice(0,180);
       if(!pr)e.projetos=[{id:uid('proj'),nome:produtoTit,objetivo:e.fundacao.perguntas.objetivo||'Executar o planejamento do primeiro produto.',status:'ativo',criadoEm:Date.now(),tarefaIds:[],arquivoIds:[],atividade:[]}];else if(/primeiro produto|principal|planejamento inicial/i.test(pr.nome)){pr.nome=produtoTit||pr.nome;pr.objetivo=e.fundacao.perguntas.objetivo||pr.objetivo;}
-      const active=e.projetos.find(x=>x.status==='ativo')||e.projetos[0];e.site=e.site||{};e.site.projetoId=active?.id||e.site.projetoId;
+      const active=e.projetos.find(x=>x.status==='ativo')||e.projetos[0];
       if(!e.tarefas.some(t=>/plano de negócio|primeiro produto/i.test(t.titulo||'')))novaTarefa({titulo:'Consolidar plano de negócio e planejamento do primeiro produto',kit:'autonomo',briefing:`Criar os artefatos persistentes de estratégia e produto a partir da fundação decidida pela gerente. Preserve o contexto existente.
 
 PLANO DE NEGÓCIO:
@@ -1482,11 +1478,14 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     return true;
   }
   const fundacoesTentadasNestaSessao=new Set();
+  const fundacoesEmCurso=new Map();
   async function processarFundacaoAtual(forcar){
     const e=S.state.atual(); if(!e||!e.fundacao||e.fundacao.estado==='operacional')return true;
+    if(fundacoesEmCurso.has(e.id))return fundacoesEmCurso.get(e.id);
     if(!forcar&&fundacoesTentadasNestaSessao.has(e.id))return false;
     fundacoesTentadasNestaSessao.add(e.id);
-    return construirFundacao(e,e.fundacao.estado==='migracao_pendente'?'migracao':'nova');
+    const promessa=construirFundacao(e,e.fundacao.estado==='migracao_pendente'?'migracao':'nova').finally(()=>fundacoesEmCurso.delete(e.id));
+    fundacoesEmCurso.set(e.id,promessa);return promessa;
   }
 
   /* ============================================================
@@ -1550,6 +1549,12 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     if (d.acao === 'executar_tarefa' && d.tarefa) {
       const t = e.tarefas.find(x => x.id === d.tarefa && x.status === 'aberta' && dependenciasOK(x));
       if (!t || t._agenteEmExecucao) return false;
+      if(p.papel==='gerente'){
+        const indicado=rt.find(x=>x.papel==='func'&&(x.id===d.para||x.id===t.para));
+        t.para=indicado?indicado.id:null;
+        registrarReuniao(p.nome,`Deleguei “${t.titulo}”${indicado?` para ${indicado.nome}`:' para a equipe disponível'}.`,'ordem');
+        return despacharTarefa(t,indicado);
+      }
       t._agenteEmExecucao = p.id;
       const ok = await executar(p, t);
       delete t._agenteEmExecucao;
@@ -1562,9 +1567,14 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
       const titulo = String(d.titulo || (base ? `Evoluir ${base.nome}` : `Avançar ${projeto.nome}`)).trim().slice(0,180);
       const briefing = String(d.briefing || d.abordagem || d.motivo || `Executar a próxima contribuição concreta para ${projeto.objetivo}`).trim().slice(0,900);
       const destino=normalizarFrase(d.destino); const clienteVisivel=destino==='interno' ? false : true;
-      const t = novaTarefa({ titulo, kit:'autonomo', briefing, para:p.id, projectId:projeto.id, baseArquivoId:base ? base.id : null, clienteVisivel, origem:`decisão de ${p.nome}` });
+      const indicado=rt.find(x=>x.papel==='func'&&x.id===d.para);
+      const t = novaTarefa({ titulo, kit:'autonomo', briefing, para:p.papel==='gerente'?(indicado&&indicado.id||null):p.id, projectId:projeto.id, baseArquivoId:base ? base.id : null, clienteVisivel, origem:`decisão de ${p.nome}` });
       if (!t) return false;
       S.agency.marcarAcao(p,d);
+      if(p.papel==='gerente'){
+        registrarReuniao(p.nome,`Transformei a decisão em tarefa e deleguei “${t.titulo}”${indicado?` para ${indicado.nome}`:' para a equipe disponível'}.`,'ordem');
+        return despacharTarefa(t,indicado);
+      }
       return executar(p,t);
     }
 
@@ -1627,6 +1637,13 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
   /* Executa uma tarefa: pensamento visível, seguido imediatamente pela ação de produção. */
   async function executar(p, tarefa) {
     const e = S.state.atual(); if (!e || !p || !tarefa) return false;
+    // Regra de papel inviolável: a gerente coordena, revisa e delega. Mesmo
+    // uma saída inesperada do modelo não pode colocá-la na produção.
+    if(p.papel==='gerente'){
+      const indicado=rt.find(x=>x.papel==='func'&&!x.ocupado&&(!tarefa.para||x.id===tarefa.para));
+      tarefa.para=indicado?indicado.id:null;
+      return despacharTarefa(tarefa,indicado);
+    }
     p.ocupado = true; p.tarefa = tarefa.titulo; p.progresso = 0;
     p.ref.foco = tarefa.titulo; p.ref.pensamento = 'Vou examinar o objetivo, a tarefa e o que já existe antes de alterar o acervo.';
     tarefa.status = 'fazendo'; tarefa.para = p.id;
@@ -1658,7 +1675,7 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
         logPessoa(p, `removeu um artefato que julgou inadequado ao objetivo.`, 'entrega'); sucesso=true;
       } else if (saida.arquivos && saida.arquivos.length) {
         const etapaSaida=['esboco','prototipo','candidato'].includes(String(tarefa.etapaDestino||'')) ? tarefa.etapaDestino : (tarefa.clienteVisivel?'esboco':'prototipo');
-        const salvos = salvarArquivos(saida.arquivos, { projectId:tarefa.projectId, taskId:tarefa.id, baseArquivoId:tarefa.baseArquivoId || null, briefing:tarefa.briefing, viaIA:true, kit:tarefa.kit||'autonomo', classe:etapaSaida, validacao:saida.validacao || null, siteCentral:Boolean(saida.siteCentral), sitePath:saida.sitePath||null, clienteVisivel:Boolean(tarefa.clienteVisivel), linhagem:(tarefa.baseArquivoId && e.arquivos.find(a=>a.id===tarefa.baseArquivoId)?.linhagem) || saida.linhagem || null, grupoEntrega:saida.bundle?uid('grp'):null }, p);
+        const salvos = salvarArquivos(saida.arquivos, { projectId:tarefa.projectId, taskId:tarefa.id, baseArquivoId:tarefa.baseArquivoId || null, briefing:tarefa.briefing, viaIA:true, kit:tarefa.kit||'autonomo', classe:etapaSaida, validacao:saida.validacao || null, clienteVisivel:Boolean(tarefa.clienteVisivel), linhagem:(tarefa.baseArquivoId && e.arquivos.find(a=>a.id===tarefa.baseArquivoId)?.linhagem) || saida.linhagem || null, grupoEntrega:saida.bundle?uid('grp'):null }, p);
         if(saida.solicitacaoAcervo&&saida.acervoId&&S.acervo)S.acervo.solicitarMudanca(saida.acervoId,tarefa.projectId,p.id,saida.solicitacaoAcervo);
         tarefa.contributors = Array.isArray(tarefa.contributors) ? tarefa.contributors : []; if(!tarefa.contributors.includes(p.id)) tarefa.contributors.push(p.id);
         tarefa.status='feita'; tarefa.concluidaEm=Date.now(); tarefa.arquivo=salvos[0] && salvos[0].id; tarefa.handoff=`${p.nome} entregou ${salvos.map(a=>a.nome).join(', ')} para inspeção da gerente.`; tarefa.validacao=saida.validacao || null;
@@ -1731,8 +1748,8 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
           S.agency.marcarAcao(g,d);
           await materializarDecisaoAgente(g,d);
         }
-        const produtiva=d&&['criar_tarefa','revisar','estudar','planejar','executar_tarefa'].includes(d.acao)&&normalizarFrase(d.destino)!=='interno';
-        if(produtiva){ S.agency.marcarAcao(g,d); const fez=await materializarDecisaoAgente(g,d); if(fez)return; }
+        const produtiva=d&&['criar_tarefa','revisar','estudar','planejar','executar_tarefa'].includes(d.acao);
+        if(produtiva){S.agency.marcarAcao(g,d);const fez=await materializarDecisaoAgente(g,d);if(fez)return;}
         if(abrirFrenteProduto(e,g,d))S.bus.emit('trabalho');
       }
     }
@@ -1754,6 +1771,7 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     motorTimer = setInterval(() => { ciclo(alvo).catch(err => console.error('ciclo', err)); }, 6000);
     vitaisTimer = setInterval(tickVitais, 7000);
     socialTimer = setInterval(() => { try { socializar(); } catch(_){} }, 30000);
+    setTimeout(()=>ciclo(alvo).catch(err=>console.error('ciclo inicial',err)),80);
     if (!animacao) laco();
   }
   function parar() {
@@ -1764,10 +1782,20 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
   }
 
   /* ============================================================
-     Desenho do chão. Redesenhado a 30 fps só quando há movimento,
-     para não gastar bateria à toa no celular.
+     Mundo, câmera e desenho. A simulação usa coordenadas fixas; a câmera
+     oferece zoom sem distorcer o tilemap nem perder precisão nos toques.
      ============================================================ */
-  let cv = null, cx = null, larguraLog = 640, alturaLog = 360, ultimo = 0;
+  let cv=null,cx=null,larguraLog=640,alturaLog=360,ultimo=0,zoomMapa=1,cameraX=0,cameraY=0,escalaTela=1,dprTela=1,visivelW=640,visivelH=360;
+
+  function limitarCamera(){
+    cameraX=visivelW>=larguraLog?(larguraLog-visivelW)/2:clamp(cameraX,0,larguraLog-visivelW);
+    cameraY=visivelH>=alturaLog?(alturaLog-visivelH)/2:clamp(cameraY,0,alturaLog-visivelH);
+  }
+  function aplicarCamera(){
+    if(!cx)return;const fator=escalaTela*dprTela*zoomMapa;
+    cx.setTransform(fator,0,0,fator,-cameraX*fator,-cameraY*fator);
+    cx.imageSmoothingEnabled=false;
+  }
 
   function ajustarCanvas() {
     cv = document.getElementById('floor'); if (!cv) return;
@@ -1778,14 +1806,19 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     const larguraCSS = (cv.parentElement.clientWidth || 0) - 2;
     const alturaCSS = (cv.parentElement.clientHeight || 0) - 2;
     if (larguraCSS < 40 || alturaCSS < 40) return;
-    const escala = Math.min(larguraCSS / larguraLog, alturaCSS / alturaLog);
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    cv.width = Math.round(larguraLog * escala * dpr);
-    cv.height = Math.round(alturaLog * escala * dpr);
-    cv.style.width = Math.round(larguraLog * escala) + 'px';
-    cv.style.height = Math.round(alturaLog * escala) + 'px';
-    cx.setTransform(escala * dpr, 0, 0, escala * dpr, 0, 0);
+    visivelW=larguraLog/zoomMapa;visivelH=alturaLog/zoomMapa;limitarCamera();
+    escalaTela=Math.min(larguraCSS/visivelW,alturaCSS/visivelH);
+    dprTela=Math.min(2,window.devicePixelRatio||1);
+    cv.width=Math.round(visivelW*escalaTela*dprTela);cv.height=Math.round(visivelH*escalaTela*dprTela);
+    cv.style.width=Math.round(visivelW*escalaTela)+'px';cv.style.height=Math.round(visivelH*escalaTela)+'px';
+    aplicarCamera();
   }
+  function definirZoom(valor){
+    const anteriorW=visivelW,anteriorH=visivelH,centroX=cameraX+anteriorW/2,centroY=cameraY+anteriorH/2;
+    zoomMapa=clamp(Math.round(Number(valor||1)*4)/4,.75,2.25);visivelW=larguraLog/zoomMapa;visivelH=alturaLog/zoomMapa;
+    cameraX=centroX-visivelW/2;cameraY=centroY-visivelH/2;ajustarCanvas();S.bus.emit('zoom',zoomMapa);return zoomMapa;
+  }
+  function centralizarEm(x,y){visivelW=larguraLog/zoomMapa;visivelH=alturaLog/zoomMapa;cameraX=x-visivelW/2;cameraY=y-visivelH/2;limitarCamera();aplicarCamera();}
 
   function rrect(x, y, w, h, r) {
     cx.beginPath();
@@ -1804,77 +1837,37 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
 
   function desenhar(agora) {
     if (!cx) return;
-    cx.clearRect(0, 0, larguraLog, alturaLog);
+    cx.save();cx.setTransform(1,0,0,1,0,0);cx.clearRect(0,0,cv.width,cv.height);cx.restore();aplicarCamera();
     const tileParede = S.assets && S.assets.get('tile_parede');
     const tilePiso = S.assets && S.assets.get('tile_piso_madeira');
     const salas = LAYOUT.salas || null;
-    if (salas && salas.length) {
-      // Planta de jogo: volumes claros, pisos distintos e corredores legíveis.
-      cx.fillStyle = '#080D18'; cx.fillRect(0, 0, larguraLog, alturaLog);
-      cx.fillStyle = '#101A2B'; cx.fillRect(10, 10, larguraLog - 20, alturaLog - 20);
-      cx.fillStyle = '#2A3A50'; cx.fillRect(10, 10, larguraLog - 20, 5);
-      salas.forEach(s => {
-        const cor = s.piso === 'tapete' ? '#17243A' : s.piso === 'executivo' ? '#2B211E' : s.piso === 'social' ? '#163034' : '#392A22';
-        const linha = s.piso === 'tapete' ? '#223653' : s.piso === 'social' ? '#205057' : '#4B3528';
-        cx.fillStyle = cor; cx.fillRect(s.x, s.y, s.w, s.h);
-        cx.fillStyle = linha;
-        if (s.piso === 'tapete') {
-          for (let x=s.x+6;x<s.x+s.w-4;x+=12) for(let y=s.y+28;y<s.y+s.h-4;y+=12) cx.fillRect(x,y,2,2);
-        } else {
-          for (let y=s.y+24;y<s.y+s.h;y+=16) cx.fillRect(s.x,y,s.w,1);
-          for (let x=s.x+24;x<s.x+s.w;x+=48) cx.fillRect(x,s.y+24,1,s.h-24);
-        }
-        cx.strokeStyle = '#070B13'; cx.lineWidth = 5; cx.strokeRect(s.x, s.y, s.w, s.h);
-        cx.strokeStyle = '#51637A'; cx.lineWidth = 1; cx.strokeRect(s.x+3, s.y+3, s.w-6, s.h-6);
-        cx.fillStyle = '#101827'; cx.fillRect(s.x + 3, s.y + 3, s.w - 6, 20);
-        cx.fillStyle = '#F2B35D'; cx.fillRect(s.x + 8, s.y + 21, 34, 2);
-        cx.fillStyle = '#D7DEEA'; cx.font = '700 9px monospace'; cx.textAlign = 'left'; cx.fillText(s.nome, s.x + 9, s.y + 16);
+    if(salas&&salas.length){
+      const tile=Number(LAYOUT.tile)||32,pred=LAYOUT.predio||{x:0,y:0,w:larguraLog,h:alturaLog};
+      // Mundo externo em tiles: grama, pequenas flores e caminhos públicos.
+      for(let y=0;y<alturaLog;y+=tile)for(let x=0;x<larguraLog;x+=tile){const n=((x/tile)*13+(y/tile)*7)%5;cx.fillStyle=['#285a38','#2d623d','#326a42','#2a6039','#356e45'][n];cx.fillRect(x,y,tile,tile);cx.fillStyle='rgba(12,49,27,.24)';cx.fillRect(x,y+tile-2,tile,2);if(n===3&&y>620){cx.fillStyle='#e4c65a';cx.fillRect(x+8,y+10,3,3);cx.fillStyle='#e7e3cb';cx.fillRect(x+11,y+8,2,2);}}
+      const caminho=(x,y,w,h)=>{for(let yy=y;yy<y+h;yy+=tile)for(let xx=x;xx<x+w;xx+=tile){cx.fillStyle=((xx+yy)/tile)%2?'#b6a079':'#aa946e';cx.fillRect(xx,yy,Math.min(tile,x+w-xx),Math.min(tile,y+h-yy));cx.fillStyle='rgba(75,61,43,.22)';cx.fillRect(xx,yy,Math.min(tile,x+w-xx),2);}};
+      caminho(744,592,112,208);caminho(0,672,1600,80);
+      // Lago, jardim, bancos e árvores compõem uma área realmente visitável.
+      (LAYOUT.decoracoes||[]).forEach(o=>{
+        if(o.tipo==='lago'){cx.fillStyle='#163f56';cx.fillRect(o.x,o.y,o.w,o.h);for(let x=o.x+8;x<o.x+o.w-6;x+=28){cx.fillStyle='#4d9aaa';cx.fillRect(x,o.y+18+(x%3)*8,16,3);}cx.fillStyle='#6b8050';cx.fillRect(o.x,o.y,o.w,5);}
+        if(o.tipo==='canteiro'){cx.fillStyle='#694a31';cx.fillRect(o.x,o.y,o.w,o.h);for(let x=o.x+12;x<o.x+o.w;x+=24)for(let y=o.y+12;y<o.y+o.h;y+=22){cx.fillStyle=(x+y)%3?'#f0bd59':'#e47b83';cx.fillRect(x,y,6,6);cx.fillStyle='#295b35';cx.fillRect(x+2,y+6,2,7);}}
+        if(o.tipo==='banco'){cx.fillStyle='rgba(0,0,0,.25)';cx.fillRect(o.x-44,o.y+14,88,8);cx.fillStyle='#815936';cx.fillRect(o.x-42,o.y-4,84,9);cx.fillRect(o.x-42,o.y+8,84,7);cx.fillStyle='#3d352d';cx.fillRect(o.x-33,o.y+15,7,13);cx.fillRect(o.x+26,o.y+15,7,13);}
+        if(o.tipo==='arvore'){cx.fillStyle='rgba(0,0,0,.24)';cx.fillRect(o.x-28,o.y+25,58,13);cx.fillStyle='#684627';cx.fillRect(o.x-7,o.y,14,34);cx.fillStyle='#164b2d';cx.fillRect(o.x-28,o.y-33,56,45);cx.fillStyle='#257342';cx.fillRect(o.x-19,o.y-44,39,52);cx.fillStyle='#389052';cx.fillRect(o.x-13,o.y-37,23,16);}
       });
-      // Passagem central e janelas externas dão leitura de edifício único.
-      cx.fillStyle='#0B1321'; cx.fillRect(16,183,1168,11);
-      for(let x=46;x<1160;x+=96){cx.fillStyle='#25415A';cx.fillRect(x,13,62,7);cx.fillStyle='#6FA3B6';cx.fillRect(x+3,14,56,3);}
-      // Portas abertas, recepção, arquivo, showroom e mesas coletivas fazem o
-      // mapa parecer uma empresa em operação, não um conjunto de caixas-teste.
-      [142,392,696,1012].forEach(x=>{cx.fillStyle='#0B1321';cx.fillRect(x,176,44,18);cx.fillStyle='#B98546';cx.fillRect(x+3,178,18,3);});
-      const movel=(col,lin,x,y,w,h)=>{cx.fillStyle='rgba(0,0,0,.28)';cx.fillRect(x+5,y+h-3,w-2,5);desenharAtlas('office_atlas',col,lin,x,y,w,h);};
-      movel(3,0,52,87,110,62); movel(1,2,205,76,42,72);
-      movel(2,1,319,73,150,94); [295,340,420,465].forEach(x=>{cx.fillStyle='#27364a';cx.fillRect(x,145,25,15);});
-      movel(1,3,580,48,104,58); movel(0,2,758,54,54,92);
-      movel(0,1,900,82,108,66); movel(1,2,1090,60,52,88);
-      movel(3,0,62,252,118,62); movel(0,2,208,225,48,98);
-      movel(0,2,300,222,48,104); movel(0,2,482,222,48,104);
-      movel(2,2,585,235,58,70); movel(3,1,704,260,116,68); movel(3,2,870,220,94,65); movel(1,2,1110,226,48,100);
-      // Quadro de produto: cada release real ocupa um slot iluminado no escritório.
-      const produtos=((S.state.atual()&&S.state.atual().arquivos)||[]).filter(a=>a.classe==='produto').slice(0,6);
-      cx.fillStyle='#0A111E';cx.fillRect(970,310,176,48);cx.strokeStyle='#56718e';cx.strokeRect(970,310,176,48);
-      cx.fillStyle='#F2B35D';cx.font='700 8px monospace';cx.textAlign='left';cx.fillText('PRODUTOS REAIS',978,322);
-      for(let i=0;i<6;i++){const x=980+i*26;cx.fillStyle=produtos[i]?'#55B7AD':'#1B2A3D';cx.fillRect(x,330,18,18);if(produtos[i]){cx.fillStyle='#D9FFF8';cx.fillRect(x+4,334,10,2);cx.fillRect(x+4,339,7,2);}}
-      // Luzes de monitores e café animam o ambiente mesmo quando ninguém caminha.
-      const brilho=.45+.25*Math.sin(agora/420);cx.fillStyle=`rgba(91,208,202,${brilho})`;[104,952].forEach(x=>cx.fillRect(x,101,20,5));
-      cx.fillStyle='rgba(232,238,220,.55)';for(let i=0;i<3;i++){const yy=232-((agora/180+i*7)%18);cx.fillRect(610+i*3,yy,2,4);}
-    } else {
-    // Piso em pixel art: blocos discretos, paredes, janelas e pequenas áreas de uso.
-    cx.fillStyle = '#101418'; cx.fillRect(0, 0, larguraLog, alturaLog);
-    cx.fillStyle = '#181E22'; cx.fillRect(14, 14, larguraLog-28, alturaLog-28);
-    cx.fillStyle = '#20272B';
-    for (let x = 24; x < larguraLog-20; x += 32) for (let y = 24; y < alturaLog-20; y += 32) cx.fillRect(x, y, 30, 30);
-    // Ilhas de uso: o escritório deixa de ser um fundo decorativo e passa a ter geografia.
-    Object.entries(AMB_ZONAS).forEach(([nome,z])=>{
-      cx.fillStyle = nome==='convivio' ? '#202B2B' : nome==='bemestar' ? '#202C27' : nome==='planejamento' ? '#29282B' : '#20272B';
-      cx.fillRect(z.x,z.y,z.w,z.h); cx.strokeStyle='#30393D'; cx.lineWidth=1; cx.strokeRect(z.x,z.y,z.w,z.h);
-      cx.fillStyle='#667075'; cx.font='600 8px monospace'; cx.textAlign='left'; cx.fillText(nome.toUpperCase(),z.x+7,z.y+12);
-    });
-    cx.fillStyle = '#2A3237'; cx.fillRect(18,18,larguraLog-36,5); cx.fillRect(18,18,5,alturaLog-36); cx.fillRect(larguraLog-23,18,5,alturaLog-36);
-    // janela
-    cx.fillStyle='#25353A'; cx.fillRect(470,22,140,48); cx.fillStyle='#77A6A8'; cx.fillRect(478,30,124,32); cx.fillStyle='#B8D6C7'; cx.fillRect(482,34,116,24);
-    cx.fillStyle='#31454A'; cx.fillRect(536,30,4,32); cx.fillRect(478,44,124,4);
-    // tapete
-    cx.fillStyle='#1D2930'; cx.fillRect(262,246,188,72); cx.fillStyle='#283840'; cx.fillRect(270,254,172,56);
-
-    // Pequenos detalhes fixos dão escala de mundo sem imagens externas.
-    cx.fillStyle='#39464A'; cx.fillRect(42,42,18,8); cx.fillRect(46,50,10,3);
-    cx.fillStyle='#5B5140'; cx.fillRect(612,74,8,90); cx.fillRect(620,78,4,86);
-    cx.fillStyle='#26353A'; cx.fillRect(34,206,34,3); cx.fillRect(602,206,22,3);
+      // Prédio único, com piso de madeira em grid e tapetes de reunião/QA.
+      cx.fillStyle='rgba(4,10,12,.38)';cx.fillRect(pred.x+12,pred.y+14,pred.w,pred.h+10);
+      cx.fillStyle='#493326';cx.fillRect(pred.x,pred.y,pred.w,pred.h);
+      salas.forEach(s=>{
+        for(let y=s.y;y<s.y+s.h;y+=tile)for(let x=s.x;x<s.x+s.w;x+=tile){const carpete=s.piso==='tapete';cx.fillStyle=carpete?(((x+y)/tile)%2?'#26364c':'#2b3d55'):(((x/tile)|0)%2?'#8a5f3c':'#966b45');cx.fillRect(x,y,Math.min(tile,s.x+s.w-x),Math.min(tile,s.y+s.h-y));if(!carpete){cx.fillStyle='rgba(55,30,18,.34)';cx.fillRect(x,y+tile-2,Math.min(tile,s.x+s.w-x),2);cx.fillRect(x+tile/2,y,1,Math.min(tile,s.y+s.h-y));}}
+        cx.strokeStyle='#39291f';cx.lineWidth=4;cx.strokeRect(s.x,s.y,s.w,s.h);cx.fillStyle='rgba(10,17,25,.82)';cx.fillRect(s.x+4,s.y+4,Math.min(150,s.w-8),17);cx.fillStyle='#f4d195';cx.font='700 8px monospace';cx.textAlign='left';cx.fillText(s.nome,s.x+9,s.y+16);
+      });
+      // Fachada sólida e porta dupla voltada para a praça.
+      cx.fillStyle='#182536';cx.fillRect(pred.x,pred.y,pred.w,14);cx.fillRect(pred.x,pred.y,14,pred.h);cx.fillRect(pred.x+pred.w-14,pred.y,14,pred.h);cx.fillRect(pred.x,pred.y+pred.h-14,566,14);cx.fillRect(pred.x+658,pred.y+pred.h-14,pred.w-658,14);
+      for(let x=pred.x+36;x<pred.x+pred.w-60;x+=112){cx.fillStyle='#315a70';cx.fillRect(x,pred.y+3,72,8);cx.fillStyle='#8dc2c8';cx.fillRect(x+4,pred.y+4,64,3);}
+      cx.fillStyle='#c18a4d';cx.fillRect(754,pred.y+pred.h-16,42,18);cx.fillRect(806,pred.y+pred.h-16,40,18);cx.fillStyle='#e9c477';cx.fillRect(793,pred.y+pred.h-10,4,4);cx.fillRect(806,pred.y+pred.h-10,4,4);
+      const movel=(col,lin,x,y,w,h)=>{cx.fillStyle='rgba(0,0,0,.25)';cx.fillRect(x+5,y+h-4,w-3,6);desenharAtlas('office_atlas',col,lin,x,y,w,h);};
+      movel(2,1,490,220,138,84);movel(3,1,1040,482,116,66);movel(0,2,1230,220,56,92);movel(1,2,1350,438,48,84);movel(2,2,820,438,48,62);
+      const produtos=((S.state.atual()&&S.state.atual().arquivos)||[]).filter(a=>a.classe==='produto').slice(0,6);cx.fillStyle='#101a28';cx.fillRect(1168,530,184,45);cx.strokeStyle='#56718e';cx.strokeRect(1168,530,184,45);cx.fillStyle='#f2b35d';cx.font='700 8px monospace';cx.fillText('PRODUTOS REAIS',1176,542);for(let i=0;i<6;i++){cx.fillStyle=produtos[i]?'#55b7ad':'#26364b';cx.fillRect(1178+i*27,550,19,16);}
     }
     // Objetos persistentes construídos pelos agentes: sprite quando existe,
     // senão um quadrado colorido simples — sem desenho vetorial detalhado.
@@ -1896,6 +1889,7 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     // estações
     Object.keys(ESTACOES).forEach(k => {
       const s = ESTACOES[k];
+      if(s.exterior)return;
       const w=s.w||70,h=s.h||48, cel=s.sprite;
       const arte=cel && desenharAtlas('office_atlas',cel[0],cel[1],s.x-w/2,s.y-h/2,w,h);
       if(!arte){cx.fillStyle='#172238';cx.strokeStyle='#40526A';cx.lineWidth=1;rrect(s.x-w/2,s.y-h/2,w,h,3);cx.fill();cx.stroke();}
@@ -1986,10 +1980,16 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
         p.direcao = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'esquerda' : 'direita') : (dy < 0 ? 'cima' : 'baixo');
         const d = Math.hypot(dx, dy), passo = 78 * dt;
         if (d <= passo) {
-          p.pos.x = p.alvo.x; p.pos.y = p.alvo.y; p.alvo = null;
-          p.estado = p.ocupado ? 'trabalhando' : 'sentado';
-          if (p._chegou) { const f = p._chegou; p._chegou = null; f(); }
-        } else { p.pos.x += (dx / d) * passo; p.pos.y += (dy / d) * passo; }
+          p.pos.x=p.alvo.x;p.pos.y=p.alvo.y;
+          if(p.caminho&&p.caminho.length){p.alvo=p.caminho.shift();}
+          else{p.alvo=null;p.caminho=[];p.estado=p.ocupado?'trabalhando':'sentado';if(p._chegou){const f=p._chegou;p._chegou=null;f();}}
+        } else {
+          const nx=p.pos.x+(dx/d)*passo,ny=p.pos.y+(dy/d)*passo;
+          if(!pontoBloqueado(nx,ny)){p.pos.x=nx;p.pos.y=ny;}
+          else if(!pontoBloqueado(nx,p.pos.y))p.pos.x=nx;
+          else if(!pontoBloqueado(p.pos.x,ny))p.pos.y=ny;
+          else{p.caminho=caminhoEmGrid(p.pos,p.destinoFinal||p.alvo);p.alvo=p.caminho.shift()||null;}
+        }
         mexeu = true;
       }
       if (p.ocupado) mexeu = true;
@@ -2011,7 +2011,7 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
       const dt = Math.min(0.05, (ts - (ultimo || ts)) / 1000);
       ultimo = ts;
       fisica(dt);
-      if (document.visibilityState === 'visible' && ts - (laco._ultimoDesenho || 0) > 80) { desenhar(ts); laco._ultimoDesenho = ts; }
+      if(document.visibilityState==='visible')desenhar(ts);
       laco();
     });
   }
@@ -2019,10 +2019,9 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
   function cliqueNoChao(ev) {
     if (!cv) return null;
     const r = cv.getBoundingClientRect();
-    const escala = larguraLog / r.width;
-    const x = (ev.clientX - r.left) * escala, y = (ev.clientY - r.top) * escala;
+    const x=cameraX+(ev.clientX-r.left)*(visivelW/r.width),y=cameraY+(ev.clientY-r.top)*(visivelH/r.height);
     const alvo = rt.find(p => Math.hypot(p.pos.x - x, p.pos.y - y) < 24);
-    if (alvo) { selecionado = alvo.id; return alvo; }
+    if(alvo){selecionado=alvo.id;if(zoomMapa>1)centralizarEm(alvo.pos.x,alvo.pos.y);return alvo;}
     const objs=(S.state.atual()&&S.state.atual().ambiente&&S.state.atual().ambiente.objetos)||[];
     const objeto=objs.find(o=>Math.hypot((o.x||0)-x,(o.y||0)-y)<Math.max(22,((OBJETOS_AMBIENTE[o.tipo]||{}).w||24)/2));
     selecionado = null;
@@ -2032,7 +2031,7 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
   S.studio = {
     reuniaoFalar, reuniaoInterna, relatorioReuniao, registrarReuniao, gerarRelatorioLocal,
     ESPECIALIDADES, NOMES,
-    montar, iniciar, parar, ajustarCanvas, cliqueNoChao,
+    montar, iniciar, parar, ajustarCanvas, cliqueNoChao, definirZoom, zoomAtual:()=>zoomMapa, centralizarEm,
     pessoas: () => rt, pessoa, gerente,
     novaTarefa, tarefasAbertas, despacharTarefa, executar, registrarContribuicaoAcervo,
     salvarArquivos, publicar, editarArquivo,

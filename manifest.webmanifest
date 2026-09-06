@@ -1,7 +1,7 @@
 {
-  "name": "Estúdio — simulador com entregas reais",
-  "short_name": "Estúdio",
-  "description": "Simulação de equipe de IA trabalhando autonomamente em projetos persistentes e produzindo arquivos reais.",
+  "name": "Agents Enterprise — produtos reais",
+  "short_name": "Agents Enterprise",
+  "description": "Jogo 2D de construção e gestão de empresas de agentes que produzem arquivos reais.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

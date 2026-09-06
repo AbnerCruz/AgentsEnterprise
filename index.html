@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <meta name="theme-color" content="#11182A">
-<meta name="description" content="Estúdio: agentes de IA fundam e operam uma empresa de verdade, em um escritório 2D top-down.">
-<title>Estúdio</title>
+<meta name="description" content="Agents Enterprise: jogo 2D top-down de construção e gestão de empresas de agentes que produzem produtos reais.">
+<title>Agents Enterprise</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230E1113'/><path d='M9 22V10h7a4 4 0 0 1 0 8h-4l5 4' stroke='%23E4703E' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="stylesheet" href="game.css">
@@ -13,21 +13,19 @@
 <body>
 
 <header id="hud" class="hud" aria-label="Estado da empresa">
+  <button id="btnMenu" class="hud-menu" title="Menu principal" aria-label="Menu principal">☰</button>
   <div class="hud-marca">
     <span class="hud-logo" id="hudLogo">E</span>
     <div>
-      <b id="hudNome">Estúdio</b>
+      <b id="hudNome">Agents Enterprise</b>
       <small id="hudRamo">carregando…</small>
     </div>
   </div>
   <div class="hud-stats" id="hudStats"></div>
-  <div class="hud-acoes">
-    <button id="btnAcervo" class="hud-icone" title="Acervo soberano e projetos" aria-label="Acervo soberano e projetos">▣</button>
-    <button id="btnEmpresa" class="hud-icone" title="Identidade da empresa" aria-label="Identidade da empresa">◆</button>
-    <button id="btnConstruir" class="hud-icone" title="Construir no escritório" aria-label="Construir no escritório">▦</button>
-    <button id="btnEconomia" class="hud-icone" title="Economia da empresa" aria-label="Economia da empresa">$</button>
-    <button id="btnConfig" class="hud-icone" title="Motor de IA" aria-label="Motor de IA">⚙</button>
-    <button id="btnMenu" class="hud-icone" title="Administração e arquivos" aria-label="Administração e arquivos">☰</button>
+  <div class="zoom-controls" aria-label="Zoom do mapa">
+    <button id="zoomMenos" type="button" aria-label="Diminuir zoom">−</button>
+    <span id="zoomValor">100%</span>
+    <button id="zoomMais" type="button" aria-label="Aumentar zoom">+</button>
   </div>
 </header>
 
@@ -91,6 +89,27 @@
     <div id="dockIA" class="painel-corpo lista"></div>
   </section>
 </footer>
+
+<section id="mainMenu" class="main-menu" aria-label="Menu principal">
+  <div class="menu-pixel-card">
+    <span class="menu-kicker">SIMULAÇÃO DE EMPRESA</span>
+    <h1>AGENTS<br>ENTERPRISE</h1>
+    <p>Construa uma empresa viva. Seus agentes trabalham em projetos reais e entregam produtos prontos para vender ou distribuir.</p>
+    <div class="menu-primary">
+      <button id="menuContinuar" class="botao">Continuar empresa</button>
+      <button id="menuNova" class="botao fraco">Nova empresa</button>
+      <button id="menuEmpresas" class="botao fraco">Empresas</button>
+    </div>
+    <div class="menu-tools">
+      <button id="btnEmpresa" type="button">Identidade</button>
+      <button id="btnAcervo" type="button">Acervos</button>
+      <button id="btnConstruir" type="button">Construção</button>
+      <button id="btnEconomia" type="button">Economia</button>
+      <button id="btnConfig" type="button">Configurar IA</button>
+    </div>
+    <small id="menuStatus">Carregando o mundo…</small>
+  </div>
+</section>
 
 <div class="orientation-hint" aria-hidden="true">
   <span class="rotate-phone">▯</span>

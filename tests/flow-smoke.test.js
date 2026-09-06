@@ -53,10 +53,13 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
 
   const ref=S.acervo.adicionar({nome:'brand-guide.md',tipo:'md',conteudo:'# Verdade da marca\n\nNunca contradizer esta proposta.',descricao:'Base máxima da empresa.',origem:'dispositivo'});
   assert.equal(ref.imutavelParaAgentes,true);
+  assert.equal(ref.escopo,'empresa');assert.ok(ref.globalId,'item da empresa precisa alimentar o global');
+  assert.ok(S.acervo.globais().some(a=>a.id===ref.globalId&&a.empresaItemId===ref.id));
   assert.equal(S.acervo.vincular(ref.id,'pr1'),true);
   assert.match(S.acervo.contexto('pr1'),/Nunca contradizer esta proposta/);
   const versaoRef=ref.versao;S.acervo.atualizarPeloUsuario(ref.id,{conteudo:'# Verdade da marca\n\nRegra atualizada exclusivamente pelo dono.'});
   assert.equal(ref.versao,versaoRef+1);assert.match(S.acervo.contexto('pr1'),/exclusivamente pelo dono/);
+  assert.equal(S.acervo.item(ref.globalId).versao,ref.versao,'edição da empresa deve atualizar o espelho global');
   S.acervo.atualizarProjetoDados('pr1',{resumo:'Projeto com contexto próprio',requisitos:'Coerência total com o acervo',publico:'compradores reais',riscos:'contradição'});
   assert.equal(e.projetos[0].dados.requisitos,'Coerência total com o acervo');
   const sol=S.acervo.solicitarMudanca(ref.id,'pr1','a1','Explorar uma alternativa sem alterar a regra original.');
@@ -71,9 +74,9 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   const branchProduto=S.studio.publicar(branchCandidato.id,'você','release da branch');assert.equal(branchProduto.projectId,branchProject.id);assert.equal(branchProduto.classe,'produto');
   const promovido=S.acervo.promoverProduto(produto.id);
   assert.equal(promovido.produtoOrigemId,produto.id);assert.equal(S.acervo.promoverProduto(produto.id).id,promovido.id,'promoção do mesmo produto é idempotente');
-  const removivel=S.acervo.adicionar({nome:'temporario.txt',tipo:'txt',conteudo:'temporário'});S.acervo.vincular(removivel.id,'pr1');
-  assert.equal(S.acervo.remover(removivel.id),true);assert.ok(!e.projetos.find(p=>p.id==='pr1').acervoIds.includes(removivel.id));
-  S.state.gravarJa();const persistido=JSON.parse(store.get('estudio-db-v2'));assert.ok(persistido.acervoUsuario.some(a=>a.id===ref.id));
+  const removivel=S.acervo.adicionar({nome:'temporario.txt',tipo:'txt',conteudo:'temporário'}),espelhoRemovivel=removivel.globalId;S.acervo.vincular(removivel.id,'pr1');
+  assert.equal(S.acervo.remover(removivel.id),true);assert.ok(!e.projetos.find(p=>p.id==='pr1').acervoIds.includes(removivel.id));assert.ok(!S.acervo.globais().some(a=>a.id===espelhoRemovivel));
+  S.state.gravarJa();const persistido=JSON.parse(store.get('estudio-db-v2'));assert.ok(persistido.estudios[0].acervoUsuario.some(a=>a.id===ref.id));assert.ok(persistido.acervoUsuario.some(a=>a.id===ref.globalId));
 
   const ruim=salvar('candidato',prototipo,texto+' TODO preencher preço');
   assert.equal(S.studio.publicar(ruim.id,'você','deve bloquear'),null);
@@ -128,9 +131,13 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   const corpoZip=Buffer.from(await zipImagem.arrayBuffer()).toString('latin1');assert.match(corpoZip,/png-real/);assert.doesNotMatch(corpoZip,/data:image\/png/,'ZIP deve conter bytes da imagem, não a data URL textual');
   const studioSource=fs.readFileSync(path.join(__dirname,'..','studio.js'),'utf8');
   assert.doesNotMatch(studioSource,/cadenciaGerencia|ESPERA_FUNDACAO_MS|proximaAvaliacao\s*=|proximaTentativa\s*=\s*Date/);
+  assert.match(studioSource,/if\(p\.papel==='gerente'\)/,'gerente precisa de guarda explícita contra produção');
+  assert.doesNotMatch(studioSource,/motivo:'conversa ociosa econômica'/,'ociosidade não pode gastar tokens');
+  assert.doesNotMatch(studioSource,/_ultimoDesenho[^\n]+80/,'animação não pode continuar limitada a 12,5 fps');
   const index=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
-  for(const id of ['floor','hudStats','dockGerente','dockTarefas','dockProdutos','dockLog','dockIA','modal','btnFundar','btnConfig','btnAcervo'])assert.match(index,new RegExp(`id="${id}"`));
+  for(const id of ['floor','hudStats','dockGerente','dockTarefas','dockProdutos','dockLog','dockIA','modal','btnFundar','btnConfig','btnAcervo','mainMenu','menuContinuar','zoomMais','zoomMenos'])assert.match(index,new RegExp(`id="${id}"`));
   const gameUi=fs.readFileSync(path.join(__dirname,'..','game-ui.js'),'utf8');
   for(const fluxo of ['type="file"','data-promover-produto','data-sol-branch','atualizarPeloUsuario','atualizarProjetoDados'])assert.match(gameUi,new RegExp(fluxo));
-  console.log('flow-smoke: ok — tarefa/artefato/acervo/branch/pipeline/release/bundle/retention/caixa/zip');
+  for(const legado of ['classico.html','app.css','ui.js'])assert.equal(fs.existsSync(path.join(__dirname,'..',legado)),false,`${legado} deve ter sido removido`);
+  console.log('flow-smoke: ok — trabalho/delegação/acervos/branch/pipeline/release/bundle/retention/caixa/zip/jogo');
 })().catch(err=>{console.error(err);process.exitCode=1;});

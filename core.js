@@ -96,7 +96,7 @@ window.S = window.S || {};
     const nome=String(a.nome||'').replace(/[\x00-\x1f]/g,'').trim();if(!nome)return null;
     return {id:String(a.id||uid('ref')),nome:nome.slice(0,180),tipo:String(a.tipo||'txt').replace(/^\./,'').toLowerCase().slice(0,16),conteudo:String(a.conteudo||''),
       tamanho:Math.max(0,Number(a.tamanho)||String(a.conteudo||'').length),criadoEm:Number(a.criadoEm)||Date.now(),atualizadoEm:Number(a.atualizadoEm)||Number(a.criadoEm)||Date.now(),
-      origem:String(a.origem||'dispositivo'),produtoOrigemId:a.produtoOrigemId||null,empresaOrigemId:a.empresaOrigemId||null,projetoOrigemId:a.projetoOrigemId||null,
+      origem:String(a.origem||'dispositivo'),escopo:String(a.escopo||'global'),globalId:a.globalId||null,empresaItemId:a.empresaItemId||null,produtoOrigemId:a.produtoOrigemId||null,empresaOrigemId:a.empresaOrigemId||null,projetoOrigemId:a.projetoOrigemId||null,
       descricao:String(a.descricao||'').slice(0,1200),imutavelParaAgentes:true,versao:Math.max(1,Number(a.versao)||1)};
   }
 
@@ -229,11 +229,10 @@ window.S = window.S || {};
       pr.dados.riscos=String(pr.dados.riscos||'').slice(0,1600);
       pr.dados.atualizadoEm=Number(pr.dados.atualizadoEm)||pr.criadoEm||Date.now();
     });
-    e.site = e.site && typeof e.site === 'object' ? e.site : {};
-    e.site.projetoId = e.site.projetoId || (e.projetos[0] && e.projetos[0].id) || null;
-    e.site.raiz = 'site';
-    e.site.arquitetura = String(e.site.arquitetura || 'livre, definida pela equipe a partir da identidade e missão da empresa');
-    e.site.ultimaInspecao = Number(e.site.ultimaInspecao) || 0;
+    // Migração v56: não existe mais um "site central" obrigatório. Sites e
+    // páginas continuam possíveis como produtos, nunca como infraestrutura
+    // paralela ou dependência da empresa.
+    delete e.site;
     e.contratos = [];
     // O simulador não possui mercado, vendas ou caixa fictícios. Interações externas ficam com o dono.
     delete e.negocio;
@@ -241,6 +240,9 @@ window.S = window.S || {};
 
     e.arquivos = Array.isArray(e.arquivos) ? e.arquivos : [];
     e.tarefas.forEach(t => {
+      // Estados legados não podem deixar trabalho invisível para o quadro.
+      if(['pendente','nova','todo','aguardando','fila'].includes(String(t.status||'').toLowerCase()))t.status='aberta';
+      if(!['aberta','fazendo','feita'].includes(t.status))t.status='aberta';
       t.projectId = t.projectId || (e.projetos[0] && e.projetos[0].id);
       // Kits continuam sendo apenas roteamento de capacidade; não definem um
       // template de produto. Preservamos o kit novo quando conhecido.
@@ -317,6 +319,7 @@ window.S = window.S || {};
     e.reuniao.reunioes = Array.isArray(e.reuniao.reunioes) ? e.reuniao.reunioes.slice(-30) : [];
     e.diretrizesDono = Array.isArray(e.diretrizesDono) ? e.diretrizesDono.slice(-40) : [];
     e.solicitacoesAcervo=Array.isArray(e.solicitacoesAcervo)?e.solicitacoesAcervo.slice(-120):[];
+    e.acervoUsuario=Array.isArray(e.acervoUsuario)?e.acervoUsuario.map(normalizarItemAcervo).filter(Boolean):[];
     e.log = Array.isArray(e.log) ? e.log.slice(-500) : [];
     // Nenhuma execução assíncrona sobrevive a um fechamento da página. Estados
     // transitórios persistidos precisam voltar à fila; caso contrário uma tarefa
@@ -575,30 +578,39 @@ window.S = window.S || {};
   }
   S.economia={resumo:resumoEconomia,caixa:()=>{const e=atual();return caixaDisponivel(e);},debitarIA,definirCaixa,distribuirIgualmente,reconciliarLastroGlobal,totalCaixas,saldoNaoAlocado,reconciliarFornecedor,registrarVenda,processarFolhaInterna};
 
-  /* ---------- acervo soberano do usuário ----------
-     Vive fora das empresas. Agentes só recebem cópias de leitura no contexto;
-     nenhuma rotina de produção possui operação de escrita neste conjunto. */
+  /* ---------- acervos soberanos do usuário ----------
+     Cada empresa possui seu próprio acervo. O global agrega espelhos desses
+     itens e também aceita referências anteriores à primeira empresa. Agentes
+     recebem apenas contexto de leitura; nenhuma rotina pode escrever aqui. */
   const TIPOS_ACERVO_TEXTO=new Set(['txt','md','markdown','html','htm','css','js','json','csv','tsv','xml','yaml','yml','svg','py','sql']);
-  function todosAcervo(){return DB.acervoUsuario.slice().sort((a,b)=>b.atualizadoEm-a.atualizadoEm);}
-  function itemAcervo(id){return DB.acervoUsuario.find(a=>a.id===id)||null;}
-  function adicionarAcervo(dados){
+  function acervoEmpresa(){const e=atual();return e&&e.acervoUsuario||[];}
+  function todosAcervo(escopo){const lista=escopo==='global'?DB.acervoUsuario:escopo==='todos'?acervoEmpresa().concat(DB.acervoUsuario):acervoEmpresa();return lista.slice().sort((a,b)=>b.atualizadoEm-a.atualizadoEm);}
+  function globaisAcervo(){return todosAcervo('global');}
+  function itemAcervo(id){return acervoEmpresa().find(a=>a.id===id)||DB.acervoUsuario.find(a=>a.id===id)||null;}
+  function adicionarAcervo(dados,escopo){
     dados=dados||{};const conteudo=String(dados.conteudo||'');
     if(!String(dados.nome||'').trim())throw new Error('O artefato precisa de nome.');
     if(!conteudo)throw new Error('O artefato está vazio.');
     if(conteudo.length>3500000)throw new Error('O artefato excede 3,5 MB no armazenamento local.');
-    const a=normalizarItemAcervo(Object.assign({},dados,{id:uid('ref'),criadoEm:Date.now(),atualizadoEm:Date.now(),versao:1,imutavelParaAgentes:true}));
-    DB.acervoUsuario.unshift(a);gravarJa();S.bus.emit('acervo',a);return a;
+    const e=atual(),local=escopo!=='global'&&!!e;
+    const a=normalizarItemAcervo(Object.assign({},dados,{id:uid(local?'eref':'gref'),criadoEm:Date.now(),atualizadoEm:Date.now(),versao:1,imutavelParaAgentes:true,escopo:local?'empresa':'global',empresaOrigemId:local?e.id:(dados.empresaOrigemId||null)}));
+    if(local){e.acervoUsuario.unshift(a);const global=normalizarItemAcervo(Object.assign({},a,{id:uid('gref'),origem:'acervo da empresa',empresaItemId:a.id,escopo:'global'}));DB.acervoUsuario.unshift(global);a.globalId=global.id;global.empresaItemId=a.id;}
+    else DB.acervoUsuario.unshift(a);
+    gravarJa();S.bus.emit('acervo',a);return a;
   }
   function atualizarAcervoPeloUsuario(id,dados){
     const a=itemAcervo(id);if(!a)throw new Error('Artefato do acervo não encontrado.');dados=dados||{};
     if(dados.nome!==undefined&&String(dados.nome).trim())a.nome=String(dados.nome).replace(/[\x00-\x1f]/g,'').trim().slice(0,180);
     if(dados.descricao!==undefined)a.descricao=String(dados.descricao||'').slice(0,1200);
     if(dados.conteudo!==undefined){const c=String(dados.conteudo||'');if(!c)throw new Error('O artefato não pode ficar vazio.');if(c.length>3500000)throw new Error('O artefato excede 3,5 MB.');a.conteudo=c;a.tamanho=c.length;}
-    a.atualizadoEm=Date.now();a.versao=Number(a.versao||1)+1;a.imutavelParaAgentes=true;gravarJa();S.bus.emit('acervo',a);return a;
+    a.atualizadoEm=Date.now();a.versao=Number(a.versao||1)+1;a.imutavelParaAgentes=true;
+    const global=DB.acervoUsuario.find(x=>x.empresaItemId===a.id||x.id===a.globalId);if(global){Object.assign(global,{nome:a.nome,tipo:a.tipo,conteudo:a.conteudo,tamanho:a.tamanho,descricao:a.descricao,atualizadoEm:a.atualizadoEm,versao:a.versao,imutavelParaAgentes:true});}
+    gravarJa();S.bus.emit('acervo',a);return a;
   }
   function removerAcervo(id){
-    const a=itemAcervo(id);if(!a)return false;DB.acervoUsuario=DB.acervoUsuario.filter(x=>x.id!==id);
-    DB.estudios.forEach(e=>{(e.projetos||[]).forEach(p=>p.acervoIds=(p.acervoIds||[]).filter(x=>x!==id));(e.solicitacoesAcervo||[]).forEach(s=>{if(s.acervoId===id&&s.status==='pendente')s.status='referencia_removida';});});
+    const a=itemAcervo(id);if(!a)return false;const e=atual(),local=e&&(e.acervoUsuario||[]).some(x=>x.id===id),ids=new Set([id]);
+    if(local){const espelho=DB.acervoUsuario.find(x=>x.empresaItemId===id||x.id===a.globalId);if(espelho)ids.add(espelho.id);e.acervoUsuario=e.acervoUsuario.filter(x=>x.id!==id);DB.acervoUsuario=DB.acervoUsuario.filter(x=>!ids.has(x.id));}else DB.acervoUsuario=DB.acervoUsuario.filter(x=>x.id!==id);
+    DB.estudios.forEach(est=>{(est.projetos||[]).forEach(p=>p.acervoIds=(p.acervoIds||[]).filter(x=>!ids.has(x)));(est.solicitacoesAcervo||[]).forEach(s=>{if(ids.has(s.acervoId)&&s.status==='pendente')s.status='referencia_removida';});});
     gravarJa();S.bus.emit('acervo',a);return true;
   }
   function vincularAcervo(id,projectId){
@@ -608,13 +620,13 @@ window.S = window.S || {};
   function desvincularAcervo(id,projectId){const e=atual(),p=e&&(e.projetos||[]).find(x=>x.id===projectId);if(!p)return false;p.acervoIds=(p.acervoIds||[]).filter(x=>x!==id);gravarJa();S.bus.emit('acervo');return true;}
   function promoverProduto(produtoId){
     const e=atual();if(!e)throw new Error('Nenhuma empresa selecionada.');const p=(e.arquivos||[]).find(x=>x.id===produtoId&&x.classe==='produto');if(!p)throw new Error('Somente produtos finais podem entrar no acervo do usuário.');
-    const existente=DB.acervoUsuario.find(x=>x.produtoOrigemId===p.id);if(existente)return existente;
-    const a=adicionarAcervo({nome:p.nome,tipo:p.tipo,conteudo:p.conteudo,tamanho:String(p.conteudo||'').length,origem:'produto final',produtoOrigemId:p.id,empresaOrigemId:e.id,projetoOrigemId:p.projectId,descricao:`Produto final v${p.versao||1} criado por ${p.autor||'equipe'}.`});
+    const existente=(e.acervoUsuario||[]).find(x=>x.produtoOrigemId===p.id);if(existente)return existente;
+    const a=adicionarAcervo({nome:p.nome,tipo:p.tipo,conteudo:p.conteudo,tamanho:String(p.conteudo||'').length,origem:'produto final',produtoOrigemId:p.id,empresaOrigemId:e.id,projetoOrigemId:p.projectId,descricao:`Produto final v${p.versao||1} criado por ${p.autor||'equipe'}.`},'empresa');
     if(p.projectId)vincularAcervo(a.id,p.projectId);registrar(`${p.nome} foi promovido pelo dono ao acervo soberano.`,'acervo');return a;
   }
   function contextoAcervo(projectId,limite){
     const e=atual(),p=e&&(e.projetos||[]).find(x=>x.id===projectId),ids=new Set(p&&p.acervoIds||[]),max=Math.max(1200,Number(limite)||7000);let usado=0;
-    const itens=DB.acervoUsuario.filter(a=>ids.has(a.id));if(!itens.length)return 'Nenhuma referência soberana vinculada a este projeto.';
+    const itens=acervoEmpresa().concat(DB.acervoUsuario).filter(a=>ids.has(a.id));if(!itens.length)return 'Nenhuma referência soberana vinculada a este projeto.';
     return itens.map(a=>{let corpo=TIPOS_ACERVO_TEXTO.has(a.tipo)?String(a.conteudo||''):'[conteúdo binário; respeite nome, tipo e descrição]';corpo=corpo.slice(0,Math.max(0,max-usado));usado+=corpo.length;return `ACERVO ${a.id} — ${a.nome} [${a.tipo}, v${a.versao}]\nDESCRIÇÃO: ${a.descricao||'não informada'}\n${corpo}`;}).filter(x=>x.length).join('\n\n').slice(0,max);
   }
   function solicitarMudancaAcervo(acervoId,projectId,agenteId,texto){
@@ -625,14 +637,18 @@ window.S = window.S || {};
     registrar(`Solicitação especial sobre ${a.nome}: ${msg}`,'solicitacao_acervo',agenteId);gravarJa();S.bus.emit('reuniao');S.bus.emit('acervo',a);return s;
   }
   function atualizarProjetoDados(projectId,dados){const e=atual(),p=e&&(e.projetos||[]).find(x=>x.id===projectId);if(!p)throw new Error('Projeto não encontrado.');p.dados=Object.assign({},p.dados||{});['resumo','requisitos','publico','riscos'].forEach(k=>{if(dados&&dados[k]!==undefined)p.dados[k]=String(dados[k]||'').slice(0,k==='requisitos'?3000:1600);});p.dados.atualizadoEm=Date.now();gravarJa();S.bus.emit('projetos');return p.dados;}
-  S.acervo={todos:todosAcervo,item:itemAcervo,adicionar:adicionarAcervo,atualizarPeloUsuario:atualizarAcervoPeloUsuario,remover:removerAcervo,vincular:vincularAcervo,desvincular:desvincularAcervo,promoverProduto,contexto:contextoAcervo,solicitarMudanca:solicitarMudancaAcervo,atualizarProjetoDados};
+  S.acervo={todos:todosAcervo,globais:globaisAcervo,item:itemAcervo,adicionar:adicionarAcervo,atualizarPeloUsuario:atualizarAcervoPeloUsuario,remover:removerAcervo,vincular:vincularAcervo,desvincular:desvincularAcervo,promoverProduto,contexto:contextoAcervo,solicitarMudanca:solicitarMudancaAcervo,atualizarProjetoDados};
 
   S.state = {
     PALETA, carregar, gravar, gravarJa, atual, registrar, registrarPessoa, ganharXP,
     nivelDe, progressoNivel, normalizarEstudio, mapearEspecialidade,
     trocar(id) { DB.atual = id; gravarJa(); S.bus.emit('trocou'); },
     remover(id) {
+      const removida=DB.estudios.find(e=>e.id===id),idsLocais=new Set((removida&&removida.acervoUsuario||[]).map(a=>a.id));
+      const idsGlobais=new Set(DB.acervoUsuario.filter(a=>a.empresaOrigemId===id||idsLocais.has(a.empresaItemId)).map(a=>a.id));
       DB.estudios = DB.estudios.filter(e => e.id !== id);
+      DB.acervoUsuario=DB.acervoUsuario.filter(a=>!idsGlobais.has(a.id));
+      DB.estudios.forEach(e=>(e.projetos||[]).forEach(p=>p.acervoIds=(p.acervoIds||[]).filter(x=>!idsGlobais.has(x))));
       if (DB.atual === id) DB.atual = DB.estudios[0] ? DB.estudios[0].id : null;
       gravarJa(); S.bus.emit('trocou');
     },

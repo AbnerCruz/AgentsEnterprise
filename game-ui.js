@@ -1,8 +1,5 @@
 /* ============================================================
-   GAME-UI — front-end alternativo em tela cheia horizontal.
-   Não substitui a UI mobile (index.html + ui.js): é uma segunda porta
-   de entrada para o MESMO estado (mesmo localStorage), então trocar
-   entre index.html (jogo) e classico.html (painéis) mostra a mesma empresa.
+   GAME-UI — o jogo completo: mundo, HUD, painéis e administração.
    ============================================================ */
 (function (S) {
   'use strict';
@@ -12,14 +9,13 @@
   /* ---------- layout do escritório: uma sala por departamento ---------- */
   function hash(str) { let h = 0; for (let i = 0; i < String(str).length; i++) h = (h * 31 + str.charCodeAt(i)) | 0; return Math.abs(h); }
 
+  const PREDIO={x:188,y:152,w:1224,h:456},OX=200,OY=160;
+  const sala=(id,nome,x,y,w,h,piso)=>({id,nome,x:x+OX,y:y+OY,w,h,piso});
   const SALAS = {
-    gerencia:  { id:'gerencia',  nome:'DIREÇÃO',          x:24,  y:24,  w:220, h:158, piso:'executivo' },
-    reuniao:   { id:'reuniao',   nome:'SALA DE REUNIÃO',  x:250, y:24,  w:290, h:158, piso:'tapete' },
-    criacao:   { id:'criacao',   nome:'PRODUTO & DESIGN', x:546, y:24,  w:300, h:158, piso:'madeira' },
-    producao:  { id:'producao',  nome:'TECNOLOGIA',       x:852, y:24,  w:324, h:158, piso:'madeira' },
-    comercial: { id:'comercial', nome:'CRESCIMENTO',      x:24,  y:194, w:240, h:182, piso:'madeira' },
-    operacoes: { id:'operacoes', nome:'OPERAÇÕES & QA',   x:270, y:194, w:270, h:182, piso:'tapete' },
-    geral:     { id:'geral',     nome:'CONVIVÊNCIA',      x:546, y:194, w:630, h:182, piso:'social' }
+    gerencia:sala('gerencia','DIREÇÃO',24,24,220,158,'madeira'),reuniao:sala('reuniao','SALA DE REUNIÃO',250,24,290,158,'tapete'),
+    criacao:sala('criacao','PRODUTO & DESIGN',546,24,300,158,'madeira'),producao:sala('producao','TECNOLOGIA',852,24,324,158,'madeira'),
+    comercial:sala('comercial','CRESCIMENTO',24,194,240,182,'madeira'),operacoes:sala('operacoes','OPERAÇÕES & QA',270,194,270,182,'tapete'),
+    geral:sala('geral','CONVIVÊNCIA',546,194,630,182,'madeira')
   };
   const salaDe = f => (f.papel === 'gerente') ? SALAS.gerencia : (SALAS[f.especialidade] || SALAS.geral);
 
@@ -33,26 +29,26 @@
   }
 
   const GAME_LAYOUT = {
-    largura: 1200,
-    altura: () => 400,
+    largura:1600, altura:()=>800, tile:32, predio:PREDIO,
     salas: Object.values(SALAS).map(s => Object.assign({ cor: '#181E22' }, s)),
     mesa(_i, _total, f) {
       const sala = salaDe(f || {});
       return slotEmSala(f || { id: 'x' }, sala);
     },
     estacoes: {
-      cafe:       { x: 640,  y:270, rotulo:'café', sprite:[2,2], w:50, h:54 },
-      descanso:   { x: 770,  y:286, rotulo:'descanso', sprite:[3,1], w:94, h:54 },
-      tv:         { x: 900,  y:246, rotulo:'televisão', sprite:[3,2], w:82, h:52 },
-      dormitorio: { x:1060,  y:284, rotulo:'dormitório', sprite:[0,3], w:68, h:76 },
-      quadro:     { x: 340,  y: 70, rotulo:'quadro', sprite:[1,3], w:84, h:46 },
-      reuniao:    { x: 420,  y:125, rotulo:'reunião', sprite:[2,1], w:112, h:76 }
+      cafe:{x:840,y:430,rotulo:'café',sprite:[2,2],w:50,h:54},descanso:{x:970,y:446,rotulo:'descanso',sprite:[3,1],w:94,h:54},
+      tv:{x:1100,y:406,rotulo:'televisão',sprite:[3,2],w:82,h:52},dormitorio:{x:1260,y:444,rotulo:'dormitório',sprite:[0,3],w:68,h:76},
+      quadro:{x:540,y:230,rotulo:'quadro',sprite:[1,3],w:84,h:46},reuniao:{x:620,y:285,rotulo:'reunião',sprite:[2,1],w:112,h:76},
+      jardim:{x:350,y:716,rotulo:'jardim',w:72,h:40,exterior:true},banco:{x:1260,y:710,rotulo:'banco',w:92,h:38,exterior:true},parque:{x:800,y:710,rotulo:'praça',w:70,h:38,exterior:true}
     },
     zonas: {
       trabalho: SALAS.geral, arquivo: SALAS.operacoes, planejamento: SALAS.reuniao,
       convivio: SALAS.geral, bemestar: SALAS.geral, prototipo: SALAS.producao
     },
-    limites: { minX: 10, maxX: 1190, minY: 10, maxY: 390 }
+    decoracoes:[{tipo:'arvore',x:90,y:100},{tipo:'arvore',x:150,y:700},{tipo:'arvore',x:1510,y:110},{tipo:'arvore',x:1480,y:690},{tipo:'arvore',x:80,y:420},{tipo:'arvore',x:1515,y:420},{tipo:'lago',x:1040,y:72,w:260,h:64},{tipo:'canteiro',x:260,y:674,w:180,h:84},{tipo:'banco',x:1260,y:700},{tipo:'banco',x:760,y:700}],
+    colisoes:[{x:188,y:152,w:1224,h:14},{x:188,y:152,w:14,h:456},{x:1398,y:152,w:14,h:456},{x:188,y:594,w:566,h:14},{x:846,y:594,w:566,h:14},{x:1010,y:42,w:320,h:98},
+      {x:58,y:60,w:64,h:80},{x:118,y:660,w:64,h:80},{x:1478,y:70,w:64,h:80},{x:1448,y:650,w:64,h:80},{x:48,y:380,w:64,h:80},{x:1483,y:380,w:64,h:80}],
+    limites:{minX:24,maxX:1576,minY:24,maxY:776}
   };
   S.studio.definirLayout(GAME_LAYOUT);
 
@@ -67,7 +63,7 @@
 
   /* ---------- modal genérico ---------- */
   function abrirModal(html) { $('#modalCaixa').innerHTML = html; $('#modal').classList.remove('oculto'); }
-  function fecharModal() { $('#modal').classList.add('oculto'); $('#modalCaixa').innerHTML = ''; }
+  function fecharModal(){$('#modal').classList.add('oculto');$('#modalCaixa').innerHTML='';if(!S.state.atual()&&$('#mainMenu'))abrirMenuPrincipal();}
   $('#modal').addEventListener('click', ev => { if (ev.target.id === 'modal') fecharModal(); });
 
   const TIPOS_ACERVO_TEXTO=new Set(['txt','md','markdown','html','htm','css','js','json','csv','tsv','xml','yaml','yml','svg','py','sql']);
@@ -83,17 +79,21 @@
     $('#arqFechar').onclick=$('#arqVoltar').onclick=()=>abrirAcervo({projectId});
     $('#arqSalvar').onclick=()=>{try{const dados={nome:$('#arqNome').value,descricao:$('#arqDesc').value};if($('#arqConteudo'))dados.conteudo=$('#arqConteudo').value;S.acervo.atualizarPeloUsuario(id,dados);toast('Referência atualizada por você; agentes continuam somente leitura.','ok');abrirAcervo({projectId});}catch(err){toast(err.message||'Falha ao atualizar.','erro');}};
   }
+  function listaAcervo(refs,projeto,vinculados,agregado){
+    return refs.map(a=>{const espelho=agregado&&!!a.empresaItemId;return `<div class="acervo-item"><div><b>${esc(a.nome)}</b><small>${esc(a.tipo)} · v${Number(a.versao||1)} · ${esc(a.origem||'dispositivo')}${espelho?' · espelho de uma empresa':''} · somente leitura para agentes</small><p>${esc(a.descricao||'Sem descrição.')}</p></div><div class="acervo-acoes">${projeto?`<button class="mini-action ${vinculados.has(a.id)?'is-linked':''}" data-vincular="${esc(a.id)}">${vinculados.has(a.id)?'Desvincular':'Usar no projeto'}</button>`:''}<button class="mini-action" data-baixar-ref="${esc(a.id)}">Baixar</button>${!espelho&&TIPOS_ACERVO_TEXTO.has(a.tipo)?`<button class="mini-action" data-editar-ref="${esc(a.id)}">Editar</button>`:''}${!espelho?`<button class="mini-action danger" data-apagar-ref="${esc(a.id)}">Apagar</button>`:''}</div></div>`;}).join('')||'<div class="item"><small>Nenhuma referência neste acervo.</small></div>';
+  }
   function abrirAcervo(opcoes){
     opcoes=opcoes||{};const e=S.state.atual(),projetos=e&&e.projetos||[];
     const projeto=projetos.find(p=>p.id===opcoes.projectId)||projetos.find(p=>p.status==='ativo')||projetos[0]||null;
-    const refs=S.acervo.todos(),produtos=e?(e.arquivos||[]).filter(a=>a.classe==='produto'):[];
+    const refs=e?S.acervo.todos():[],globais=S.acervo.globais(),produtos=e?(e.arquivos||[]).filter(a=>a.classe==='produto'):[];
     const vinculados=new Set(projeto&&projeto.acervoIds||[]),d=projeto&&projeto.dados||{};
-    abrirModal(`<span class="modal-fecha" id="acFechar">✕</span><h2>Acervo soberano</h2>
-      <p class="modal-nota">Pertence a você e vale para todas as empresas. Agentes podem ler referências vinculadas, mas nunca editar, apagar ou sobrescrever. Toda produção deve ser coerente com elas.</p>
-      <label>Adicionar do dispositivo</label><input id="acUpload" type="file" multiple><p class="modal-nota">Até 2,5 MB por arquivo. Textos ficam editáveis por você; imagens e outros binários são preservados.</p>
+    abrirModal(`<span class="modal-fecha" id="acFechar">✕</span><h2>Acervos do proprietário</h2>
+      <p class="modal-nota">${e?`O acervo de ${esc(e.nome)} é exclusivo da empresa e alimenta automaticamente o global.`:'Sem empresa ativa, novos arquivos entram diretamente no global.'} Agentes apenas leem referências vinculadas; nunca editam, apagam ou sobrescrevem.</p>
+      <label>Adicionar do dispositivo ${e?'à empresa':'ao global'}</label><input id="acUpload" type="file" multiple><p class="modal-nota">Até 2,5 MB por arquivo. Toda produção vinculada deve permanecer coerente com estas referências.</p>
       ${projetos.length?`<label>Projeto em andamento</label><select id="acProjeto">${projetos.map(p=>`<option value="${esc(p.id)}" ${projeto&&p.id===projeto.id?'selected':''}>${esc(p.nome)} · ${esc(p.status)}</option>`).join('')}</select>
       <div class="project-data"><label>Resumo</label><textarea id="prResumo">${esc(d.resumo||'')}</textarea><label>Requisitos</label><textarea id="prRequisitos">${esc(d.requisitos||'')}</textarea><div class="acervo-duas"><div><label>Público</label><input id="prPublico" value="${esc(d.publico||'')}"></div><div><label>Riscos</label><input id="prRiscos" value="${esc(d.riscos||'')}"></div></div><button id="prSalvar" class="botao fraco">Salvar dados do projeto</button></div>`:'<p class="modal-nota">Você pode montar o acervo antes da primeira empresa e selecionar as referências durante a fundação.</p>'}
-      <h3 class="modal-subtitulo">Referências (${refs.length})</h3><div class="acervo-lista">${refs.map(a=>`<div class="acervo-item"><div><b>${esc(a.nome)}</b><small>${esc(a.tipo)} · v${Number(a.versao||1)} · ${esc(a.origem||'dispositivo')} · somente leitura para agentes</small><p>${esc(a.descricao||'Sem descrição.')}</p></div><div class="acervo-acoes">${projeto?`<button class="mini-action ${vinculados.has(a.id)?'is-linked':''}" data-vincular="${esc(a.id)}">${vinculados.has(a.id)?'Desvincular':'Usar no projeto'}</button>`:''}<button class="mini-action" data-baixar-ref="${esc(a.id)}">Baixar</button>${TIPOS_ACERVO_TEXTO.has(a.tipo)?`<button class="mini-action" data-editar-ref="${esc(a.id)}">Editar</button>`:''}<button class="mini-action danger" data-apagar-ref="${esc(a.id)}">Apagar</button></div></div>`).join('')||'<div class="item"><b>Acervo vazio</b><small>Envie arquivos do dispositivo ou promova um produto final.</small></div>'}</div>
+      ${e?`<h3 class="modal-subtitulo">Acervo exclusivo de ${esc(e.nome)} (${refs.length})</h3><div class="acervo-lista">${listaAcervo(refs,projeto,vinculados,false)}</div>`:''}
+      <h3 class="modal-subtitulo">Acervo global agregado (${globais.length})</h3><div class="acervo-lista">${listaAcervo(globais,projeto,vinculados,true)}</div>
       ${e?`<h3 class="modal-subtitulo">Produtos finais desta empresa</h3><div class="acervo-lista">${produtos.map(a=>{const ja=refs.find(r=>r.produtoOrigemId===a.id);return `<div class="acervo-item"><div><b>${esc(a.nome)}</b><small>${ja?'Já está no acervo':'Pronto para vender ou distribuir'}</small></div><button class="mini-action" data-promover="${esc(a.id)}" ${ja?'disabled':''}>${ja?'Adicionado':'Enviar ao acervo'}</button></div>`;}).join('')||'<div class="item"><small>Nenhum produto final concluído ainda.</small></div>'}</div>`:''}`);
     $('#acFechar').onclick=fecharModal;
     if($('#acProjeto'))$('#acProjeto').onchange=ev=>abrirAcervo({projectId:ev.target.value});
@@ -111,7 +111,7 @@
   function pintarHud() {
     const e = S.state.atual();
     if (!e) {
-      $('#hudNome').textContent = 'Estúdio';
+      $('#hudNome').textContent = 'Agents Enterprise';
       $('#hudRamo').textContent = 'nenhuma empresa fundada';
       $('#hudLogo').textContent = 'E';
       $('#hudStats').innerHTML = '';
@@ -283,7 +283,7 @@
       <input id="fPublico" placeholder="para quem é">
       <label>Restrições / recursos</label>
       <input id="fRestricoes" placeholder="opcional">
-      ${S.acervo.todos().length?`<label>Referências soberanas do primeiro projeto</label><div class="fundar-acervo">${S.acervo.todos().map(a=>`<label><input type="checkbox" name="fAcervo" value="${esc(a.id)}"> <span>${esc(a.nome)} · v${Number(a.versao||1)}</span></label>`).join('')}</div>`:''}
+      ${S.acervo.globais().length?`<label>Referências do acervo global para o primeiro projeto</label><div class="fundar-acervo">${S.acervo.globais().map(a=>`<label><input type="checkbox" name="fAcervo" value="${esc(a.id)}"> <span>${esc(a.nome)} · v${Number(a.versao||1)}</span></label>`).join('')}</div>`:''}
       ${igual?`<p class="modal-nota">Caixa automático: o saldo global será dividido igualmente entre todas as empresas após a criação.</p>`:`<label>Caixa inicial desta empresa (US$)</label><input id="fCaixa" type="number" min="0" max="${Number(livre||0)}" step="0.0001" value="0"><p class="modal-nota">Disponível sem alocação: US$ ${Number(livre||0).toFixed(4)}.</p>`}
       <div class="modal-linha">
         <button id="okFundar" class="botao">Fundar e deixar a gerente decidir</button>
@@ -406,7 +406,33 @@
     };
   }
   $('#btnConfig').addEventListener('click', abrirConfig);
-  $('#btnMenu').addEventListener('click', () => { location.href = 'classico.html'; });
+
+  /* ---------- menu principal e seleção de empresa ---------- */
+  function atualizarMenu(){
+    const e=S.state.atual(),tem=!!e;
+    $('#menuContinuar').disabled=!tem;
+    $('#menuContinuar').textContent=tem?`Continuar ${e.nome}`:'Nenhuma empresa ativa';
+    $('#menuStatus').textContent=tem?`${S.DB.estudios.length} empresa(s) · ${e.equipe.length} agente(s) · ${(e.arquivos||[]).filter(a=>a.classe==='produto').length} produto(s)`:'Configure a IA e funde sua primeira empresa.';
+    ['#btnEmpresa','#btnConstruir','#btnEconomia'].forEach(id=>{$(id).disabled=!tem;});
+  }
+  function abrirMenuPrincipal(){document.querySelectorAll('.painel').forEach(x=>x.classList.remove('is-open'));$('#rail').classList.remove('is-open');atualizarMenu();$('#mainMenu').classList.remove('is-hidden');}
+  function fecharMenuPrincipal(){if(S.state.atual())$('#mainMenu').classList.add('is-hidden');}
+  function abrirEmpresas(){
+    const atual=S.state.atual();$('#mainMenu').classList.add('is-hidden');
+    abrirModal(`<span class="modal-fecha" id="emFechar">✕</span><h2>Suas empresas</h2><p class="modal-nota">Cada empresa mantém projetos, caixa, equipe e acervo próprios.</p><div class="acervo-lista">${S.DB.estudios.map(e=>`<div class="acervo-item"><div><b>${esc(e.nome)}</b><small>${esc(e.ramo)} · ${e.id===atual?.id?'empresa ativa':'pausada'}</small></div><div class="acervo-acoes"><button class="mini-action" data-empresa="${esc(e.id)}">Abrir</button><button class="mini-action danger" data-remover-empresa="${esc(e.id)}">Apagar</button></div></div>`).join('')||'<div class="item"><small>Nenhuma empresa fundada.</small></div>'}</div><div class="modal-linha"><button id="emNova" class="botao">Nova empresa</button></div>`);
+    $('#emFechar').onclick=()=>{fecharModal();abrirMenuPrincipal();};$('#emNova').onclick=()=>{fecharModal();abrirFundar();};
+    document.querySelectorAll('[data-empresa]').forEach(b=>b.onclick=()=>{S.state.trocar(b.dataset.empresa);fecharModal();fecharMenuPrincipal();toast('Empresa carregada.','ok');});
+    document.querySelectorAll('[data-remover-empresa]').forEach(b=>b.onclick=()=>{const e=S.DB.estudios.find(x=>x.id===b.dataset.removerEmpresa);if(e&&confirm(`Apagar permanentemente “${e.nome}” e todos os dados exclusivos dela?`)){S.state.remover(e.id);toast('Empresa apagada.','ok');abrirEmpresas();}});
+  }
+  $('#btnMenu').addEventListener('click',abrirMenuPrincipal);
+  $('#menuContinuar').addEventListener('click',fecharMenuPrincipal);
+  $('#menuNova').addEventListener('click',()=>{$('#mainMenu').classList.add('is-hidden');abrirFundar();});
+  $('#menuEmpresas').addEventListener('click',abrirEmpresas);
+  ['#btnEmpresa','#btnAcervo','#btnConstruir','#btnEconomia','#btnConfig'].forEach(id=>$(id).addEventListener('click',()=>$('#mainMenu').classList.add('is-hidden')));
+
+  function atualizarZoom(z){$('#zoomValor').textContent=`${Math.round((z||S.studio.zoomAtual())*100)}%`;}
+  $('#zoomMenos').addEventListener('click',()=>atualizarZoom(S.studio.definirZoom(S.studio.zoomAtual()-.25)));
+  $('#zoomMais').addEventListener('click',()=>atualizarZoom(S.studio.definirZoom(S.studio.zoomAtual()+.25)));
 
   /* ---------- resize / canvas ---------- */
   function ajustar() { S.studio.ajustarCanvas(); }
@@ -430,9 +456,11 @@
     S.bus.on('ambiente', () => { pintarStatusMundo(); });
     S.bus.on('trocou', () => { S.studio.montar(); ajustar(); pintarTudo(); });
     S.bus.on('ia', () => { pintarHud(); pintarIA(); });
+    S.bus.on('zoom', atualizarZoom);
     setInterval(pintarHud, 5000);
     window.addEventListener('beforeunload', () => S.state.gravarJa());
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+    atualizarZoom();abrirMenuPrincipal();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);
   else iniciar();
