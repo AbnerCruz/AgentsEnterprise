@@ -1,13 +1,13 @@
-# Servidor — etapa de fundação
+# Servidor — runtime inicial
 
-Esta pasta inicia a migração do motor local para uma autoridade durável. A primeira entrega contém a arquitetura e o schema PostgreSQL; ela ainda não substitui o motor do navegador.
+Esta pasta contém a API autoritativa inicial, PostgreSQL e um worker durável. O navegador ainda não foi migrado e o executor de IA ainda não está conectado; portanto este runtime não deve substituir a versão local em produção nesta etapa.
 
 ## Subir o banco de desenvolvimento
 
 ```sh
-docker compose -f server/docker-compose.yml up -d
-docker compose -f server/docker-compose.yml exec -T postgres \
-  psql -U agents -d agents_enterprise < server/db/001_initial.sql
+export POSTGRES_PASSWORD='troque-esta-senha'
+export SERVER_API_TOKEN='gere-um-segredo-longo-e-aleatorio'
+docker compose -f server/docker-compose.yml up --build -d
 ```
 
 ## Regras de implementação
@@ -20,5 +20,15 @@ docker compose -f server/docker-compose.yml exec -T postgres \
 - Webhooks guardam o ID externo antes de produzir efeitos.
 - Artefatos e produtos são content-addressed por SHA-256.
 - Nenhuma publicação, venda ou ação bancária é simulada.
+- O escalonador mantém a especialização por setor, ocupa colaboradores antes do chefe e só usa o chefe como produtor quando sobra demanda.
+- A visão `workforce_capacity` expõe excesso e falta de capacidade por setor para decisões financeiras de contratação, transferência ou desligamento.
 
-O próximo incremento implementará health, autenticação, importação do snapshot local, streaming de eventos e claim de jobs contra este schema.
+## Implementado neste corte
+
+- `GET /api/v1/health`;
+- snapshot autorizado com versão e `ETag`;
+- comandos duráveis `wake`, `owner_message`, `pause` e `resume` com idempotência;
+- claim concorrente de jobs e tarefas com lease e `SKIP LOCKED`;
+- distribuição justa por setor e medição explícita de capacidade ociosa.
+
+O próximo incremento conecta o executor de IA, importa o snapshot local uma única vez e transmite eventos ao jogo. Até isso acontecer, uma tentativa de execução volta a tarefa para `open`; jamais declara trabalho fictício como concluído.

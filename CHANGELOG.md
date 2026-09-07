@@ -4,6 +4,17 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v64 — runtime inicial do servidor e distribuição real de trabalho
+
+- API Node/PostgreSQL executável com health, snapshot versionado e comandos idempotentes.
+- Worker durável com lease, retomada após queda e claim concorrente por `FOR UPDATE SKIP LOCKED`.
+- Escalonamento estritamente por setor: colaboradores recebem tarefas antes do chefe; o chefe produz quando a equipe não absorve a demanda.
+- Nova visão `workforce_capacity` mede demanda não atendida e capacidade excedente por setor, evitando manter funcionários ociosos enquanto outro setor pede contratação sem evidência financeira.
+- Execução de IA ainda não conectada é explicitamente devolvida à fila, sem produto falso, perda de tarefa ou conclusão simulada.
+- Docker Compose passa a iniciar banco, migrações, API e worker com segredos fornecidos por ambiente.
+
+---
+
 # v63 — fundação da migração para servidor
 
 - Registrada a arquitetura em que API, PostgreSQL, armazenamento de objetos, workers, gateway de ferramentas, deploy e comércio substituem gradualmente a autoridade do navegador sem interromper o jogo atual.

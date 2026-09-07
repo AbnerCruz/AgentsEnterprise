@@ -10,11 +10,38 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - agents_postgres:/var/lib/postgresql/data
+      - ./db/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql:ro
+      - ./db/002_scheduler.sql:/docker-entrypoint-initdb.d/002_scheduler.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U agents -d agents_enterprise"]
       interval: 5s
       timeout: 3s
       retries: 20
+
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agents:${POSTGRES_PASSWORD:-agents_dev_only}@postgres:5432/agents_enterprise
+      SERVER_API_TOKEN: ${SERVER_API_TOKEN:?defina SERVER_API_TOKEN}
+      SERVER_AUTH_SUBJECT: ${SERVER_AUTH_SUBJECT:-owner:local}
+      PORT: 8080
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: ["node", "src/worker.js"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agents:${POSTGRES_PASSWORD:-agents_dev_only}@postgres:5432/agents_enterprise
+      WORKER_ID: worker-compose-1
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   agents_postgres:

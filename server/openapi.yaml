@@ -89,7 +89,7 @@ paths:
               type: object
               required: [type, payload, expectedVersion]
               properties:
-                type: { type: string, enum: [wake, owner_message, approve_decision, reject_decision, allocate_budget, pause, resume] }
+                type: { type: string, enum: [wake, owner_message, pause, resume] }
                 payload: { type: object, additionalProperties: true }
                 expectedVersion: { type: integer, minimum: 1 }
       responses:
@@ -210,7 +210,7 @@ components:
         correlationId: { type: string }
     CompanySnapshot:
       type: object
-      required: [company, agents, projects, tasks, artifacts, meetings, budget, stateVersion]
+      required: [company, agents, projects, tasks, artifacts, meetings, workforce, budget, stateVersion]
       properties:
         stateVersion: { type: integer, minimum: 1 }
         company: { type: object, additionalProperties: true }
@@ -219,10 +219,11 @@ components:
         tasks: { type: array, items: { type: object, additionalProperties: true } }
         artifacts: { type: array, items: { type: object, additionalProperties: true } }
         meetings: { type: array, items: { type: object, additionalProperties: true } }
+        workforce: { type: array, items: { type: object, additionalProperties: true } }
         budget:
           type: object
           required: [allocatedMicrousd, spentMicrousd, remainingMicrousd]
           properties:
-            allocatedMicrousd: { type: integer }
-            spentMicrousd: { type: integer }
-            remainingMicrousd: { type: integer }
+            allocatedMicrousd: { type: string, pattern: '^-?[0-9]+$' }
+            spentMicrousd: { type: string, pattern: '^-?[0-9]+$' }
+            remainingMicrousd: { type: string, pattern: '^-?[0-9]+$' }
