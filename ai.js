@@ -572,9 +572,30 @@
         throw new Error(msg);
       }
 
-      const escolha=(dados.choices||[])[0]||{};
+      /* HTTP 200 não garante uma conclusão utilizável. Em falhas de upstream o
+         OpenRouter pode devolver corpo vazio, JSON nulo ou choices=null. Isso
+         é indisponibilidade transitória do provedor, não reprovação do
+         trabalho do funcionário e nunca pode virar TypeError. */
+      if(!dados || typeof dados!=='object'){
+        const er=new Error(`${provInfo.nome} respondeu sem um corpo JSON utilizável. A tarefa continuará preservada para retomada.`);
+        er.transitoria=true;er.codigo='resposta_json_vazia';throw er;
+      }
+      if(dados.error){
+        const er=new Error((dados.error&&dados.error.message)||`${provInfo.nome} devolveu um erro sem mensagem.`);
+        er.transitoria=true;er.codigo='erro_no_corpo';throw er;
+      }
+      const escolhas=Array.isArray(dados.choices)?dados.choices:[];
+      if(!escolhas.length){
+        const usoFalho=dados.usage||{},custoFalho=numeroOpcional(usoFalho.cost)||estimarCusto(provedorUsado,modelo,usoFalho.prompt_tokens,usoFalho.completion_tokens);
+        const er=new Error(`${provInfo.nome} não devolveu nenhuma alternativa em choices. A tarefa continuará preservada para retomada.`);
+        er.transitoria=true;er.codigo='choices_ausente';er.telemetria={entrada:Number(usoFalho.prompt_tokens||0),saida:Number(usoFalho.completion_tokens||0),tokens:Number(usoFalho.total_tokens||0),custo:custoFalho,detalhesUso:usoFalho};throw er;
+      }
+      const escolha=escolhas[0]||{};
       const mensagem=escolha.message||{};
-      const texto=String(mensagem.content||escolha.text||'').trim();
+      const conteudoMensagem=Array.isArray(mensagem.content)
+        ? mensagem.content.filter(x=>x&&x.type==='text').map(x=>x.text||'').join('\n')
+        : mensagem.content;
+      const texto=String(conteudoMensagem||escolha.text||'').trim();
 
       const fim=String(escolha.finish_reason||'').toLowerCase();
       if(['length','max_tokens','content_filter'].includes(fim)){
@@ -584,7 +605,8 @@
       }
       if(!texto){
         const motivoVazio=escolha.finish_reason?`finish_reason=${escolha.finish_reason}`:'resposta vazia';
-        throw new Error(`${provInfo.nome} não devolveu texto utilizável (${motivoVazio}).`);
+        const er=new Error(`${provInfo.nome} não devolveu texto utilizável (${motivoVazio}). A tarefa continuará preservada para retomada.`);
+        er.transitoria=true;er.codigo='conteudo_vazio';throw er;
       }
 
       estado.falhas=0; estado.orcamentoPreventivo=false; l.falhas=0; l.bloqueadaAte=0; sp.status='disponivel';
@@ -596,15 +618,17 @@
       return {texto,usage:dados.usage||{},ms,modelo,provedor:provedorUsado,custo:custoChamada};
     }catch(err){
       const msg=String(err&&err.message||err);
+      if(err&&!err.transitoria&&(/failed to fetch|networkerror|load failed|aborterror|timed?\s*out|tempo.*esgotado/i.test(`${err.name||''} ${msg}`)))err.transitoria=true;
       estado.falhas++; l.falhas++;
       if(err&&err.cota){
         // bloqueio global já foi definido pelo cabeçalho do provedor.
       }else if(err&&err.orcamento){
         // orçamento local é um freio planejado, não uma falha do modelo.
       }else if(!err.limiteLocal){
-        l.bloqueadaAte=Date.now() + (/401|inválida/i.test(msg)?90000:Math.min(30000,5000*l.falhas));
+        l.bloqueadaAte=Date.now() + (/401|inválida/i.test(msg)?90000:err.transitoria?Math.min(5*60000,30000*Math.pow(2,Math.min(3,l.falhas-1))):Math.min(30000,5000*l.falhas));
       }
-      if(!err.jaRegistrada)registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,...metaRota,modelo,provedor:provedorUsado,ms:Date.now()-inicio,ok:false,erro:msg,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null});
+      const tf=err&&err.telemetria||{};
+      if(!err.jaRegistrada)registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,...metaRota,modelo,provedor:provedorUsado,ms:Date.now()-inicio,ok:false,transitoria:Boolean(err&&err.transitoria),codigo:err&&err.codigo||null,erro:msg,entrada:Number(tf.entrada||0),saida:Number(tf.saida||0),tokens:Number(tf.tokens||0),custo:Number(tf.custo||0),detalhesUso:tf.detalhesUso||{},em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null});
       situar((err.limiteLocal||err.orcamento)?'pronta':'erro',(err.orcamento?'Orçamento do período atingido':err.diario?'Limite diário atingido':err.limiteLocal?'Limite local atingido':'Falha na IA'),msg);
       throw err;
     }finally{

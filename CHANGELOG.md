@@ -4,6 +4,29 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v61 — recuperação do provedor e saneamento da fila
+
+## Regressão `choices=null`
+
+- Respostas HTTP bem-sucedidas com JSON nulo, `choices=null`, lista vazia ou conteúdo vazio deixaram de provocar `Cannot read properties of null (reading 'choices')`.
+- Falhas de rede, timeout e respostas vazias são classificadas como transitórias. A tarefa permanece íntegra, não consome tentativa de qualidade e recebe backoff de 30 segundos a 10 minutos antes de voltar à fila.
+- Se uma resposta sem `choices` trouxer telemetria de uso, tokens e custo continuam atribuídos à chamada e ao artefato; nenhuma despesa real desaparece do painel.
+- Conteúdo textual em partes retornado pelo provedor passou a ser lido corretamente.
+
+## Fila e acompanhamento
+
+- Ao abrir uma empresa antiga, tarefas semanticamente equivalentes ainda pendentes são consolidadas em uma única tarefa ativa. Os registros duplicados são arquivados com vínculo ao trabalho preservado; nenhum artefato é apagado.
+- A gerente acompanha uma única tarefa por assinatura semântica. A primeira cobrança ocorre após ausência real de atividade e as seguintes respeitam uma janela de 15 minutos, eliminando o spam visto a cada dois minutos.
+- Tarefas aguardando recuperação do provedor não recebem cobranças e mostram no painel o tempo para retomada.
+- Métricas de concluídas não contam duplicatas consolidadas como entregas reais.
+
+## Observabilidade
+
+- O painel de IA separa consumo das últimas seis horas do histórico local acumulado. Falhas transitórias aparecem explicitamente como trabalho preservado.
+- Cache do PWA atualizado para forçar a instalação imediata da correção no GitHub Pages.
+
+---
+
 # v60 — líderes setoriais, produção idempotente e controle real de desperdício
 
 ## Roteamento adaptativo e turno produtivo

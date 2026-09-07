@@ -70,6 +70,7 @@
 
   function montar() {
     const e = S.state.atual();
+    if(e)consolidarTarefasEquivalentes(e);
     token++;
     const meu = token;
     rt = (e ? e.equipe : []).map((f, i) => {
@@ -292,7 +293,7 @@
   }
   function gerarRelatorioLocal(e){
     const projeto=e.projetos.find(p=>p.status==='ativo')||e.projetos[0];
-    const abertas=e.tarefas.filter(t=>t.status!=='feita').length, feitas=e.tarefas.filter(t=>t.status==='feita').length;
+    const abertas=e.tarefas.filter(t=>t.status!=='feita').length, feitas=e.tarefas.filter(t=>t.status==='feita'&&!t.consolidada).length;
     const produtos=e.arquivos.filter(a=>a.classe==='produto').length;
     return `${projeto?projeto.nome:'Projeto principal'}: ${feitas} tarefas concluídas, ${abertas} em aberto, ${produtos} produtos finais. Últimos eventos: ${(e.log||[]).slice(-4).map(x=>x.texto).join(' | ')||'nenhum'}.`;
   }
@@ -1073,6 +1074,30 @@
     S.state.gravar(); S.bus.emit('trabalho');
     return t;
   }
+
+  /* A v60 impede novas duplicatas, mas empresas que já estavam abertas
+     podem carregar várias tarefas equivalentes criadas por versões antigas.
+     Consolidamos somente trabalho ainda pendente e preservamos cada registro
+     arquivado para auditoria. Nenhum artefato ou produto é removido. */
+  function consolidarTarefasEquivalentes(e){
+    if(!e||!Array.isArray(e.tarefas))return 0;
+    const ativas=e.tarefas.filter(t=>t.status!=='feita'&&!t.incompleta);
+    const manter=[];let total=0;
+    ativas.sort((a,b)=>{
+      const pa=a.status==='fazendo'?0:a.bloqueada?2:1,pb=b.status==='fazendo'?0:b.bloqueada?2:1;
+      return pa-pb||Number(a.criadaEm||0)-Number(b.criadaEm||0);
+    }).forEach(t=>{
+      const etapa=String(t.etapaDestino||t.escopo||'');
+      if(!t.chaveSemantica)t.chaveSemantica=chaveSemanticaTarefa(t,t.titulo,t.projectId,etapa);
+      const igual=manter.find(x=>x.projectId===t.projectId&&x.kit===t.kit&&(x.baseArquivoId||null)===(t.baseArquivoId||null)&&String(x.etapaDestino||x.escopo||'')===etapa&&(x.chaveSemantica===t.chaveSemantica||similaridadeTexto(`${x.titulo||''} ${x.briefing||''}`,`${t.titulo||''} ${t.briefing||''}`)>=0.58));
+      if(!igual){manter.push(t);return;}
+      t.status='feita';t.consolidada=true;t.consolidadaEm=Date.now();t.consolidadaNaTarefaId=igual.id;t.bloqueada=false;
+      t.handoff=`Registro arquivado como duplicata de “${igual.titulo}”; nenhum trabalho ou artefato foi descartado.`;
+      igual.repeticoesEvitadas=Number(igual.repeticoesEvitadas||0)+1;total++;
+    });
+    if(total){S.state.registrar(`${total} tarefa(s) legada(s) equivalente(s) foram consolidadas na fila ativa, preservando o histórico e os artefatos.`,'recuperacao');S.state.gravar();S.bus.emit('trabalho');}
+    return total;
+  }
   function responderDecisaoCritica(id,resposta){
     const e=S.state.atual(),d=e&&(e.decisoesCriticas||[]).find(x=>x.id===id&&x.status==='pendente');if(!d)return false;const texto=String(resposta||'').trim();if(!texto)throw new Error('Informe os dados reais ou a decisão tomada fora do jogo.');
     d.status='respondida';d.respondidaEm=Date.now();d.respostaDono=texto.slice(0,4000);registrarReuniao('Você',`Resposta à solicitação “${d.titulo}”: ${texto}`,'resposta_humana');
@@ -1104,7 +1129,7 @@
      nunca é escolhida automaticamente — só por uma
      decisão explícita da gerente (corrigir/continuar cria uma tarefa NOVA). */
   function prontaParaRetomar(t) {
-    return !t.bloqueada;
+    return !t.bloqueada && !t.incompleta && Date.now() >= Number(t.retomarAposIA || 0);
   }
   function dependenciasOK(t) {
     const e = S.state.atual(); if (!e) return false;
@@ -1920,7 +1945,17 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
       } else throw new Error('Nenhuma transformação foi produzida.');
     } catch(err) {
       if(err&&(err.limiteLocal||err.cota)){
-        tarefa.status='aberta';delete tarefa.proximaTentativa;S.state.registrar(`${tarefa.titulo} permanece na fila: ${err.message||err} Nenhuma tentativa de qualidade foi consumida.`,'alerta',p.id);return false;
+        tarefa.status='aberta';S.state.registrar(`${tarefa.titulo} permanece na fila: ${err.message||err} Nenhuma tentativa de qualidade foi consumida.`,'alerta',p.id);return false;
+      }
+      if(err&&err.transitoria){
+        tarefa.status='aberta';
+        tarefa.falhasTransitorias=Number(tarefa.falhasTransitorias||0)+1;
+        const espera=Math.min(10*60*1000,30000*Math.pow(2,Math.min(4,tarefa.falhasTransitorias-1)));
+        tarefa.retomarAposIA=Date.now()+espera;
+        tarefa.ultimoErroTransitorio=String(err.message||err).slice(0,500);
+        logPessoa(p,`teve uma falha temporária do provedor em “${tarefa.titulo}”. O trabalho foi preservado e retomará em ${Math.ceil(espera/1000)}s sem consumir tentativa de qualidade.`,'alerta');
+        S.state.registrar(`${tarefa.titulo} aguardará a recuperação do provedor por ${Math.ceil(espera/1000)}s; nenhuma tentativa de qualidade foi consumida.`,'alerta',p.id);
+        return false;
       }
       if(err&&err.incompleta){
         tarefa.status='incompleta';tarefa.incompleta=true;tarefa.bloqueada=true;tarefa.motivoIncompleto=String(err.message||err);tarefa.concluidaEm=Date.now();
@@ -1939,7 +1974,6 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
         logPessoa(p, `não conseguiu concluir "${tarefa.titulo}" depois de ${tarefa.tentativas} tentativas e parou de tentar sozinho. Precisa de uma decisão da gerente ou de uma tarefa nova.`, 'alerta');
         S.state.registrar(`${tarefa.titulo} foi pausada após ${tarefa.tentativas} falhas seguidas de ${p.nome}.`, 'erro', p.id);
       } else {
-        delete tarefa.proximaTentativa;
         logPessoa(p, `não conseguiu concluir "${tarefa.titulo}": ${err.message || err}. A fila tentará de novo no próximo ciclo.`, 'erro');
         S.state.registrar(`${p.nome} falhou em "${tarefa.titulo}" (tentativa ${tarefa.tentativas}): ${err.message || err}`, 'erro', p.id);
       }
@@ -2010,9 +2044,13 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
   function cobrarAndamento(e,g){
     const agora=Date.now(),abertas=(e.tarefas||[]).filter(t=>t.status!=='feita'&&!t.bloqueada&&dependenciasOK(t));
     e.gerencia=e.gerencia||{};e.gerencia.acompanhamento=e.gerencia.acompanhamento||{cobrancas:0};
+    const acompanhadas=new Set();
     abertas.forEach(t=>{
-      const marco=Number(t.iniciadaEm||t.criadaEm||agora),parada=agora-marco;
-      if(parada<2*60*1000||agora-Number(t.ultimaCobrancaGerencia||0)<2*60*1000)return;
+      const chave=t.chaveSemantica||`${t.projectId||''}|${t.kit||''}|${t.baseArquivoId||''}|${t.etapaDestino||''}|${normalizarFrase(t.titulo)}`;
+      if(acompanhadas.has(chave))return;acompanhadas.add(chave);
+      const marco=Number(t.ultimaAtividadeEm||t.iniciadaEm||t.criadaEm||agora),parada=agora-marco;
+      const limite=t.status==='fazendo'?8*60*1000:15*60*1000,cadencia=15*60*1000;
+      if(parada<limite||agora-Number(t.ultimaCobrancaGerencia||0)<cadencia)return;
       const setor=(S.factory.porId(t.kit||'autonomo')||{}).especialidade,leader=liderDoSetor(setor);
       t.prioridade='alta';t.ultimaCobrancaGerencia=agora;t.cobrancasGerencia=Number(t.cobrancasGerencia||0)+1;
       if(t.status==='aberta'){
@@ -2020,7 +2058,7 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
         if(membro)t.para=membro.id;
       }
       const alvo=leader?rotuloAgente(leader):nomeSetor(setor);
-      registrarReuniao(g&&g.nome||'Gerência',`Cobrança de andamento a ${alvo}: “${t.titulo}” está há ${Math.max(2,Math.round(parada/60000))} min sem concluir esta etapa. Prioridade elevada; preserve a qualidade e informe bloqueios reais.`,'acompanhamento');
+      registrarReuniao(g&&g.nome||'Gerência',`Acompanhamento a ${alvo}: “${t.titulo}” está há ${Math.max(8,Math.round(parada/60000))} min sem atividade registrada. Prioridade elevada; preserve a qualidade e informe somente bloqueios reais.`,'acompanhamento');
       e.gerencia.acompanhamento.cobrancas++;
     });
     e.gerencia.acompanhamento.atualizadoEm=agora;e.gerencia.acompanhamento.tarefasAbertas=abertas.length;e.gerencia.acompanhamento.produtos=(e.arquivos||[]).filter(a=>a.classe==='produto'&&!a.incompleto).length;
@@ -2418,7 +2456,7 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     ESPECIALIDADES, NOMES,
     montar, iniciar, parar, ajustarCanvas, cliqueNoChao, definirZoom, zoomAtual:()=>zoomMapa, centralizarEm,moverCamera,cameraEstado,
     pessoas: () => rt, pessoa, gerente,
-    novaTarefa, tarefasAbertas, despacharTarefa, executar, registrarContribuicaoAcervo,
+    novaTarefa, tarefasAbertas, despacharTarefa, executar, registrarContribuicaoAcervo, consolidarTarefasEquivalentes,
     salvarArquivos, publicar, editarArquivo,
     contratar, demitir, custoContratacao, fundar, iniciarFundacao, configurarFundacao, construirAmbiente, reorganizarAmbiente, interagirAmbiente, ambienteObjetos, OBJETOS_AMBIENTE, tiposAmbiente,
     processarFundacaoAtual, materializarDecisaoAgente, contratarPerfil, definirLayout, avaliar, decidirSolicitacaoAcervo,decidirAprovacao,responderDecisaoCritica,analisarFinancas,

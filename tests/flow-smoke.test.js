@@ -36,6 +36,20 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.equal(recuperada.arquivos[0].proximaAvaliacao,undefined);assert.equal(recuperada.reuniao.reuniaoAtiva,undefined);
 
   const e=empresa();selecionar(e);
+  const eProvider=empresa('provider-null');selecionar(eProvider);eProvider.economia.caixaUSD=5;
+  S.ai.salvarChaves(undefined,'sk-or-chave-de-teste-abcdefghijklmnop');
+  const fetchOriginal=global.fetch;let respostasChat=0;
+  global.fetch=async url=>{
+    if(String(url).includes('/api/v1/key'))return new Response(JSON.stringify({data:{limit:null,limit_remaining:null,usage:0}}),{status:200,headers:{'content-type':'application/json'}});
+    respostasChat++;
+    return respostasChat===1
+      ? new Response('null',{status:200,headers:{'content-type':'application/json'}})
+      : new Response(JSON.stringify({choices:null,usage:{prompt_tokens:12,completion_tokens:0,total_tokens:12,cost:0.000001}}),{status:200,headers:{'content-type':'application/json'}});
+  };
+  await assert.rejects(()=>S.ai.chamar({sistema:'teste',pedido:'teste',agente:'Ana',agenteId:'a1',forcar:true,_skipSync:false}),err=>err&&err.transitoria&&/corpo JSON/.test(err.message));
+  await assert.rejects(()=>S.ai.chamar({sistema:'teste',pedido:'teste',agente:'Ana',agenteId:'a1',forcar:true,_skipSync:false}),err=>err&&err.transitoria&&/choices/.test(err.message));
+  assert.equal(eProvider.iaChamadas.at(-1).transitoria,true);assert.equal(eProvider.iaChamadas.at(-1).tokens,12,'uso de resposta sem choices continua auditável');
+  global.fetch=fetchOriginal;selecionar(e);
   assert.equal(S.ai.rotear({tipo:'pensamento',agenteId:'a1',motivo:'triagem curta'}).nivel,'leve');
   assert.equal(S.ai.rotear({tipo:'conteudo',agenteId:'a1',motivo:'produção de artefato'}).nivel,'padrao');
   assert.equal(S.ai.rotear({tipo:'conteudo',agenteId:'a1',motivo:'produção de artefato',correcoes:2}).nivel,'avancado');
@@ -151,6 +165,10 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   const tarefaSemantica=S.studio.novaTarefa({titulo:'Redação dos três contos iniciais',briefing:'Produzir os três contos centrais de Eldoria',kit:'texto',projectId:'pr1',clienteVisivel:true,etapaDestino:'esboco'});
   const repetidaSemantica=S.studio.novaTarefa({titulo:'Redação do rascunho inicial dos 3 contos',briefing:'Iniciar a produção dos três contos centrais de Eldoria',kit:'texto',projectId:'pr1',clienteVisivel:true,etapaDestino:'esboco'});
   assert.ok(tarefaSemantica);assert.equal(repetidaSemantica,null,'variações do mesmo trabalho não podem furar a deduplicação');
+  const eLegado=empresa('legado-duplicado');selecionar(eLegado);
+  eLegado.tarefas.push({id:'leg-1',titulo:'Redação dos três contos iniciais',briefing:'Produzir os três contos centrais de Eldoria',kit:'texto',projectId:'pr1',clienteVisivel:true,etapaDestino:'esboco',status:'aberta',criadaEm:1},{id:'leg-2',titulo:'Redação do rascunho inicial dos 3 contos',briefing:'Iniciar a produção dos três contos centrais de Eldoria',kit:'texto',projectId:'pr1',clienteVisivel:true,etapaDestino:'esboco',status:'aberta',criadaEm:2});
+  assert.equal(S.studio.consolidarTarefasEquivalentes(eLegado),1,'duplicatas herdadas precisam virar uma única tarefa ativa');
+  assert.equal(eLegado.tarefas.filter(t=>t.status==='aberta').length,1);assert.equal(eLegado.tarefas.filter(t=>t.consolidada).length,1);selecionar(e);
 
   const e2=empresa('e2');S.DB.estudios=[e,e2];S.DB.atual=e.id;
   S.economia.definirCaixa(6,10);S.DB.atual=e2.id;S.economia.definirCaixa(4,10);
@@ -181,10 +199,11 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.doesNotMatch(studioSource,/_ultimoDesenho[^\n]+80/,'animação não pode continuar limitada a 12,5 fps');
   assert.match(studioSource,/Claim atômico/);assert.match(studioSource,/p\.especialidade===exigida/);assert.match(studioSource,/status='incompleta'/);
   assert.match(studioSource,/ATIVO VISUAL BINÁRIO/);assert.match(studioSource,/solicitacoesContratacao/);assert.match(studioSource,/liderSetor/);assert.match(studioSource,/bloquearTarefaSemOrcamento/);
-  assert.match(studioSource,/capacidadeFinanceiraEquipe/);assert.doesNotMatch(studioSource,/teto operacional de 8/);assert.match(studioSource,/Cobrança de andamento/);
+  assert.match(studioSource,/capacidadeFinanceiraEquipe/);assert.doesNotMatch(studioSource,/teto operacional de 8/);assert.match(studioSource,/Acompanhamento a/);
   const aiSource=fs.readFileSync(path.join(__dirname,'..','ai.js'),'utf8');
   assert.doesNotMatch(aiSource,/max_completion_tokens\s*:/,'nenhuma resposta pode receber teto de saída');assert.match(aiSource,/finish_reason=.*Nenhuma entrega parcial/);
   assert.match(aiSource,/AbortSignal\.timeout\(90000\)/);assert.match(aiSource,/podeChamarEstimado/);assert.match(aiSource,/limiteDiarioBase/);assert.match(aiSource,/function rotear\(op\)/);assert.match(aiSource,/alvoHoras=6/);
+  assert.match(aiSource,/choices_ausente/);assert.match(aiSource,/resposta_json_vazia/);assert.match(studioSource,/falhasTransitorias/);assert.match(studioSource,/retomarAposIA/);
   assert.equal(e.equipe[0].ia.independente,true);assert.equal(e.equipe[0].ia.leve,'openai/gpt-oss-20b');assert.equal(e.equipe[0].ia.padrao,'openai/gpt-oss-120b');assert.equal(e.equipe[0].ia.avancado,'deepseek/deepseek-v3.2');
   const index=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
   for(const id of ['floor','gameHud','hudCollapse','hudStats','dockGerente','dockTarefas','dockProdutos','dockEstado','dockLog','dockIA','modal','btnFundar','btnConfig','btnAcervo','mainMenu','menuContinuar','zoomMais','zoomMenos'])assert.match(index,new RegExp(`id="${id}"`));
