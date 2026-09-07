@@ -1,8 +1,7 @@
 /* ============================================================
    IA — porta única para o provedor configurado.
-   Princípio do projeto: economia de tokens. Toda chamada tem teto,
-   contexto enxuto e formato de resposta fixo em linhas CHAVE: valor,
-   que modelos pequenos acertam muito mais que JSON.
+   Princípio do projeto: economia sem sacrificar integridade. O motor escolhe
+   contexto relevante completo e nunca impõe corte de entrada ou saída.
    ============================================================ */
 (function (S) {
   'use strict';
@@ -30,8 +29,8 @@
   /* No OpenRouter os mesmos modelos abertos saem mais baratos, porque o
      preço é repassado do provedor de origem sem markup. */
   const MODELOS_OPENROUTER = [
-    { id: 'openai/gpt-oss-20b', nome: 'GPT-OSS 20B · econômico', nota: '~$0,03 entrada / $0,15 saída por 1M. Melhor escolha para planejamento, coordenação e revisão.' },
-    { id: 'openai/gpt-oss-120b', nome: 'GPT-OSS 120B · produção', nota: '~$0,036 entrada / $0,18 saída por 1M. Baixo custo; use para o produto final.' },
+    { id: 'openai/gpt-oss-20b', nome: 'GPT-OSS 20B · produção econômica', nota: '~$0,03 entrada / $0,15 saída por 1M. Padrão de execução, com escalada quando o gate reprovar.' },
+    { id: 'openai/gpt-oss-120b', nome: 'GPT-OSS 120B · raciocínio forte', nota: '~$0,036 entrada / $0,18 saída por 1M. Padrão para pensar, delegar e revisar.' },
     { id: 'deepseek/deepseek-chat', nome: 'DeepSeek Chat · alternativa', nota: 'Barato e forte em texto longo. Alternativa de produção.' },
     { id: 'qwen/qwen3-32b', nome: 'Qwen3 32B · raciocínio', nota: 'Alternativa de raciocínio e revisão.' },
     { id: 'meta-llama/llama-3.3-70b-instruct', nome: 'Llama 3.3 70B · geral', nota: 'Modelo geral robusto, preço médio.' }
@@ -50,7 +49,7 @@
      migrarModelo — daí a ordem: MODELOS_DE, cfg, migração. */
   const cfg = Object.assign(
     { provedor: 'openrouter', roteamento: 'manual', tier: 'paid', providerSelecionadoEm: 0,
-      pensamento: 'openai/gpt-oss-20b', producao: 'openai/gpt-oss-120b', imagem: 'google/gemini-2.5-flash-image',
+      pensamento: 'openai/gpt-oss-120b', producao: 'openai/gpt-oss-20b', imagem: 'google/gemini-2.5-flash-image',
       orcamentoUSD: 3, periodoDias: 30, modoOrcamento: 'normal', margemSegurancaUSD: 0,
       distribuicaoCaixa:'manual', openRouterTotalCreditos:null },
     S.local.json(K_CFG, {})
@@ -64,6 +63,9 @@
   }
   cfg.pensamento = migrarModelo(cfg.pensamento || cfg.decisao || cfg.revisao);
   cfg.producao = migrarModelo(cfg.producao);
+  if(cfg.pensamento==='openai/gpt-oss-20b'&&cfg.producao==='openai/gpt-oss-120b'){
+    cfg.pensamento='openai/gpt-oss-120b';cfg.producao='openai/gpt-oss-20b';
+  }
   cfg.imagem = MODELOS_IMAGEM_OPENROUTER.some(m=>m.id===cfg.imagem) ? cfg.imagem : MODELOS_IMAGEM_OPENROUTER[0].id;
   cfg.orcamentoUSD = Math.max(0.10, Math.min(1000, Number(cfg.orcamentoUSD) || 3));
   cfg.periodoDias = 30;
@@ -122,6 +124,7 @@
     return base;
   }
   function economiaAtual(){ return S.economia && S.economia.resumo ? S.economia.resumo() : null; }
+  function modoIntensivo(){const eco=economiaAtual();return Boolean(eco&&eco.modoTrabalho==='intensivo');}
   function custoPeriodo(){ const eco=economiaAtual(); if(eco)return Number(eco.gastoIAUSD)||0; renovarPeriodoSeNecessario(); return Number(periodo.gastoUSD)||0; }
   function restanteUSD(){ const eco=economiaAtual(); if(eco)return Math.max(0,Number(eco.caixaUSD)||0); renovarPeriodoSeNecessario(); return Math.max(0, Number(periodo.limiteUSD)-Number(periodo.gastoUSD||0)); }
   function diasRestantesPeriodo(){
@@ -146,7 +149,7 @@
   function orcamentoDiarioEsgotado(){ const lim=limiteDiarioCalculado(); return lim<=0 || custoDoDia() >= lim; }
   function orcamentoEsgotado(){ return restanteUSD()<=0.0000001; }
   function orcamentoIndisponivel(){
-    return orcamentoEsgotado() || (cfg.modoOrcamento !== 'intensivo' && (orcamentoDiarioEsgotado() || estado.orcamentoPreventivo));
+    return orcamentoEsgotado() || (!modoIntensivo() && (orcamentoDiarioEsgotado() || estado.orcamentoPreventivo));
   }
   function salvarUso() { S.local.setJson(K_USO, uso); }
 
@@ -346,18 +349,20 @@
 
   async function gerarImagem(op){
     op=op||{};const agenteId=String(op.agenteId||op.agente||'imagem'),l=lane(agenteId);if(!disponivel(agenteId))throw new Error('IA indisponível para geração de imagem.');
-    const modelo=MODELOS_IMAGEM_OPENROUTER.some(m=>m.id===op.modelo)?op.modelo:cfg.imagem;
+    const pessoa=((S.state.atual()||{}).equipe||[]).find(f=>f.id===agenteId);
+    const proprio=pessoa&&pessoa.ia&&pessoa.ia.imagem;
+    const modelo=MODELOS_IMAGEM_OPENROUTER.some(m=>m.id===(op.modelo||proprio))?(op.modelo||proprio):cfg.imagem;
     const estimativa=0.05;
-    if(restanteUSD()<estimativa || (cfg.modoOrcamento!=='intensivo'&&restanteDiaUSD()<estimativa)){const er=new Error('Orçamento disponível pequeno demais para iniciar uma imagem com segurança.');er.limiteLocal=true;throw er;}
+    if(restanteUSD()<estimativa || (!modoIntensivo()&&restanteDiaUSD()<estimativa)){const er=new Error('Orçamento disponível pequeno demais para iniciar uma imagem com segurança.');er.limiteLocal=true;throw er;}
     estado.emVoo++;l.emVoo++;situar('ocupada','IA criando imagem',`${op.agente||agenteId} · ${modelo}`);const inicio=Date.now();
     try{
-      const resp=await fetch('https://openrouter.ai/api/v1/images',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+chaves.openrouter},body:JSON.stringify({model:modelo,prompt:String(op.prompt||'').slice(0,5000),aspect_ratio:op.aspect_ratio||'1:1'})});
+      const resp=await fetch('https://openrouter.ai/api/v1/images',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+chaves.openrouter},body:JSON.stringify({model:modelo,prompt:String(op.prompt||''),aspect_ratio:op.aspect_ratio||'1:1'})});
       const dados=await resp.json().catch(()=>null);if(!resp.ok)throw new Error((dados&&dados.error&&dados.error.message)||`OpenRouter Images respondeu HTTP ${resp.status}.`);
       const item=dados&&dados.data&&dados.data[0];if(!item||!item.b64_json)throw new Error('O modelo de imagem não devolveu bytes utilizáveis.');
       const media=String(item.media_type||'image/png');const ext=/jpeg|jpg/i.test(media)?'jpg':/webp/i.test(media)?'webp':'png';const custo=Number(dados&&dados.usage&&dados.usage.cost)||0;
       contabilizarCustoDireto(modelo,custo,Date.now()-inicio);registrarChamada({quem:op.agente||agenteId,agenteId,motivo:op.motivo||'geração de imagem',modelo,provedor:'openrouter',ms:Date.now()-inicio,ok:true,tokens:0,custo,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados&&dados.usage||{}});
       void sincronizarOpenRouterCreditos();situar('pronta','IA pronta','imagem criada');return{b64:item.b64_json,mediaType:media,ext,custo,modelo};
-    }catch(err){registrarChamada({quem:op.agente||agenteId,agenteId,motivo:op.motivo||'geração de imagem',modelo,provedor:'openrouter',ms:Date.now()-inicio,ok:false,erro:String(err.message||err),em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null});situar('erro','Falha ao criar imagem',String(err.message||err));throw err;}
+    }catch(err){if(/could not generate.*\bSTOP\b|finish_reason\s*=\s*(?:length|max_tokens)/i.test(String(err&&err.message||err)))err.incompleta=true;registrarChamada({quem:op.agente||agenteId,agenteId,motivo:op.motivo||'geração de imagem',modelo,provedor:'openrouter',ms:Date.now()-inicio,ok:false,erro:String(err.message||err),em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null});situar('erro','Falha ao criar imagem',String(err.message||err));throw err;}
     finally{estado.emVoo=Math.max(0,estado.emVoo-1);l.emVoo=Math.max(0,l.emVoo-1);S.bus.emit('ia');}
   }
 
@@ -367,7 +372,7 @@
     if (estado.chamadas.length > 500) estado.chamadas.length=500;
     const empresa=S.state&&S.state.atual&&S.state.atual();
     if(empresa){empresa.iaChamadas=Array.isArray(empresa.iaChamadas)?empresa.iaChamadas:[];empresa.iaChamadas.push(Object.assign({},reg));if(empresa.iaChamadas.length>2000)empresa.iaChamadas.splice(0,empresa.iaChamadas.length-2000);}
-    if(empresa&&reg.ok){const f=(empresa.equipe||[]).find(x=>x.nome===reg.quem||x.id===reg.quem);if(f){f.uso=f.uso||{};f.uso.chamadas=Number(f.uso.chamadas||0)+1;f.uso.tokens=Number(f.uso.tokens||0)+Number(reg.tokens||0);f.uso.entrada=Number(f.uso.entrada||0)+Number(reg.entrada||0);f.uso.saida=Number(f.uso.saida||0)+Number(reg.saida||0);f.uso.ms=Number(f.uso.ms||0)+Number(reg.ms||0);}}
+    if(empresa&&(reg.ok||reg.incompleta)){const f=(empresa.equipe||[]).find(x=>x.nome===reg.quem||x.id===reg.quem);if(f){f.uso=f.uso||{};f.uso.chamadas=Number(f.uso.chamadas||0)+1;f.uso.tokens=Number(f.uso.tokens||0)+Number(reg.tokens||0);f.uso.entrada=Number(f.uso.entrada||0)+Number(reg.entrada||0);f.uso.saida=Number(f.uso.saida||0)+Number(reg.saida||0);f.uso.ms=Number(f.uso.ms||0)+Number(reg.ms||0);}}
     if(S.state&&S.state.atual&&S.state.atual()&&S.state.registrar){
       S.state.registrar(`IA ${reg.ok?'concluiu':'falhou'} · ${reg.quem||'agente'} · ${reg.motivo||'chamada'} · ${reg.modelo||'modelo'} · ${Number(reg.tokens||0)} tokens (${Number(reg.entrada||0)} entrada/${Number(reg.saida||0)} saída) · US$ ${Number(reg.custo||0).toFixed(5)} · ${S.fmt.dur(reg.ms||0)}${reg.erro?' · '+String(reg.erro).slice(0,180):''}`,reg.ok?'ia':'erro');
     }
@@ -398,8 +403,13 @@
     const agenteId = String(op.agenteId || op.idAgente || agente || 'estudio');
     const l = lane(agenteId);
     const tipo = op.tipo === 'conteudo' ? 'conteudo' : 'pensamento';
-    const modelo = tipo === 'conteudo' ? cfg.producao : cfg.pensamento;
-    const teto = clamp(op.tokens || (tipo === 'conteudo' ? 1700 : 420), 120, tipo === 'conteudo' ? 3600 : 900);
+    const pessoa=((S.state.atual()||{}).equipe||[]).find(f=>f.id===agenteId);
+    const proprio=pessoa&&pessoa.ia&&pessoa.ia[tipo==='conteudo'?'producao':'pensamento'];
+    const solicitado=op.modelo||proprio;
+    const modelo=MODELOS_OPENROUTER.some(m=>m.id===solicitado)?solicitado:(tipo==='conteudo'?cfg.producao:cfg.pensamento);
+    // Apenas uma estimativa preventiva de caixa; este valor nunca é enviado
+    // como max_tokens e portanto jamais corta a resposta do provedor.
+    const estimativaSaida = Math.max(120,Number(op.tokens)||(tipo==='conteudo'?3000:700));
     const provedorUsado = 'openrouter';
     const provInfo = PROVEDORES.openrouter;
     const chaveUsada = chaves.openrouter;
@@ -429,8 +439,7 @@
     // agentes em loop (ver CHANGELOG.md) — o teto real de custo é o
     // orçamento em dólar checado logo abaixo, não o tamanho do texto.
     const mensagens = [{ role:'user', content: String(sistema||'') + '\n\n' + String(pedido||'') }];
-    const estimativa = Math.min(10000, Math.ceil((String(sistema||'').length + String(pedido||'').length)/4) + teto);
-    const custoEstimado = estimarCusto(provedorUsado, modelo, Math.ceil((String(sistema||'').length + String(pedido||'').length)/4), teto);
+    const custoEstimado = estimarCusto(provedorUsado, modelo, Math.ceil((String(sistema||'').length + String(pedido||'').length)/4), estimativaSaida);
     if (provedorUsado === 'openrouter' && orStatus.temLimiteChave === true && Number.isFinite(Number(orStatus.limiteRestante)) && Number(orStatus.limiteRestante) < custoEstimado) {
       const er=new Error(`Saldo/limite real do OpenRouter insuficiente para esta chamada (restante ~US$ ${Number(orStatus.limiteRestante).toFixed(4)}).`); er.cota=true; throw er;
     }
@@ -448,7 +457,7 @@
       const er = new Error(`Caixa da empresa insuficiente para esta chamada. Restam US$ ${restanteUSD().toFixed(4)}.`);
       er.limiteLocal = true; throw er;
     }
-    if (custoEstimado > 0 && cfg.modoOrcamento !== 'intensivo' && (custoDoDia() + custoEstimado) > limiteDiarioCalculado()) {
+    if (custoEstimado > 0 && !modoIntensivo() && (custoDoDia() + custoEstimado) > limiteDiarioCalculado()) {
       estado.orcamentoPreventivo=true;
       const er = new Error(`Limite diário de IA atingido (US$ ${limiteDiarioCalculado().toFixed(4)}). A equipe entra em rotina Sims-like até o próximo dia. Ative Trabalho intensivo para usar o caixa restante hoje.`);
       er.limiteLocal = true; er.diario = true; throw er;
@@ -462,7 +471,7 @@
         method:'POST',
         headers:{'Content-Type':'application/json',Authorization:'Bearer '+chaveUsada},
         body:JSON.stringify({
-          model:modelo,messages:mensagens,max_completion_tokens:teto,
+          model:modelo,messages:mensagens,
           temperature:tipo==='conteudo'?0.55:0.2,stream:false,
           ...(provedorUsado==='openrouter'
             ? {reasoning:{effort:op.reasoning_effort || (tipo==='conteudo'?'medium':'low'),exclude:true}}
@@ -501,8 +510,11 @@
       const mensagem=escolha.message||{};
       const texto=String(mensagem.content||escolha.text||'').trim();
 
-      if(!texto && escolha.finish_reason==='length' && !op._recuperacao && tipo==='pensamento'){
-        return chamar(Object.assign({},op,{_recuperacao:true,reasoning_effort:'low',tokens:Math.max(Number(op.tokens||0)+180,560)}));
+      const fim=String(escolha.finish_reason||'').toLowerCase();
+      if(['length','max_tokens','content_filter'].includes(fim)){
+        const custoIncompleto=numeroOpcional((dados.usage||{}).cost)||estimarCusto(provedorUsado,modelo,(dados.usage||{}).prompt_tokens,(dados.usage||{}).completion_tokens);
+        registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,modelo,provedor:provedorUsado,ms,ok:false,incompleta:true,erro:`finish_reason=${fim}`,entrada:Number((dados.usage||{}).prompt_tokens||0),saida:Number((dados.usage||{}).completion_tokens||0),tokens:Number((dados.usage||{}).total_tokens||0),custo:custoIncompleto,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados.usage||{},finishReason:fim});
+        const er=new Error(`Resposta interrompida pelo provedor (finish_reason=${fim}). Nenhuma entrega parcial será tratada como concluída.`);er.incompleta=true;er.textoParcial=texto;er.finishReason=fim;er.jaRegistrada=true;throw er;
       }
       if(!texto){
         const motivoVazio=escolha.finish_reason?`finish_reason=${escolha.finish_reason}`:'resposta vazia';
@@ -526,7 +538,7 @@
       }else if(!err.limiteLocal){
         l.bloqueadaAte=Date.now() + (/401|inválida/i.test(msg)?90000:Math.min(30000,5000*l.falhas));
       }
-      registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,modelo,provedor:provedorUsado,ms:Date.now()-inicio,ok:false,erro:msg,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null});
+      if(!err.jaRegistrada)registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,modelo,provedor:provedorUsado,ms:Date.now()-inicio,ok:false,erro:msg,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null});
       situar((err.limiteLocal||err.orcamento)?'pronta':'erro',(err.orcamento?'Orçamento do período atingido':err.diario?'Limite diário atingido':err.limiteLocal?'Limite local atingido':'Falha na IA'),msg);
       throw err;
     }finally{
@@ -685,7 +697,7 @@
     const ritmo=diasEco>0?restante/diasEco:0;
     const diario=limiteDiarioCalculado();
     const gastoDia=custoDoDia();
-    return {requisicoes:q.requisicoes,tokens:q.tokens,entrada:q.entrada,saida:q.saida,pctReq,fonte:(temTok||temReq)?cfg.provedor:'aguardando headers',provedor:cfg.provedor,ref:null,headers:h,porModelo:q.porModelo,custo:gastoDia,custoDiaUSD:gastoDia,limiteDiarioUSD:diario,restanteDiaUSD:Math.max(0,diario-gastoDia),modoOrcamento:cfg.modoOrcamento,custoPeriodo:custoPeriodo(),orcamentoUSD:eco?Number(eco.caixaUSD)||0:Number(periodo.limiteUSD)||0,margemUSD:0,restanteUSD:restante,diasRestantes:diasEco,ritmoDiarioUSD:ritmo,periodoInicio:(S.state.atual()&&S.state.atual().economia&&S.state.atual().economia.cicloInicio)||periodo.inicio,periodoFim:((S.state.atual()&&S.state.atual().economia&&S.state.atual().economia.cicloInicio)||periodo.inicio)+30*86400000,esgotado:orcamentoEsgotado(),esgotadoDia:(cfg.modoOrcamento !== 'intensivo' && orcamentoDiarioEsgotado()),tier:'paid',roteamento:'manual',openrouterSaldo:stateProvedor('openrouter').saldoConta,openrouterLimiteChave:stateProvedor('openrouter').limiteRestante,openrouterSaldoEfetivo:saldoOpenRouterDisponivel(),openrouterManagementConfigured:Boolean(openRouterManagementKey),openrouterSync:stateProvedor('openrouter').ultimoSyncCreditos,receitaUSD:eco?eco.receitaUSD:0,receitaNaoIdentificadaUSD:eco?eco.receitaNaoIdentificadaUSD:0,distribuicaoCaixa:cfg.distribuicaoCaixa,chamadas:estado.chamadas.slice()};
+    return {requisicoes:q.requisicoes,tokens:q.tokens,entrada:q.entrada,saida:q.saida,pctReq,fonte:(temTok||temReq)?cfg.provedor:'aguardando headers',provedor:cfg.provedor,ref:null,headers:h,porModelo:q.porModelo,custo:gastoDia,custoDiaUSD:gastoDia,limiteDiarioUSD:diario,restanteDiaUSD:Math.max(0,diario-gastoDia),modoOrcamento:modoIntensivo()?'intensivo':'normal',custoPeriodo:custoPeriodo(),orcamentoUSD:eco?Number(eco.caixaUSD)||0:Number(periodo.limiteUSD)||0,margemUSD:0,restanteUSD:restante,diasRestantes:diasEco,ritmoDiarioUSD:ritmo,periodoInicio:(S.state.atual()&&S.state.atual().economia&&S.state.atual().economia.cicloInicio)||periodo.inicio,periodoFim:((S.state.atual()&&S.state.atual().economia&&S.state.atual().economia.cicloInicio)||periodo.inicio)+30*86400000,esgotado:orcamentoEsgotado(),esgotadoDia:(!modoIntensivo() && orcamentoDiarioEsgotado()),tier:'paid',roteamento:'manual',openrouterSaldo:stateProvedor('openrouter').saldoConta,openrouterLimiteChave:stateProvedor('openrouter').limiteRestante,openrouterSaldoEfetivo:saldoOpenRouterDisponivel(),openrouterManagementConfigured:Boolean(openRouterManagementKey),openrouterSync:stateProvedor('openrouter').ultimoSyncCreditos,receitaUSD:eco?eco.receitaUSD:0,receitaNaoIdentificadaUSD:eco?eco.receitaNaoIdentificadaUSD:0,distribuicaoCaixa:cfg.distribuicaoCaixa,chamadas:estado.chamadas.slice()};
   }
 
   S.ai = {

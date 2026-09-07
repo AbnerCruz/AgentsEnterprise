@@ -47,7 +47,7 @@
     const memorias = memoriasRelevantes(p,termos);
     const toksOrg=termos.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9]+/).filter(x=>x.length>3);
     const memOrg=(e.memoriaOrganizacional||[]).slice().sort((a,b)=>{const sc=m=>{const t=String(m.texto||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');return Number(m.peso||2)*2+toksOrg.slice(0,35).reduce((n,k)=>n+(t.includes(k)?1:0),0)};return sc(b)-sc(a)}).slice(0,10);
-    const decisoes = (e.decisoes || []).slice(0, 8).map(d => max(d.texto,180)).join(' | ');
+    const decisoes = (e.decisoes || []).slice(0, 8).map(d => String(d.texto||'')).join(' | ');
     const dadosProjeto=pr&&pr.dados||{};
     const acervoSoberano=S.acervo&&pr?S.acervo.contexto(pr.id,6000):'Nenhuma referência soberana vinculada a este projeto.';
     return {
@@ -55,8 +55,8 @@
       texto: [
         `EMPRESA: ${e.nome} | ramo: ${e.ramo} | missão: ${e.missao} | público: ${e.publico} | tom: ${e.tom}`,
         `IDENTIDADE/ESTRATÉGIA: slogan=${e.fundacao?.identidade?.slogan||'n/d'} | posicionamento=${e.fundacao?.identidade?.posicionamento||'n/d'} | valores=${e.fundacao?.identidade?.valores||'n/d'} | estado da fundação=${e.fundacao?.estado||'n/d'}`,
-        `PLANO DE NEGÓCIO DA GERENTE: ${max(e.fundacao?.planoNegocio||'ainda não consolidado',2200)}`,
-        `PLANEJAMENTO DO PRIMEIRO PRODUTO: ${max(e.fundacao?.primeiroProduto||'ainda não consolidado',2200)}`,
+        `PLANO DE NEGÓCIO DA GERENTE: ${e.fundacao?.planoNegocio||'ainda não consolidado'}`,
+        `PLANEJAMENTO DO PRIMEIRO PRODUTO: ${e.fundacao?.primeiroProduto||'ainda não consolidado'}`,
         `PROJETO: ${pr ? pr.nome : 'nenhum'} | objetivo: ${pr ? pr.objetivo : e.missao} | status: ${pr ? pr.status : 'sem projeto'}`,
         `DADOS DO PROJETO: resumo=${dadosProjeto.resumo||'n/d'} | requisitos=${dadosProjeto.requisitos||'n/d'} | público=${dadosProjeto.publico||e.publico||'n/d'} | riscos=${dadosProjeto.riscos||'n/d'}`,
         `ACERVO SOBERANO DO USUÁRIO (SOMENTE LEITURA):\n${acervoSoberano}`,
@@ -64,8 +64,8 @@
         `TRABALHO ABERTO: ${tarefas.length ? tarefas.map(t => `${t.id}:${t.titulo}[${t.status}, responsável=${t.para||'livre'}, base=${t.baseArquivoId||'nenhuma'}]`).join('; ') : 'nenhum'}`,
         `CAPACIDADE DE PRODUÇÃO: criação e edição de arquivos reais; texto/código em html, md, txt, csv, tsv, json, jsonl, js, ts, tsx, jsx, css, scss, xml, yaml, svg, py, sql, sh e webmanifest; projetos multi-arquivo exportáveis em ZIP; e imagens reais quando a tarefa pedir arte visual.`,
         `EQUIPE: ${equipeContexto(e)}`,
-        `MEMÓRIA RELEVANTE DE ${p.nome}: ${memorias.join(' | ') || 'nenhuma'}${p.ref.memoriaResumo?' | MARCOS IMPORTANTES: '+max(p.ref.memoriaResumo,1200):''}`,
-        `MEMÓRIA ORGANIZACIONAL RELEVANTE: ${memOrg.map(m=>`${m.por||'equipe'}: ${max(m.texto,220)}`).join(' | ') || 'nenhuma'}`, 
+        `MEMÓRIA RELEVANTE DE ${p.nome}: ${memorias.join(' | ') || 'nenhuma'}${p.ref.memoriaResumo?' | MARCOS IMPORTANTES: '+p.ref.memoriaResumo:''}`,
+        `MEMÓRIA ORGANIZACIONAL RELEVANTE: ${memOrg.map(m=>`${m.por||'equipe'}: ${m.texto||''}`).join(' | ') || 'nenhuma'}`,
         `DECISÕES RECENTES: ${decisoes || 'nenhuma'}`,
         `DIRETRIZES RECENTES DO DONO: ${(e.diretrizesDono||[]).slice(-8).map(d=>max(d.texto,220)).join(' | ') || 'nenhuma'}`,
         `IDEIAS RECENTES: ${(e.ideias||[]).slice(0,5).map(x => typeof x === 'string' ? x : x.texto || '').filter(Boolean).join(' | ') || 'nenhuma'}`,
@@ -86,12 +86,12 @@
     const para = String(c.para || '').trim();
     return {
       acao, tarefa: taskId, para, kit,
-      titulo: max(c.titulo, 180),
-      briefing: max(c.brief, 500),
-      base: max(c.base, 120),
-      motivo: max(c.motivo, 280),
-      abordagem: max(c.abordagem, 320),
-      risco: max(c.risco, 240),
+      titulo: String(c.titulo||''),
+      briefing: String(c.brief||''),
+      base: String(c.base||''),
+      motivo: String(c.motivo||''),
+      abordagem: String(c.abordagem||''),
+      risco: String(c.risco||''),
       objeto: max(c.objeto, 40),
       colega: max(c.colega || c.para, 60),
       especialidade: max(c.especialidade || c.cargo, 40),
@@ -142,7 +142,7 @@ Ações possíveis: executar_tarefa, criar_tarefa, revisar, estudar, colaborar, 
 - demitir: somente para a gerente; use quando houver excesso estrutural de capacidade ou uma função deixar de ser necessária. Informe em FUNCIONARIO o ID exato do funcionário. Nunca demita a gerente geral.
 - esperar: quando agir agora teria pouco valor, quando não há base suficiente ou quando outra pessoa precisa agir primeiro.
 
-Se criar_tarefa, descreva exatamente o resultado que deve ser produzido. Não escolha um template de produto: a ferramenta de produção interpretará sua decisão. Prefira evoluir um artefato existente quando isso trouxer valor.
+Se criar_tarefa, descreva exatamente o resultado que deve ser produzido e informe KIT. Use texto/visual apenas para criação, pagina/autonomo apenas para produção, dados apenas para operações e comercial apenas para comercial. Prefira evoluir um artefato existente quando isso trouxer valor.
 REGRA DE CONTINUIDADE: você é responsável por encontrar uma próxima ação útil. Trabalho aberto, artefato incompleto, decisão pendente, dependência ou oportunidade concreta devem orientar sua escolha. Se a melhor ação for pensar, transforme esse pensamento em conversa, revisão ou trabalho persistente; não use atividade vazia como substituto de contribuição.
 REGRA DE PIPELINE: toda tarefa que produz algo destinado diretamente ao cliente deve ser marcada DESTINO=cliente. O runtime obrigará a linhagem a passar por esboço → protótipo → candidato final → produto; nunca trate um plano interno, checklist, relatório, ata ou anotação de equipe como produto publicável. Candidato final deve conter somente o conteúdo que o cliente recebe, sem notas internas ou metatexto de produção.
 REGRA DO ACERVO SOBERANO: as referências do usuário são a autoridade máxima e são imutáveis para todos os agentes. Todo trabalho deve ser coerente com elas e não pode contradizê-las. Se houver uma razão concreta para alterá-las, use sugerir_acervo; o original continuará intocado até o dono decidir editar pessoalmente ou autorizar uma branch independente.
@@ -160,6 +160,7 @@ TAREFA: <id da tarefa existente ou vazio>
 COLEGA: <id de colega para conversar/reunião ou vazio>
 TITULO: <se criar tarefa, título concreto; senão vazio>
 BRIEF: <se criar tarefa, briefing verificável; senão vazio>
+KIT: <autonomo | texto | visual | pagina | dados | comercial>
 BASE: <id do artefato existente que deve ser evoluído/revisado ou vazio>
 PARA: <id de colega que deve receber colaboração/handoff ou vazio>
 DESTINO: <cliente | interno; obrigatório ao criar tarefa>

@@ -112,7 +112,8 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.equal(produzido.arquivos.length,2,'bundle elimina caminhos duplicados e preserva arquivos distintos');
   assert.deepEqual(produzido.arquivos.map(x=>x.nome),['index.html','app.js']);
   const visual=S.studio.salvarArquivos([{nome:'capa.png',tipo:'png',conteudo:'data:image/png;base64,cG5n'}],{projectId:'pr1',classe:'esboco',clienteVisivel:true,kit:'visual'},e.equipe[0])[0];
-  const visualV2=await S.factory.produzir({kit:'visual',briefing:'Refinar a capa do produto',etapa:'prototipo',clienteVisivel:true,agente:e.equipe[0],projectId:'pr1',baseArquivoId:visual.id});
+  const artista=Object.assign({},e.equipe[0],{id:'artista-teste',papel:'func',especialidade:'criacao'});
+  const visualV2=await S.factory.produzir({kit:'visual',briefing:'Refinar a capa do produto',etapa:'prototipo',clienteVisivel:true,agente:artista,projectId:'pr1',baseArquivoId:visual.id});
   assert.equal(visualV2.baseArquivoId,visual.id);assert.equal(visualV2.linhagem,visual.linhagem);assert.match(visualV2.arquivos[0].conteudo,/^data:image\/png;base64,/);
 
   const antes=e.arquivos.length;
@@ -127,6 +128,7 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   e.economia.caixaUSD=8;e2.economia.caixaUSD=8;S.economia.reconciliarLastroGlobal(10);
   assert.equal(e.economia.caixaUSD,5);assert.equal(e2.economia.caixaUSD,5,'alocações legadas acima do saldo são reconciliadas');
   S.DB.atual=e.id;e.economia.receitaNaoIdentificadaUSD=2;
+  assert.equal(S.economia.definirModoTrabalho('intensivo'),'intensivo');assert.equal(e.economia.modoTrabalho,'intensivo');
   const caixaAntes=e.economia.caixaUSD;
   const venda=S.economia.registrarVenda(produto.id,'',1.25);
   assert.equal(venda.produto,produto.nome);assert.equal(e.economia.caixaUSD,caixaAntes,'identificar venda não duplica dinheiro');
@@ -141,6 +143,10 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.match(studioSource,/if\(p\.papel==='gerente'\)/,'gerente precisa de guarda explícita contra produção');
   assert.doesNotMatch(studioSource,/motivo:'conversa ociosa econômica'/,'ociosidade não pode gastar tokens');
   assert.doesNotMatch(studioSource,/_ultimoDesenho[^\n]+80/,'animação não pode continuar limitada a 12,5 fps');
+  assert.match(studioSource,/Claim atômico/);assert.match(studioSource,/p\.especialidade===exigida/);assert.match(studioSource,/status='incompleta'/);
+  const aiSource=fs.readFileSync(path.join(__dirname,'..','ai.js'),'utf8');
+  assert.doesNotMatch(aiSource,/max_completion_tokens\s*:/,'nenhuma resposta pode receber teto de saída');assert.match(aiSource,/finish_reason=.*Nenhuma entrega parcial/);
+  assert.equal(e.equipe[0].ia.independente,true);assert.equal(e.equipe[0].ia.pensamento,'openai/gpt-oss-120b');assert.equal(e.equipe[0].ia.producao,'openai/gpt-oss-20b');
   const index=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
   for(const id of ['floor','gameHud','hudCollapse','hudStats','dockGerente','dockTarefas','dockProdutos','dockEstado','dockLog','dockIA','modal','btnFundar','btnConfig','btnAcervo','mainMenu','menuContinuar','zoomMais','zoomMenos'])assert.match(index,new RegExp(`id="${id}"`));
   const gameUi=fs.readFileSync(path.join(__dirname,'..','game-ui.js'),'utf8');

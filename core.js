@@ -142,6 +142,7 @@ window.S = window.S || {};
     e.economia.receitaNaoIdentificadaUSD = Math.max(0, Number(e.economia.receitaNaoIdentificadaUSD)||0);
     e.economia.cicloInicio = Number(e.economia.cicloInicio)||Date.now();
     e.economia.cicloDias = 30;
+    e.economia.modoTrabalho = e.economia.modoTrabalho === 'intensivo' ? 'intensivo' : 'normal';
     e.economia.dia = e.economia.dia && typeof e.economia.dia==='object' ? e.economia.dia : {chave:'',gastoUSD:0};
     e.economia.historico = Array.isArray(e.economia.historico) ? e.economia.historico.slice(-2000) : [];
     e.economia.vendas = Array.isArray(e.economia.vendas) ? e.economia.vendas.slice(-120) : [];
@@ -190,6 +191,13 @@ window.S = window.S || {};
       f.personalidade.aversoes = String(f.personalidade.aversoes || 'retrabalho sem motivo e tarefas desconectadas do produto').slice(0,160);
       f.personalidade.experiencia = String(f.personalidade.experiencia || (f.cargo === 'Sócia-gerente' ? 'gestão de projetos e qualidade' : f.cargo.toLowerCase())).slice(0,140);
       f.uso = f.uso || { chamadas: 0, tokens: 0 };
+      // Cada pessoa mantém sua própria dupla de modelos. Estes valores são
+      // cópias persistentes, não ponteiros para uma fila/modelo global.
+      f.ia = f.ia && typeof f.ia === 'object' ? f.ia : {};
+      f.ia.pensamento = String(f.ia.pensamento || 'openai/gpt-oss-120b');
+      f.ia.producao = String(f.ia.producao || 'openai/gpt-oss-20b');
+      f.ia.imagem = String(f.ia.imagem || 'google/gemini-2.5-flash-image');
+      f.ia.independente = true;
       // Salário é uma economia interna de carreira, deliberadamente desacoplada de dinheiro real.
       f.salario = f.salario && typeof f.salario==='object' ? f.salario : {};
       f.salario.mensalCreditos = Math.max(100, Number(f.salario.mensalCreditos)|| (f.papel==='gerente'?1500:900));
@@ -254,7 +262,8 @@ window.S = window.S || {};
     e.tarefas.forEach(t => {
       // Estados legados não podem deixar trabalho invisível para o quadro.
       if(['pendente','nova','todo','aguardando','fila'].includes(String(t.status||'').toLowerCase()))t.status='aberta';
-      if(!['aberta','fazendo','feita'].includes(t.status))t.status='aberta';
+      if(!['aberta','fazendo','feita','incompleta'].includes(t.status))t.status='aberta';
+      if(t.status==='incompleta'){t.incompleta=true;t.bloqueada=true;}
       t.projectId = t.projectId || (e.projetos[0] && e.projetos[0].id);
       // Kits continuam sendo apenas roteamento de capacidade; não definem um
       // template de produto. Preservamos o kit novo quando conhecido.
@@ -331,6 +340,7 @@ window.S = window.S || {};
       pr.arquivoIds = e.arquivos.filter(a => a.projectId === pr.id).map(a => a.id);
     });
     e.aprovacoes = Array.isArray(e.aprovacoes) ? e.aprovacoes : [];
+    e.aprovacoes.forEach(a=>{a.status=String(a.status||'pendente');a.bloqueante=Boolean(a.bloqueante);a.criadaEm=Number(a.criadaEm)||Date.now();});
     e.decisoes = Array.isArray(e.decisoes) ? e.decisoes : [];
     e.ideias = Array.isArray(e.ideias) ? e.ideias.slice(-200) : [];
     e.estrategia = e.estrategia && typeof e.estrategia === 'object' ? e.estrategia : {};
@@ -598,9 +608,10 @@ window.S = window.S || {};
     const e=atual(); if(!e)return null; garantirDiaEconomia(e); processarFolhaInterna(e);
     return {caixaUSD:caixaDisponivel(e),receitaUSD:Number(e.economia.receitaUSD)||0,gastoIAUSD:Number(e.economia.gastoIAUSD)||0,
       gastoHojeUSD:Number(e.economia.dia.gastoUSD)||0,receitaNaoIdentificadaUSD:Number(e.economia.receitaNaoIdentificadaUSD)||0,
-      vendas:(e.economia.vendas||[]).slice(),historico:(e.economia.historico||[]).slice(),provedor:Object.assign({},e.economia.provedor||{})};
+      modoTrabalho:e.economia.modoTrabalho||'normal',vendas:(e.economia.vendas||[]).slice(),historico:(e.economia.historico||[]).slice(),provedor:Object.assign({},e.economia.provedor||{})};
   }
-  S.economia={resumo:resumoEconomia,caixa:()=>{const e=atual();return caixaDisponivel(e);},debitarIA,definirCaixa,distribuirIgualmente,reconciliarLastroGlobal,totalCaixas,saldoNaoAlocado,reconciliarFornecedor,registrarVenda,processarFolhaInterna};
+  function definirModoTrabalho(modo){const e=atual();if(!e)throw new Error('Nenhuma empresa selecionada.');e.economia.modoTrabalho=modo==='intensivo'?'intensivo':'normal';registrar(`Ritmo de IA alterado para ${e.economia.modoTrabalho}.`,'economia');gravarJa();S.bus.emit('economia');S.bus.emit('ia');return e.economia.modoTrabalho;}
+  S.economia={resumo:resumoEconomia,caixa:()=>{const e=atual();return caixaDisponivel(e);},debitarIA,definirCaixa,definirModoTrabalho,distribuirIgualmente,reconciliarLastroGlobal,totalCaixas,saldoNaoAlocado,reconciliarFornecedor,registrarVenda,processarFolhaInterna};
 
   /* ---------- acervos soberanos do usuário ----------
      Cada empresa possui seu próprio acervo. O global agrega espelhos desses
@@ -648,10 +659,10 @@ window.S = window.S || {};
     const a=adicionarAcervo({nome:p.nome,tipo:p.tipo,conteudo:p.conteudo,tamanho:String(p.conteudo||'').length,origem:'produto final',produtoOrigemId:p.id,empresaOrigemId:e.id,projetoOrigemId:p.projectId,descricao:`Produto final v${p.versao||1} criado por ${p.autor||'equipe'}.`},'empresa');
     if(p.projectId)vincularAcervo(a.id,p.projectId);registrar(`${p.nome} foi promovido pelo dono ao acervo soberano.`,'acervo');return a;
   }
-  function contextoAcervo(projectId,limite){
-    const e=atual(),p=e&&(e.projetos||[]).find(x=>x.id===projectId),ids=new Set(p&&p.acervoIds||[]),max=Math.max(1200,Number(limite)||7000);let usado=0;
+  function contextoAcervo(projectId,_limite){
+    const e=atual(),p=e&&(e.projetos||[]).find(x=>x.id===projectId),ids=new Set(p&&p.acervoIds||[]);
     const itens=acervoEmpresa().concat(DB.acervoUsuario).filter(a=>ids.has(a.id));if(!itens.length)return 'Nenhuma referência soberana vinculada a este projeto.';
-    return itens.map(a=>{let corpo=TIPOS_ACERVO_TEXTO.has(a.tipo)?String(a.conteudo||''):'[conteúdo binário; respeite nome, tipo e descrição]';corpo=corpo.slice(0,Math.max(0,max-usado));usado+=corpo.length;return `ACERVO ${a.id} — ${a.nome} [${a.tipo}, v${a.versao}]\nDESCRIÇÃO: ${a.descricao||'não informada'}\n${corpo}`;}).filter(x=>x.length).join('\n\n').slice(0,max);
+    return itens.map(a=>{const corpo=TIPOS_ACERVO_TEXTO.has(a.tipo)?String(a.conteudo||''):'[conteúdo binário; respeite nome, tipo e descrição]';return `ACERVO ${a.id} — ${a.nome} [${a.tipo}, v${a.versao}]\nDESCRIÇÃO: ${a.descricao||'não informada'}\n${corpo}`;}).join('\n\n');
   }
   function solicitarMudancaAcervo(acervoId,projectId,agenteId,texto){
     const e=atual(),a=itemAcervo(acervoId),p=e&&(e.projetos||[]).find(x=>x.id===projectId);if(!e||!a||!p||!(p.acervoIds||[]).includes(acervoId))return null;const msg=String(texto||'').trim().slice(0,1200);if(!msg)return null;

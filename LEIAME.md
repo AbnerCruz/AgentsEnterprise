@@ -1,4 +1,4 @@
-# Agents Enterprise — v57
+# Agents Enterprise — v58
 
 Agents Enterprise é um jogo 2D top-down, mobile-first e projetado para jogar com o celular na horizontal. O jogador funda e administra empresas de agentes de IA cujo objetivo é produzir arquivos reais, prontos para vender ou distribuir fora do jogo.
 
@@ -23,7 +23,9 @@ Agents Enterprise é um jogo 2D top-down, mobile-first e projetado para jogar co
 ## Trabalho produtivo
 
 - A gerente gerencia, revisa e delega; uma trava de runtime impede que ela execute produção.
-- Funcionários procuram primeiro tarefas próprias, depois tarefas livres compatíveis e, por fim, qualquer trabalho livre executável.
+- Cada funcionário possui uma lane e uma dupla de modelos própria. A reserva de pessoa/tarefa é atômica e várias pessoas podem produzir em paralelo.
+- Funcionários só executam tarefas compatíveis com seu setor; não existe fallback generalista.
+- A fundação abre vários projetos de produto compatíveis com a equipe. O site institucional espera o primeiro produto real antes de consumir a fila.
 - Tarefas órfãs, atribuídas a IDs removidos ou salvas em estados legados voltam à fila.
 - A fila vazia exige uma decisão gerencial e, se necessário, abre uma nova frente de produto real.
 - Conversas ociosas são locais e não consomem tokens. IA é usada em decisões, revisão e produção com consequência persistente.
@@ -35,7 +37,8 @@ Agents Enterprise é um jogo 2D top-down, mobile-first e projetado para jogar co
 - A central de artefatos mostra itens internos, em produção e publicados, sem limite visual arbitrário.
 - A ficha de cada artefato oferece prévia, fonte copiável, download, edição direta e solicitação de edição.
 - Tokens, entrada, saída, custo em USD, latência, modelo, provedor, funcionário, tarefa e projeto ficam atribuídos à ficha. Bundles rateiam o custo por bytes sem duplicar o total.
-- Toda empresa recebe um projeto obrigatório de site institucional estático. A equipe cria `index.html` e arquivos relativos; o jogo oferece uma prévia isolada e exporta ZIP pronto para GitHub Pages com os arquivos na raiz.
+- Toda empresa recebe um projeto obrigatório de site institucional estático. Sua produção começa depois do primeiro release do portfólio; o jogo oferece prévia isolada e ZIP pronto para GitHub Pages.
+- A sala de reuniões contém uma fila específica de entregas com prévia, aprovação e recusa do proprietário. A gerente não depende dessa fila para decisões comuns.
 
 ## Acervos soberanos
 
@@ -49,9 +52,12 @@ Agents Enterprise é um jogo 2D top-down, mobile-first e projetado para jogar co
 
 ## IA e economia
 
-- Chave de API, Management Key e modelos são globais; cada empresa possui caixa próprio.
+- Chave de API e Management Key são globais. Os modelos globais são padrões para novas contratações; depois disso cada pessoa mantém pensamento e produção próprios.
+- O padrão usa o modelo forte para pensamento/revisão e o leve para produção. Após reprovações repetidas, a produção escala para o forte em vez de repetir uma saída barata ruim.
 - O caixa pode ser alocado manualmente ou dividido igualmente entre empresas, sempre limitado ao saldo real disponível.
+- Cada empresa escolhe ritmo normal ou intensivo. O intensivo ignora o limite diário e trabalha até o caixa dedicado acabar.
 - Cada chamada persiste custo estimado/real, tokens e detalhamento do provedor no caixa da empresa; o painel separa gasto atribuído de telemetria legada não atribuível.
+- Entrada e saída nunca recebem corte deliberado. Respostas interrompidas viram artefatos INCOMPLETOS, preservam a telemetria e são impedidas de chegar ao release.
 - Novos créditos detectados viram receita a identificar; registrar uma venda apenas associa essa receita a um produto, sem duplicar dinheiro.
 
 ## Verificação

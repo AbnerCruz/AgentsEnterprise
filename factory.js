@@ -43,6 +43,8 @@
     /\b(?:aprova[cç][aã]o interna|assinatura do aprovador|respons[aá]vel interno)\b/i,
     /\bnota (?:para|ao) marketing\b/i,
     /\b(?:remover antes de publicar|n[aã]o mostrar ao cliente)\b/i,
+    /\b(?:vers[aã]o preliminar|conceito inicial|apenas um esbo[cç]o|sugest[oõ]es futuras)\b/i,
+    /\b(?:este documento (?:prop[oõ]e|descreve)|a equipe dever[aá]|dever[aá] ser implementado)\b/i,
     /<!--\s*(?:TODO|TBD|INTERNAL|INTERNO|REVISAR)[\s\S]*?-->/i
   ];
 
@@ -116,8 +118,10 @@
     const todos = (e.arquivos || []).filter(a => (!projectId || a.projectId === projectId) && (!baseArquivo || a.id !== baseArquivo.id));
     const mesmaLinha = baseArquivo ? todos.filter(a => a.linhagem && a.linhagem === baseArquivo.linhagem) : [];
     const outros = todos.filter(a => !mesmaLinha.includes(a));
-    const relacionados = mesmaLinha.concat(outros).slice(0, 4)
-      .map(a => `${a.nome} [${a.classe}]: ${TIPOS_IMAGEM.includes(String(a.tipo||'').toLowerCase()) ? '[ativo visual binário — conteúdo omitido do prompt]' : String(a.conteudo || '').slice(0, 700)}`);
+    // Seleção por projeto/linhagem reduz custo sem cortar nenhum artefato
+    // selecionado: texto parcial cria contradições invisíveis.
+    const relacionados = mesmaLinha.concat(outros)
+      .map(a => `${a.nome} [${a.classe}]: ${TIPOS_IMAGEM.includes(String(a.tipo||'').toLowerCase()) ? '[ativo visual binário — conteúdo não textual]' : String(a.conteudo || '')}`);
     return relacionados.join('\n\n') || 'nenhum';
   }
 
@@ -125,9 +129,8 @@
     return /\b(expandir|expans[aã]o|estender|extens[aã]o|acrescentar (?:cap[ií]tulos?|se[cç][oõ]es?)|mais cap[ií]tulos?|\d+\s*p[aá]ginas?|continuar (?:o |a )?(?:livro|texto|romance|conto|cap[ií]tulo)|aprofundar narrativa)\b/i.test(String(briefing||''));
   }
   function trechoBaseParaPrompt(base, incremental) {
-    const txt=String(base&&base.conteudo||'');
-    if(!incremental || txt.length<=18000) return txt;
-    return txt.slice(0,3500)+`\n\n[... ${txt.length-15500} caracteres intermediários preservados no arquivo persistente ...]\n\n`+txt.slice(-12000);
+    void incremental;
+    return String(base&&base.conteudo||'');
   }
 
   /* Produz um artefato real a partir da decisão já tomada pelo agente. */
@@ -136,8 +139,10 @@
     if (!e) throw new Error('Nenhuma empresa ativa para receber a produção.');
     const kit = porId(op && op.kit).id;
     const agente = (op && op.agente) || {};
-    const briefing = String((op && op.briefing) || '').slice(0, 2000);
+    const briefing = String((op && op.briefing) || '');
     if (!briefing) throw new Error('Sem briefing não existe produção.');
+    const exigida=porId(kit).especialidade;
+    if(agente.papel!=='func'||agente.especialidade!==exigida)throw new Error(`Especialidade incompatível: ${exigida} é obrigatória para o kit ${kit}.`);
     const etapa = ['esboco','prototipo','candidato'].includes(String(op && op.etapa || '').toLowerCase()) ? String(op.etapa).toLowerCase() : 'prototipo';
     const clienteVisivel = Boolean(op && op.clienteVisivel);
     const regraEtapa = etapa === 'esboco'
@@ -152,9 +157,11 @@
     // Artes visuais usam um modelo dedicado; não desperdiçamos uma chamada de
     // texto pedindo que um LLM descreva uma imagem que outro modelo terá de criar.
     const baseVisual=base&&TIPOS_IMAGEM.includes(String(base.tipo||'').toLowerCase());
-    if ((pareceImagem(briefing) && !base) || baseVisual) {
+    // O tipo da tarefa é a autoridade de roteamento. Palavras como "capa"
+    // dentro de um plano textual não podem converter o trabalho inteiro em imagem.
+    if (kit==='visual' || baseVisual) {
       const identidade=(e.fundacao&&e.fundacao.identidade)||{};
-      const promptImagem=`${baseVisual?`Crie a próxima versão visual de ${base.nome}, preservando sua função, identidade e conceito aprovados.`:`Crie um ativo visual utilizável para ${e.nome}.`} Tarefa: ${briefing}. Projeto: ${projeto?projeto.nome:'principal'}. Identidade visual: cores=${identidade.cores||'livre'}; estilo=${identidade.estiloVisual||'coerente com a marca'}; tom=${e.tom}. Etapa: ${etapa}. Referências soberanas imutáveis do usuário: ${acervoSoberano.slice(0,2500)}. Não contradiga essas referências. Evite texto ilegível; só inclua palavras quando forem essenciais ao briefing.`;
+      const promptImagem=`${baseVisual?`Crie a próxima versão visual de ${base.nome}, preservando sua função, identidade e conceito aprovados.`:`Crie um ativo visual utilizável para ${e.nome}.`} Tarefa: ${briefing}. Projeto: ${projeto?projeto.nome:'principal'}. Identidade visual: cores=${identidade.cores||'livre'}; estilo=${identidade.estiloVisual||'coerente com a marca'}; tom=${e.tom}. Etapa: ${etapa}. Referências soberanas imutáveis do usuário: ${acervoSoberano}. Não contradiga essas referências. Evite texto ilegível; só inclua palavras quando forem essenciais ao briefing.`;
       const img=await S.ai.gerarImagem({prompt:promptImagem,agente:agente.nome,agenteId:agente.id,motivo:'produção visual',taskId:op.taskId||null,projectId:op.projectId||null,baseArquivoId:op.baseArquivoId||null});
       const bruto=`data:${img.mediaType};base64,${img.b64}`,compacta=await compactarImagemLocal(bruto);
       const nome=baseVisual?limparNome(base.nome,compacta.ext):limparNome((op&&op.titulo)||'imagem',compacta.ext);
@@ -177,7 +184,7 @@
       `BRIEFING DA TAREFA: ${briefing}`,
       `DESTINO: ${clienteVisivel ? 'produto que poderá chegar diretamente ao cliente' : 'artefato interno de trabalho'}`,
       regraEtapa,
-      (op && op.deliberacao) ? `ABORDAGEM JÁ DECIDIDA POR VOCÊ: ${String(op.deliberacao).slice(0, 700)}` : '',
+      (op && op.deliberacao) ? `ABORDAGEM JÁ DECIDIDA POR VOCÊ: ${String(op.deliberacao)}` : '',
       base ? `ARTEFATO BASE QUE DEVE SER EVOLUÍDO (preserve o que funciona, não recomece do zero):\n${base.nome} [${base.tipo}]\n${basePrompt}` : '',
       `ACERVO RELACIONADO (para continuidade, não copie):\n${contextoAcervo(e, base, projeto && projeto.id)}`,
       ``,
@@ -211,6 +218,7 @@
       tokens: (op && op.tokens) || 3000,
       agente: agente.nome,
       agenteId: agente.id,
+      modelo: op&&op.modeloProducao,
       motivo: 'produção de artefato',
       taskId:op.taskId||null,projectId:op.projectId||null,baseArquivoId:op.baseArquivoId||null
     });
