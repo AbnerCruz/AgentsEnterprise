@@ -12,6 +12,8 @@
 </head>
 <body>
 
+<aside id="gameHud" class="game-hud" aria-label="Central de gestão">
+<button id="hudCollapse" class="hud-collapse" type="button" aria-label="Recolher ou expandir painel">‹</button>
 <header id="hud" class="hud" aria-label="Estado da empresa">
   <button id="btnMenu" class="hud-menu" title="Menu principal" aria-label="Menu principal">☰</button>
   <div class="hud-marca">
@@ -28,6 +30,20 @@
     <button id="zoomMais" type="button" aria-label="Aumentar zoom">+</button>
   </div>
 </header>
+
+<nav class="dock" aria-label="Painéis da empresa">
+  <section class="painel" data-dock="gerente">
+    <button class="painel-head" type="button"><span class="painel-icone">♛</span><span>Gerente</span></button>
+    <div id="dockGerente" class="painel-corpo chat"></div>
+    <div class="chat-input"><input id="chatMsg" type="text" placeholder="Falar com a equipe…" maxlength="400"><button id="chatEnviar">Enviar</button></div>
+  </section>
+  <section class="painel" data-dock="tarefas"><button class="painel-head" type="button"><span class="painel-icone">▤</span><span>Produção</span></button><div id="dockTarefas" class="painel-corpo lista"></div></section>
+  <section class="painel" data-dock="produtos"><button class="painel-head" type="button"><span class="painel-icone">◆</span><span>Artefatos</span></button><div id="dockProdutos" class="painel-corpo lista"></div></section>
+  <section class="painel" data-dock="estado"><button class="painel-head" type="button"><span class="painel-icone">▦</span><span>Estado</span></button><div id="dockEstado" class="painel-corpo lista"></div></section>
+  <section class="painel" data-dock="log"><button class="painel-head" type="button"><span class="painel-icone">◷</span><span>Atividade</span></button><div id="dockLog" class="painel-corpo lista"></div></section>
+  <section class="painel" data-dock="ia"><button class="painel-head" type="button"><span class="painel-icone">◉</span><span>IA & custos</span></button><div id="dockIA" class="painel-corpo lista"></div></section>
+</nav>
+</aside>
 
 <main class="mundo">
   <div class="chao-wrap">
@@ -62,33 +78,6 @@
     </div>
   </aside>
 </main>
-
-<footer class="dock">
-  <section class="painel" data-dock="gerente">
-    <button class="painel-head" type="button"><span class="painel-icone">♛</span><span>Gerente</span></button>
-    <div id="dockGerente" class="painel-corpo chat"></div>
-    <div class="chat-input">
-      <input id="chatMsg" type="text" placeholder="Falar com a equipe…" maxlength="400">
-      <button id="chatEnviar">Enviar</button>
-    </div>
-  </section>
-  <section class="painel" data-dock="tarefas">
-    <button class="painel-head" type="button"><span class="painel-icone">▤</span><span>Produção</span></button>
-    <div id="dockTarefas" class="painel-corpo lista"></div>
-  </section>
-  <section class="painel" data-dock="produtos">
-    <button class="painel-head" type="button"><span class="painel-icone">◆</span><span>Produtos</span></button>
-    <div id="dockProdutos" class="painel-corpo lista"></div>
-  </section>
-  <section class="painel" data-dock="log">
-    <button class="painel-head" type="button"><span class="painel-icone">◷</span><span>Atividade</span></button>
-    <div id="dockLog" class="painel-corpo lista"></div>
-  </section>
-  <section class="painel" data-dock="ia">
-    <button class="painel-head" type="button"><span class="painel-icone">◉</span><span>IA</span></button>
-    <div id="dockIA" class="painel-corpo lista"></div>
-  </section>
-</footer>
 
 <section id="mainMenu" class="main-menu" aria-label="Menu principal">
   <div class="menu-pixel-card">

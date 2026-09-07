@@ -143,7 +143,7 @@ window.S = window.S || {};
     e.economia.cicloInicio = Number(e.economia.cicloInicio)||Date.now();
     e.economia.cicloDias = 30;
     e.economia.dia = e.economia.dia && typeof e.economia.dia==='object' ? e.economia.dia : {chave:'',gastoUSD:0};
-    e.economia.historico = Array.isArray(e.economia.historico) ? e.economia.historico.slice(-250) : [];
+    e.economia.historico = Array.isArray(e.economia.historico) ? e.economia.historico.slice(-2000) : [];
     e.economia.vendas = Array.isArray(e.economia.vendas) ? e.economia.vendas.slice(-120) : [];
     e.economia.provedor = e.economia.provedor && typeof e.economia.provedor==='object' ? e.economia.provedor : {};
     e.economia.provedor.totalCreditos = e.economia.provedor.totalCreditos!=null && Number.isFinite(Number(e.economia.provedor.totalCreditos)) ? Number(e.economia.provedor.totalCreditos) : null;
@@ -196,7 +196,7 @@ window.S = window.S || {};
       f.salario.saldoCreditos = Math.max(0, Number(f.salario.saldoCreditos)||0);
       f.salario.totalRecebido = Math.max(0, Number(f.salario.totalRecebido)||0);
       f.salario.ultimoDia = String(f.salario.ultimoDia||'');
-      f.log = Array.isArray(f.log) ? f.log.slice(-120) : [];
+      f.log = Array.isArray(f.log) ? f.log.slice(-500) : [];
       f.cuidados = f.cuidados && typeof f.cuidados === 'object' ? f.cuidados : {};
       f.cuidados.ultimo = f.cuidados.ultimo || 0;
       f.cuidados.agua = Number.isFinite(f.cuidados.agua) ? f.cuidados.agua : 0;
@@ -213,11 +213,23 @@ window.S = window.S || {};
       e.projetos.push({ id: uid('proj'), nome: 'Projeto principal', objetivo: e.missao, status: 'ativo',
         criadoEm: e.criadoEm || Date.now(), tarefaIds: [], arquivoIds: [], atividade: [] });
     }
+    // O site institucional é um produto obrigatório de toda empresa. Ele não
+    // hospeda o jogo nem é uma dependência da interface: é um projeto estático,
+    // exportável, que o dono pode publicar onde quiser.
+    let siteInstitucional=e.projetos.find(pr=>pr&&pr.tipo==='site_institucional');
+    if(!siteInstitucional){
+      siteInstitucional={id:uid('proj'),nome:'Site institucional',tipo:'site_institucional',obrigatorio:true,
+        objetivo:'Construir e manter o site estático oficial da empresa, pronto para prévia e exportação em ZIP com index.html na raiz.',
+        status:'ativo',criadoEm:e.criadoEm||Date.now(),tarefaIds:[],arquivoIds:[],atividade:[],acervoIds:[],
+        dados:{resumo:'Presença institucional oficial da empresa.',requisitos:'Site estático. index.html e todos os arquivos publicáveis diretamente na raiz do ZIP. Sem backend e sem dependências privadas.',publico:e.publico||'',riscos:'Não contradizer o acervo soberano da empresa.',atualizadoEm:Date.now()}};
+      e.projetos.push(siteInstitucional);
+    }
     e.projetos.forEach(pr => {
       pr.id = pr.id || uid('proj');
       pr.nome = String(pr.nome || 'Projeto');
       pr.objetivo = String(pr.objetivo || e.missao);
       pr.status = pr.status || 'ativo';
+      if(pr.tipo==='site_institucional'){pr.obrigatorio=true;pr.status=pr.status==='arquivado'?'ativo':pr.status;}
       pr.tarefaIds = Array.isArray(pr.tarefaIds) ? pr.tarefaIds : [];
       pr.arquivoIds = Array.isArray(pr.arquivoIds) ? pr.arquivoIds : [];
       pr.atividade = Array.isArray(pr.atividade) ? pr.atividade.slice(-40) : [];
@@ -260,6 +272,16 @@ window.S = window.S || {};
       a.classe = ['esboco', 'prototipo', 'candidato', 'produto'].includes(a.classe) ? a.classe : 'esboco';
       delete a.qualidade;
       a.versao = Number(a.versao) || 1;
+      a.versaoEdicao=Number(a.versaoEdicao)||0;
+      a.historicoVersoes=Array.isArray(a.historicoVersoes)?a.historicoVersoes.slice(-40):[];
+      a.metricasIA=a.metricasIA&&typeof a.metricasIA==='object'?a.metricasIA:{};
+      a.metricasIA.chamadas=Number(a.metricasIA.chamadas)||0;
+      a.metricasIA.tokens=Number(a.metricasIA.tokens)||0;
+      a.metricasIA.entrada=Number(a.metricasIA.entrada)||0;
+      a.metricasIA.saida=Number(a.metricasIA.saida)||0;
+      a.metricasIA.custoUSD=Number(a.metricasIA.custoUSD)||0;
+      a.metricasIA.ms=Number(a.metricasIA.ms)||0;
+      a.modelos=Array.isArray(a.modelos)?[...new Set(a.modelos.map(String))].slice(-30):[];
       a.linhagem = a.linhagem || slug(a.nome);
       a.tentativasAvaliacao = Number(a.tentativasAvaliacao) || 0;
       const at=String((a.nome||'')+' '+(a.briefing||'')).toLowerCase();
@@ -310,17 +332,19 @@ window.S = window.S || {};
     });
     e.aprovacoes = Array.isArray(e.aprovacoes) ? e.aprovacoes : [];
     e.decisoes = Array.isArray(e.decisoes) ? e.decisoes : [];
-    e.ideias = Array.isArray(e.ideias) ? e.ideias.slice(-40) : [];
+    e.ideias = Array.isArray(e.ideias) ? e.ideias.slice(-200) : [];
     e.estrategia = e.estrategia && typeof e.estrategia === 'object' ? e.estrategia : {};
     e.estrategia.ultimoMarcoIdeacao = String(e.estrategia.ultimoMarcoIdeacao || '');
     e.reuniao = e.reuniao && typeof e.reuniao === 'object' ? e.reuniao : { mensagens: [], relatorios: [], reunioes: [] };
-    e.reuniao.mensagens = Array.isArray(e.reuniao.mensagens) ? e.reuniao.mensagens.slice(-180) : [];
-    e.reuniao.relatorios = Array.isArray(e.reuniao.relatorios) ? e.reuniao.relatorios.slice(-20) : [];
-    e.reuniao.reunioes = Array.isArray(e.reuniao.reunioes) ? e.reuniao.reunioes.slice(-30) : [];
+    e.reuniao.mensagens = Array.isArray(e.reuniao.mensagens) ? e.reuniao.mensagens.slice(-1000) : [];
+    e.reuniao.relatorios = Array.isArray(e.reuniao.relatorios) ? e.reuniao.relatorios.slice(-200) : [];
+    e.reuniao.reunioes = Array.isArray(e.reuniao.reunioes) ? e.reuniao.reunioes.slice(-200) : [];
     e.diretrizesDono = Array.isArray(e.diretrizesDono) ? e.diretrizesDono.slice(-40) : [];
     e.solicitacoesAcervo=Array.isArray(e.solicitacoesAcervo)?e.solicitacoesAcervo.slice(-120):[];
     e.acervoUsuario=Array.isArray(e.acervoUsuario)?e.acervoUsuario.map(normalizarItemAcervo).filter(Boolean):[];
-    e.log = Array.isArray(e.log) ? e.log.slice(-500) : [];
+    e.iaChamadas=Array.isArray(e.iaChamadas)?e.iaChamadas.slice(-2000):[];
+    e.decisoesCriticas=Array.isArray(e.decisoesCriticas)?e.decisoesCriticas.slice(-200):[];
+    e.log = Array.isArray(e.log) ? e.log.slice(-2000) : [];
     // Nenhuma execução assíncrona sobrevive a um fechamento da página. Estados
     // transitórios persistidos precisam voltar à fila; caso contrário uma tarefa
     // "fazendo" ou uma reunião interrompida congelam a empresa para sempre.
@@ -329,7 +353,7 @@ window.S = window.S || {};
     e.arquivos.forEach(a=>{delete a.proximaAvaliacao;});
     if(e.reuniao.reuniaoAtiva){delete e.reuniao.reuniaoAtiva;e.reuniao.mensagens.push({id:uid('m'),t:Date.now(),quem:'Sistema',texto:'Reunião interrompida pelo fechamento do jogo foi encerrada; o trabalho voltou à fila.',tipo:'recuperacao'});e.reuniao.mensagens=e.reuniao.mensagens.slice(-180);recuperadas++;}
     if(recuperadas)e.log.push({t:Date.now(),texto:`Recuperação de sessão: ${recuperadas} estado(s) transitório(s) voltaram ao fluxo operacional.`,tag:'recuperacao',agente:null});
-    if(e.log.length>500)e.log.splice(0,e.log.length-500);
+    if(e.log.length>2000)e.log.splice(0,e.log.length-2000);
     e.uso = e.uso || { chamadas: 0, tokens: 0, entrada: 0, saida: 0, ms: 0 };
     return e;
   }
@@ -418,7 +442,7 @@ window.S = window.S || {};
   function registrar(texto, tag, agenteId) {
     const e = atual(); if (!e) return;
     e.log.push({ t: Date.now(), texto: String(texto), tag: tag || 'info', agente: agenteId || null });
-    if (e.log.length > 500) e.log.splice(0, e.log.length - 500);
+    if (e.log.length > 2000) e.log.splice(0, e.log.length - 2000);
     S.bus.emit('log');
     gravar();
   }
@@ -428,7 +452,7 @@ window.S = window.S || {};
     const f = e.equipe.find(x => x.id === agenteId); if (!f) return;
     f.log = Array.isArray(f.log) ? f.log : [];
     f.log.push({ t: Date.now(), texto: String(texto), tag: tag || 'info' });
-    if (f.log.length > 120) f.log.splice(0, f.log.length - 120);
+    if (f.log.length > 500) f.log.splice(0, f.log.length - 500);
     registrar(`${f.nome}: ${texto}`, tag || 'info', agenteId);
     gravar();
     S.bus.emit('pessoa-log', agenteId);
@@ -458,7 +482,7 @@ window.S = window.S || {};
     if(!e) return null;
     e.economia=e.economia||{}; e.economia.historico=Array.isArray(e.economia.historico)?e.economia.historico:[];
     const mov=Object.assign({id:uid('mov'),t:Date.now(),tipo,valorUSD:Number(valor)||0,descricao:String(descricao||'')},extra||{});
-    e.economia.historico.push(mov); if(e.economia.historico.length>250)e.economia.historico.splice(0,e.economia.historico.length-250);
+    e.economia.historico.push(mov); if(e.economia.historico.length>2000)e.economia.historico.splice(0,e.economia.historico.length-2000);
     return mov;
   }
   function processarFolhaInterna(e){
@@ -521,7 +545,7 @@ window.S = window.S || {};
       if(Math.abs(cota-antes)<=0.000001)return;
       registrarMovimento(x,'distribuicao_caixa',cota-antes,motivo||'Saldo OpenRouter distribuído igualmente entre as empresas',{saldoProvedorUSD:saldo,empresas:DB.estudios.length});
       x.log.push({t:Date.now(),texto:`Caixa global redistribuído: US$ ${cota.toFixed(4)} para esta empresa (${DB.estudios.length} empresa(s)).`,tag:'economia',agente:null});
-      if(x.log.length>500)x.log.splice(0,x.log.length-500);
+      if(x.log.length>2000)x.log.splice(0,x.log.length-2000);
     });
     gravar();S.bus.emit('economia');S.bus.emit('log');return cota;
   }
@@ -529,7 +553,7 @@ window.S = window.S || {};
     const saldo=Number(saldoProvedor),total=totalCaixas();
     if(!Number.isFinite(saldo)||total<=saldo+0.000001||total<=0)return false;
     const fator=Math.max(0,saldo)/total;
-    DB.estudios.forEach(x=>{const antes=caixaDisponivel(x),depois=antes*fator;x.economia.caixaUSD=depois;registrarMovimento(x,'ajuste_lastro',depois-antes,'Caixa ajustado proporcionalmente ao saldo global real',{saldoProvedorUSD:saldo,totalAlocadoAntesUSD:total});x.log.push({t:Date.now(),texto:`Lastro global reconciliado: caixa ajustado de US$ ${antes.toFixed(4)} para US$ ${depois.toFixed(4)}.`,tag:'economia',agente:null});if(x.log.length>500)x.log.splice(0,x.log.length-500);});
+    DB.estudios.forEach(x=>{const antes=caixaDisponivel(x),depois=antes*fator;x.economia.caixaUSD=depois;registrarMovimento(x,'ajuste_lastro',depois-antes,'Caixa ajustado proporcionalmente ao saldo global real',{saldoProvedorUSD:saldo,totalAlocadoAntesUSD:total});x.log.push({t:Date.now(),texto:`Lastro global reconciliado: caixa ajustado de US$ ${antes.toFixed(4)} para US$ ${depois.toFixed(4)}.`,tag:'economia',agente:null});if(x.log.length>2000)x.log.splice(0,x.log.length-2000);});
     gravar();S.bus.emit('economia');S.bus.emit('log');return true;
   }
   function reconciliarFornecedor(totalCreditos,totalUso,saldo,deltaGlobal,modoDistribuicao){

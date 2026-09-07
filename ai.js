@@ -355,16 +355,18 @@
       const dados=await resp.json().catch(()=>null);if(!resp.ok)throw new Error((dados&&dados.error&&dados.error.message)||`OpenRouter Images respondeu HTTP ${resp.status}.`);
       const item=dados&&dados.data&&dados.data[0];if(!item||!item.b64_json)throw new Error('O modelo de imagem não devolveu bytes utilizáveis.');
       const media=String(item.media_type||'image/png');const ext=/jpeg|jpg/i.test(media)?'jpg':/webp/i.test(media)?'webp':'png';const custo=Number(dados&&dados.usage&&dados.usage.cost)||0;
-      contabilizarCustoDireto(modelo,custo,Date.now()-inicio);registrarChamada({quem:op.agente||agenteId,motivo:op.motivo||'geração de imagem',modelo,provedor:'openrouter',ms:Date.now()-inicio,ok:true,tokens:0,custo,em:Date.now()});
+      contabilizarCustoDireto(modelo,custo,Date.now()-inicio);registrarChamada({quem:op.agente||agenteId,agenteId,motivo:op.motivo||'geração de imagem',modelo,provedor:'openrouter',ms:Date.now()-inicio,ok:true,tokens:0,custo,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados&&dados.usage||{}});
       void sincronizarOpenRouterCreditos();situar('pronta','IA pronta','imagem criada');return{b64:item.b64_json,mediaType:media,ext,custo,modelo};
-    }catch(err){registrarChamada({quem:op.agente||agenteId,motivo:op.motivo||'geração de imagem',modelo,provedor:'openrouter',ms:Date.now()-inicio,ok:false,erro:String(err.message||err),em:Date.now()});situar('erro','Falha ao criar imagem',String(err.message||err));throw err;}
+    }catch(err){registrarChamada({quem:op.agente||agenteId,agenteId,motivo:op.motivo||'geração de imagem',modelo,provedor:'openrouter',ms:Date.now()-inicio,ok:false,erro:String(err.message||err),em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null});situar('erro','Falha ao criar imagem',String(err.message||err));throw err;}
     finally{estado.emVoo=Math.max(0,estado.emVoo-1);l.emVoo=Math.max(0,l.emVoo-1);S.bus.emit('ia');}
   }
 
   function registrarChamada(reg) {
+    reg=Object.assign({id:'call_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8),em:Date.now(),ok:false,entrada:0,saida:0,tokens:0,custo:0,ms:0},reg||{});
     estado.chamadas.unshift(reg);
-    if (estado.chamadas.length > 100) estado.chamadas.pop();
+    if (estado.chamadas.length > 500) estado.chamadas.length=500;
     const empresa=S.state&&S.state.atual&&S.state.atual();
+    if(empresa){empresa.iaChamadas=Array.isArray(empresa.iaChamadas)?empresa.iaChamadas:[];empresa.iaChamadas.push(Object.assign({},reg));if(empresa.iaChamadas.length>2000)empresa.iaChamadas.splice(0,empresa.iaChamadas.length-2000);}
     if(empresa&&reg.ok){const f=(empresa.equipe||[]).find(x=>x.nome===reg.quem||x.id===reg.quem);if(f){f.uso=f.uso||{};f.uso.chamadas=Number(f.uso.chamadas||0)+1;f.uso.tokens=Number(f.uso.tokens||0)+Number(reg.tokens||0);f.uso.entrada=Number(f.uso.entrada||0)+Number(reg.entrada||0);f.uso.saida=Number(f.uso.saida||0)+Number(reg.saida||0);f.uso.ms=Number(f.uso.ms||0)+Number(reg.ms||0);}}
     if(S.state&&S.state.atual&&S.state.atual()&&S.state.registrar){
       S.state.registrar(`IA ${reg.ok?'concluiu':'falhou'} · ${reg.quem||'agente'} · ${reg.motivo||'chamada'} · ${reg.modelo||'modelo'} · ${Number(reg.tokens||0)} tokens (${Number(reg.entrada||0)} entrada/${Number(reg.saida||0)} saída) · US$ ${Number(reg.custo||0).toFixed(5)} · ${S.fmt.dur(reg.ms||0)}${reg.erro?' · '+String(reg.erro).slice(0,180):''}`,reg.ok?'ia':'erro');
@@ -508,11 +510,12 @@
       }
 
       estado.falhas=0; estado.orcamentoPreventivo=false; l.falhas=0; l.bloqueadaAte=0; sp.status='disponivel';
-      registrarChamada({quem:agente||agenteId,motivo:motivo||tipo,modelo,provedor:provedorUsado,ms,ok:true,
+      const custoChamada=numeroOpcional((dados.usage||{}).cost)||estimarCusto(provedorUsado,modelo,(dados.usage||{}).prompt_tokens,(dados.usage||{}).completion_tokens);
+      registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,modelo,provedor:provedorUsado,ms,ok:true,
         entrada:Number((dados.usage||{}).prompt_tokens||0),saida:Number((dados.usage||{}).completion_tokens||0),
-        tokens:Number((dados.usage||{}).total_tokens||0),custo:numeroOpcional((dados.usage||{}).cost)||estimarCusto(provedorUsado,modelo,(dados.usage||{}).prompt_tokens,(dados.usage||{}).completion_tokens),em:Date.now()});
+        tokens:Number((dados.usage||{}).total_tokens||0),custo:custoChamada,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados.usage||{},finishReason:escolha.finish_reason||null});
       situar('pronta','IA pronta',`última resposta em ${(ms/1000).toFixed(1)}s`);
-      return {texto,usage:dados.usage||{},ms,modelo};
+      return {texto,usage:dados.usage||{},ms,modelo,provedor:provedorUsado,custo:custoChamada};
     }catch(err){
       const msg=String(err&&err.message||err);
       estado.falhas++; l.falhas++;
@@ -523,7 +526,7 @@
       }else if(!err.limiteLocal){
         l.bloqueadaAte=Date.now() + (/401|inválida/i.test(msg)?90000:Math.min(30000,5000*l.falhas));
       }
-      registrarChamada({quem:agente||agenteId,motivo:motivo||tipo,modelo,provedor:provedorUsado,ms:Date.now()-inicio,ok:false,erro:msg,em:Date.now()});
+      registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,modelo,provedor:provedorUsado,ms:Date.now()-inicio,ok:false,erro:msg,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null});
       situar((err.limiteLocal||err.orcamento)?'pronta':'erro',(err.orcamento?'Orçamento do período atingido':err.diario?'Limite diário atingido':err.limiteLocal?'Limite local atingido':'Falha na IA'),msg);
       throw err;
     }finally{
@@ -572,7 +575,7 @@
   async function deliberar(op) {
     const r = await chamar({
       sistema: String(op.sistema || '') + `\n\nVocê tem liberdade para escolher a melhor abordagem. Não siga uma árvore fixa de decisões. Analise o contexto, compare alternativas, identifique o que já existe e escolha uma direção coerente com o objetivo do projeto. Não revele seu raciocínio interno passo a passo. Retorne somente uma síntese operacional curta: DECISAO: <o que fará>\nABORDAGEM: <como pretende fazer>\nRISCOS: <o que precisa evitar>\nUSAR: <materiais existentes que devem ser preservados ou reutilizados>`,
-      pedido: op.pedido, tipo: 'pensamento', tokens: op.tokens || 420, reasoning_effort: 'low', agente: op.agente, agenteId: op.agenteId, motivo: op.motivo || 'deliberação autônoma'
+      pedido: op.pedido, tipo: 'pensamento', tokens: op.tokens || 420, reasoning_effort: 'low', agente: op.agente, agenteId: op.agenteId, motivo: op.motivo || 'deliberação autônoma',taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null
     });
     const c = campos(r.texto);
     return { texto: r.texto, campos: c, resumo: [c.decisao,c.abordagem,c.riscos,c.usar].filter(Boolean).join(' ') };

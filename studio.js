@@ -562,7 +562,25 @@
     const classeMeta=['esboco','prototipo','candidato'].includes(meta.classe) ? meta.classe : 'esboco';
     const etapasMeta=historicoPipeline(e,baseMeta,classeMeta);
     const grupoEntrega=meta.grupoEntrega || (lista.length>1 ? uid('grp') : null);
-    const salvos = lista.map(a => {
+    const chamadas=(e.iaChamadas||[]).filter(c=>meta.taskId&&c.taskId===meta.taskId&&c.ok);
+    const metricasIA=chamadas.reduce((m,c)=>{m.chamadas++;m.tokens+=Number(c.tokens||0);m.entrada+=Number(c.entrada||0);m.saida+=Number(c.saida||0);m.custoUSD+=Number(c.custo||0);m.ms+=Number(c.ms||0);if(c.modelo&&!m.modelos.includes(c.modelo))m.modelos.push(c.modelo);if(c.provedor&&!m.provedores.includes(c.provedor))m.provedores.push(c.provedor);m.chamadaIds.push(c.id);return m;},{chamadas:0,tokens:0,entrada:0,saida:0,custoUSD:0,ms:0,modelos:[],provedores:[],chamadaIds:[]});
+    // Uma revisão de um artefato ainda em produção altera o próprio registro.
+    // O snapshot anterior mantém auditoria e permite ao painel mostrar a linha
+    // do tempo sem inundar a aba com cópias desconectadas.
+    if(baseMeta&&baseMeta.classe!=='produto'&&lista.length===1){
+      const a=lista[0],historico=Array.isArray(baseMeta.historicoVersoes)?baseMeta.historicoVersoes:[];
+      historico.push({versaoEdicao:Number(baseMeta.versaoEdicao||0),nome:baseMeta.nome,tipo:baseMeta.tipo,conteudo:String(baseMeta.conteudo||''),classe:baseMeta.classe,validacao:baseMeta.validacao,pipeline:baseMeta.pipeline,metricasIA:baseMeta.metricasIA,autor:baseMeta.autor,autorId:baseMeta.autorId,taskId:baseMeta.taskId,em:baseMeta.editadoEm||baseMeta.criadoEm||Date.now()});
+      const anterior=baseMeta.metricasIA||{};const acumulada={chamadas:Number(anterior.chamadas||0)+metricasIA.chamadas,tokens:Number(anterior.tokens||0)+metricasIA.tokens,entrada:Number(anterior.entrada||0)+metricasIA.entrada,saida:Number(anterior.saida||0)+metricasIA.saida,custoUSD:Number(anterior.custoUSD||0)+metricasIA.custoUSD,ms:Number(anterior.ms||0)+metricasIA.ms,modelos:[...new Set([...(anterior.modelos||baseMeta.modelos||[]),...metricasIA.modelos])],provedores:[...new Set([...(anterior.provedores||[]),...metricasIA.provedores])],chamadaIds:[...new Set([...(anterior.chamadaIds||[]),...metricasIA.chamadaIds])]};
+      baseMeta.historicoVersoes=historico.slice(-40);baseMeta.nome=nomeArtefatoSeguro(a.nome,a.tipo,baseMeta.nome);baseMeta.tipo=a.tipo;baseMeta.conteudo=String(a.conteudo);baseMeta.classe=classeMeta;baseMeta.kit=meta.kit||baseMeta.kit||'legado';baseMeta.projectId=meta.projectId||baseMeta.projectId;baseMeta.validacao=meta.validacao&&meta.validacao.tipo!=='bundle'?meta.validacao:(classeMeta==='candidato'&&meta.clienteVisivel&&S.factory.validarFinal?S.factory.validarFinal(a.conteudo,a.tipo):S.factory.validar(a.conteudo,a.tipo));baseMeta.pipeline={versao:1,etapas:etapasMeta.slice(),etapaAtual:classeMeta,clienteVisivel:Boolean(meta.clienteVisivel)};baseMeta.viaIA=Boolean(meta.viaIA);baseMeta.autor=p?p.nome:'equipe';baseMeta.autorId=p?p.id:null;baseMeta.editadoEm=Date.now();baseMeta.quando=S.fmt.dataHora();baseMeta.taskId=meta.taskId||null;baseMeta.baseArquivoId=baseMeta.baseArquivoId||null;baseMeta.briefing=String(meta.briefing||'').slice(0,500);baseMeta.liberadoPublicacao=false;baseMeta.clienteVisivel=Boolean(meta.clienteVisivel);baseMeta.escopo=baseMeta.clienteVisivel?'produto':'interno';baseMeta.avaliado=false;baseMeta.versaoEdicao=Number(baseMeta.versaoEdicao||0)+1;baseMeta.metricasIA=acumulada;baseMeta.modelos=acumulada.modelos.slice();baseMeta.custoProducaoUSD=acumulada.custoUSD;baseMeta.tokensProducao=acumulada.tokens;
+      chamadas.forEach(c=>{c.artifactId=baseMeta.id;});
+      if(p&&p.ref)p.ref.entregas=(p.ref.entregas||0)+1;
+      S.state.registrar(`${p?p.nome:'A equipe'} evoluiu o mesmo artefato ${baseMeta.nome} [${baseMeta.classe}/${baseMeta.tipo}, revisão ${baseMeta.versaoEdicao}, ${String(baseMeta.conteudo).length} bytes] · rodada ${metricasIA.tokens} tokens/US$ ${metricasIA.custoUSD.toFixed(6)} · acumulado ${acumulada.tokens} tokens/US$ ${acumulada.custoUSD.toFixed(6)}.`, 'ok',p?p.id:null);
+      S.state.ganharXP(8);S.state.gravar();S.bus.emit('arquivos');return[baseMeta];
+    }
+    const totalBytes=lista.reduce((n,a)=>n+Math.max(1,String(a.conteudo||'').length),0);let alocTok=0,alocEnt=0,alocSai=0,alocCusto=0,alocMs=0;
+    const salvos = lista.map((a,indice) => {
+      const ultimo=indice===lista.length-1,peso=Math.max(1,String(a.conteudo||'').length)/totalBytes;
+      const parte={chamadas:metricasIA.chamadas,tokens:ultimo?metricasIA.tokens-alocTok:Math.floor(metricasIA.tokens*peso),entrada:ultimo?metricasIA.entrada-alocEnt:Math.floor(metricasIA.entrada*peso),saida:ultimo?metricasIA.saida-alocSai:Math.floor(metricasIA.saida*peso),custoUSD:ultimo?metricasIA.custoUSD-alocCusto:metricasIA.custoUSD*peso,ms:ultimo?metricasIA.ms-alocMs:Math.round(metricasIA.ms*peso),modelos:metricasIA.modelos.slice(),provedores:metricasIA.provedores.slice(),chamadaIds:metricasIA.chamadaIds.slice(),rateioBundle:lista.length>1?{criterio:'bytes',arquivos:lista.length,peso}:null};alocTok+=parte.tokens;alocEnt+=parte.entrada;alocSai+=parte.saida;alocCusto+=parte.custoUSD;alocMs+=parte.ms;
       const arq = {
         id: uid('f'), nome: a.nome, tipo: a.tipo, conteudo: String(a.conteudo),
         classe: classeMeta, kit: meta.kit || 'legado', projectId: meta.projectId || (e.projetos[0] && e.projetos[0].id),
@@ -578,9 +596,11 @@
         autor: p ? p.nome : 'equipe', autorId: p ? p.id : null, criadoEm: Date.now(), quando: S.fmt.dataHora(),
         taskId: meta.taskId || null, baseArquivoId: meta.baseArquivoId || null,
         briefing: String(meta.briefing || '').slice(0, 500), liberadoPublicacao: false,
-        clienteVisivel: Boolean(meta.clienteVisivel)
+        clienteVisivel: Boolean(meta.clienteVisivel),historicoVersoes:[],versaoEdicao:0,
+        metricasIA:parte,modelos:parte.modelos.slice(),custoProducaoUSD:parte.custoUSD,tokensProducao:parte.tokens
       };
       e.arquivos.unshift(arq);
+      chamadas.forEach(c=>{c.artifactIds=Array.isArray(c.artifactIds)?c.artifactIds:[];if(!c.artifactIds.includes(arq.id))c.artifactIds.push(arq.id);if(!c.artifactId)c.artifactId=arq.id;});
       return arq;
     });
     // Artefatos são a entrega real do jogo. Nunca descarte silenciosamente os
@@ -613,6 +633,9 @@
     }
     const conteudo = String(novoConteudo == null ? '' : novoConteudo).trim();
     if (!conteudo) return false;
+    a.historicoVersoes=Array.isArray(a.historicoVersoes)?a.historicoVersoes:[];
+    a.historicoVersoes.push({versaoEdicao:Number(a.versaoEdicao||0),nome:a.nome,tipo:a.tipo,conteudo:String(a.conteudo||''),classe:a.classe,validacao:a.validacao,pipeline:a.pipeline,metricasIA:a.metricasIA,autor:a.autor,autorId:a.autorId,taskId:a.taskId,em:a.editadoEm||a.criadoEm||Date.now()});
+    a.historicoVersoes=a.historicoVersoes.slice(-40);
     a.conteudo = conteudo;
     if (novoNome && String(novoNome).trim()) a.nome = nomeArtefatoSeguro(novoNome,a.tipo,a.nome);
     a.editadoEm = Date.now();
@@ -1562,7 +1585,11 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     }
 
     if (d.acao === 'criar_tarefa' || d.acao === 'revisar' || d.acao === 'estudar') {
-      const base = d.base ? e.arquivos.find(a => a.id === d.base) : null;
+      let base = d.base ? e.arquivos.find(a => a.id === d.base) : null;
+      // Dentro do mesmo projeto, uma frente cliente-visível inacabada é a
+      // continuidade padrão. Um produto realmente novo deve nascer em outro
+      // projeto, em vez de espalhar artefatos paralelos sem linhagem.
+      if(!base&&normalizarFrase(d.destino)!=='interno')base=(e.arquivos||[]).find(a=>a.projectId===projeto.id&&a.clienteVisivel&&a.classe!=='produto'&&!a.motivoEncerramento)||null;
       if ((d.acao === 'revisar' || d.acao === 'estudar') && d.acao === 'revisar' && !base) return false;
       const titulo = String(d.titulo || (base ? `Evoluir ${base.nome}` : `Avançar ${projeto.nome}`)).trim().slice(0,180);
       const briefing = String(d.briefing || d.abordagem || d.motivo || `Executar a próxima contribuição concreta para ${projeto.objetivo}`).trim().slice(0,900);
@@ -1624,7 +1651,8 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
       const titulo = String(d.titulo || `Definir a próxima etapa de ${projeto.nome}`).trim().slice(0, 180);
       const briefing = String(d.briefing || d.abordagem || d.motivo || '').trim().slice(0, 900);
       if (!briefing) return false;
-      const t = novaTarefa({ titulo, kit: 'autonomo', briefing:`${briefing}\n\nResultado obrigatório: materialize uma evolução concreta do produto que o dono possa vender ou distribuir no mundo real; não entregue apenas um plano.`, para: p.papel === 'gerente' ? null : p.id, projectId: projeto.id, clienteVisivel:true, etapaDestino:'esboco', origem: `planejamento produtivo de ${p.nome}` });
+      const existente=(e.arquivos||[]).find(a=>a.projectId===projeto.id&&a.clienteVisivel&&a.classe!=='produto'&&!a.motivoEncerramento)||null;
+      const t = novaTarefa({ titulo, kit: 'autonomo', briefing:`${briefing}\n\nResultado obrigatório: materialize uma evolução concreta do produto que o dono possa vender ou distribuir no mundo real; não entregue apenas um plano.`, para: p.papel === 'gerente' ? null : p.id, projectId: projeto.id,baseArquivoId:existente&&existente.id, clienteVisivel:true, etapaDestino:existente?existente.classe:'esboco', origem: `planejamento produtivo de ${p.nome}` });
       if (!t) return false;
       registrarReuniao(p.nome, `Planejamento vira trabalho: ${t.titulo}.`, 'ordem');
       return true;
@@ -1659,6 +1687,7 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
           sistema: `Você é ${p.nome}, ${p.cargo} do estúdio ${e.nome}. Você está prestes a executar uma tarefa real. Leia o objetivo do projeto, a tarefa, os artefatos relacionados e sua memória. Decida como transformar isso em uma mudança concreta. Não revele raciocínio privado.`,
           pedido: `Projeto: ${tarefa.projectId || 'principal'}\nTarefa: ${tarefa.titulo}\nBriefing: ${tarefa.briefing}\nArtefato base: ${tarefa.baseArquivoId || 'nenhum'}\nArtefatos e memória serão enviados pela produção. Dê somente uma síntese operacional curta que a produção possa executar agora.`,
           tokens: 420, reasoning_effort:'low', agente:p.nome, agenteId:p.id, motivo:'decisão antes da execução'
+          ,taskId:tarefa.id,projectId:tarefa.projectId,baseArquivoId:tarefa.baseArquivoId||null
         });
       } catch (_) {}
       if (pensamento && pensamento.resumo) {
@@ -1720,6 +1749,18 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     return t;
   }
 
+  function garantirSiteInstitucional(e){
+    const projeto=(e.projetos||[]).find(p=>p.tipo==='site_institucional');if(!projeto)return null;
+    const arquivos=(e.arquivos||[]).filter(a=>a.projectId===projeto.id);
+    const index=arquivos.find(a=>/(^|\/)index\.html?$/i.test(a.nome||''));
+    const pendente=(e.tarefas||[]).find(t=>t.projectId===projeto.id&&t.status!=='feita');
+    if(index||pendente)return pendente||index;
+    const acervo=(projeto.acervoIds||[]).length?'Reutilize de preferência os artefatos soberanos vinculados ao projeto e nunca os contradiga.':'Use a identidade oficial da empresa e deixe a estrutura preparada para receber itens do acervo.';
+    const t=novaTarefa({titulo:`Construir site institucional de ${e.nome}`.slice(0,180),kit:'pagina',projectId:projeto.id,clienteVisivel:true,etapaDestino:'esboco',origem:'projeto institucional obrigatório',briefing:`Crie o projeto multi-arquivo do site institucional oficial de ${e.nome}. Entregue index.html, styles.css, script.js quando necessário e assets textuais/vetoriais úteis, todos com caminhos relativos e publicáveis diretamente na raiz de um ZIP. Deve ser estático, responsivo, acessível, sem backend, sem build, sem CDN obrigatória e pronto para GitHub Pages. ${acervo}`});
+    if(t)S.state.registrar(`Projeto obrigatório: a primeira versão do site institucional entrou na fila de produção.`,'site');
+    return t;
+  }
+
   async function ciclo(meu) {
     if (meu !== token) return;
     const e=S.state.atual(); if(!e) return;
@@ -1727,6 +1768,7 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     S.bus.emit('relogio');
     if(S.ai.estado && S.ai.estado.pausado) return;
     if(e.fundacao && e.fundacao.estado && e.fundacao.estado !== 'operacional'){ await processarFundacaoAtual(); return; }
+    garantirSiteInstitucional(e);
     if(S.ai.orcamentoIndisponivel && S.ai.orcamentoIndisponivel()) {
       const orc = S.ai.orcamento ? S.ai.orcamento() : null;
       rt.forEach(p=>{ if(!p.ocupado && !['dormindo','comendo','assistindo','andando'].includes(p.estado)){ p.estado='dormindo'; p.ref.cuidados=p.ref.cuidados||{}; p.ref.cuidados.rotina='sono'; p.balao='dormindo'; logPessoa(p,orc&&orc.esgotado ? 'está descansando: o orçamento do ciclo chegou ao limite.' : 'está descansando: o limite diário de IA chegou ao limite.','rotina'); irPara(p,ESTACOES.dormitorio); }});
@@ -1819,6 +1861,8 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     cameraX=centroX-visivelW/2;cameraY=centroY-visivelH/2;ajustarCanvas();S.bus.emit('zoom',zoomMapa);return zoomMapa;
   }
   function centralizarEm(x,y){visivelW=larguraLog/zoomMapa;visivelH=alturaLog/zoomMapa;cameraX=x-visivelW/2;cameraY=y-visivelH/2;limitarCamera();aplicarCamera();}
+  function moverCamera(dx,dy){cameraX+=Number(dx)||0;cameraY+=Number(dy)||0;limitarCamera();aplicarCamera();return{cameraX,cameraY,visivelW,visivelH,largura:larguraLog,altura:alturaLog};}
+  function cameraEstado(){return{cameraX,cameraY,visivelW,visivelH,largura:larguraLog,altura:alturaLog,zoom:zoomMapa};}
 
   function rrect(x, y, w, h, r) {
     cx.beginPath();
@@ -1937,6 +1981,10 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
       const spriteTintado = S.assets && S.assets.tint && S.assets.tint('char_base', p.cor);
       if (personagem) {
         cx.save();cx.translate(x,y+17+pulse);cx.rotate(inclinacao);cx.scale(1,escalaY);cx.drawImage(personagem.img,personagem.sx,personagem.sy,personagem.sw,personagem.sh,-27,-64,54,68);cx.restore();
+        // O atlas base fornece poses direcionais; estes passos pixelados e o
+        // deslocamento subpixel dão movimento contínuo em 60 fps sem repetir
+        // a sensação de um frame estático deslizando pelo chão.
+        if(andando){cx.fillStyle='#111722';const abertura=passo*4;cx.fillRect(Math.round(x-9+abertura),Math.round(y+12+Math.max(0,-passo)*2),7,4);cx.fillRect(Math.round(x+2-abertura),Math.round(y+12+Math.max(0,passo)*2),7,4);}
         if(p.estado==='pausa'){cx.fillStyle='rgba(6,10,18,.28)';cx.fillRect(x-13,y-31+pulse,26,38);}
       } else if (spriteTintado) {
         const w = 32, h = 48;
@@ -2025,13 +2073,13 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     const objs=(S.state.atual()&&S.state.atual().ambiente&&S.state.atual().ambiente.objetos)||[];
     const objeto=objs.find(o=>Math.hypot((o.x||0)-x,(o.y||0)-y)<Math.max(22,((OBJETOS_AMBIENTE[o.tipo]||{}).w||24)/2));
     selecionado = null;
-    return objeto ? { objeto } : null;
+    return objeto ? { objeto } : { chao:{x,y} };
   }
 
   S.studio = {
     reuniaoFalar, reuniaoInterna, relatorioReuniao, registrarReuniao, gerarRelatorioLocal,
     ESPECIALIDADES, NOMES,
-    montar, iniciar, parar, ajustarCanvas, cliqueNoChao, definirZoom, zoomAtual:()=>zoomMapa, centralizarEm,
+    montar, iniciar, parar, ajustarCanvas, cliqueNoChao, definirZoom, zoomAtual:()=>zoomMapa, centralizarEm,moverCamera,cameraEstado,
     pessoas: () => rt, pessoa, gerente,
     novaTarefa, tarefasAbertas, despacharTarefa, executar, registrarContribuicaoAcervo,
     salvarArquivos, publicar, editarArquivo,

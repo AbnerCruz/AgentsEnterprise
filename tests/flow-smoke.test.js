@@ -18,9 +18,11 @@ for (const file of ['core.js','factory.js','studio.js']) {
 }
 
 function empresa(id='e1'){
-  return S.state.normalizarEstudio({id,nome:'Empresa',ramo:'produto digital',missao:'Produzir algo útil',publico:'clientes',
+  const e=S.state.normalizarEstudio({id,nome:'Empresa',ramo:'produto digital',missao:'Produzir algo útil',publico:'clientes',
     projetos:[{id:'pr1',nome:'Produto',objetivo:'Entrega real',status:'ativo',tarefaIds:[],arquivoIds:[],atividade:[]}],
     equipe:[{id:'a1',nome:'Ana',papel:'func',cargo:'Produtora',especialidade:'producao'}],tarefas:[],arquivos:[],log:[],fundacao:{versao:2,estado:'operacional'}});
+  assert.ok(e.projetos.some(p=>p.tipo==='site_institucional'&&p.obrigatorio),'toda empresa precisa do projeto institucional obrigatório');
+  return e;
 }
 function selecionar(e){S.DB.estudios=[e];S.DB.atual=e.id;}
 function salvar(etapa,base,conteudo,nome='produto.md'){
@@ -38,6 +40,8 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   const esboco=salvar('esboco',null,texto);
   const prototipo=salvar('prototipo',esboco,texto+'Versão completa.');
   const candidato=salvar('candidato',prototipo,texto+'Acabamento final.');
+  assert.equal(esboco.id,prototipo.id);assert.equal(prototipo.id,candidato.id,'etapas em produção editam o mesmo artefato');
+  assert.equal(candidato.historicoVersoes.length,2,'revisões anteriores precisam permanecer auditáveis');
   assert.deepEqual(candidato.pipeline.etapas,['esboco','prototipo','candidato']);
   const produto=S.studio.publicar(candidato.id,'você','teste de fluxo');
   assert.equal(produto.classe,'produto');
@@ -91,6 +95,9 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   ],{projectId:'pr1',classe:'candidato',clienteVisivel:true,validacao:{tipo:'bundle',pronto:false},kit:'pagina'},e.equipe[0]);
   assert.equal(bundle.length,2);
   assert.notEqual(bundle[0].validacao.pronto,bundle[1].validacao.pronto,'cada arquivo do bundle precisa de validação própria');
+  e.iaChamadas.push({id:'call-rateio',taskId:'bundle-rateio',ok:true,tokens:101,entrada:70,saida:31,custo:0.012345,ms:900,modelo:'modelo-teste',provedor:'openrouter'});
+  const bundleRateado=S.studio.salvarArquivos([{nome:'index.html',tipo:'html',conteudo:'<main>arquivo maior para rateio preciso de custo e tokens</main>'},{nome:'app.js',tipo:'js',conteudo:'const ok=true;'}],{projectId:'pr1',taskId:'bundle-rateio',classe:'esboco',clienteVisivel:true,kit:'pagina',grupoEntrega:'rateio'},e.equipe[0]);
+  assert.equal(bundleRateado.reduce((n,a)=>n+a.metricasIA.tokens,0),101);assert.ok(Math.abs(bundleRateado.reduce((n,a)=>n+a.metricasIA.custoUSD,0)-0.012345)<1e-12,'rateio do bundle não pode duplicar nem perder custo');
   const quantidadeAntesInvalido=e.arquivos.length;
   assert.throws(()=>S.studio.salvarArquivos([{nome:'valido.md',tipo:'md',conteudo:texto},{nome:'vazio.md',tipo:'md',conteudo:''}],{projectId:'pr1',classe:'esboco',clienteVisivel:true},e.equipe[0]),/incompleto/);
   assert.equal(e.arquivos.length,quantidadeAntesInvalido,'bundle inválido não pode deixar entrega parcial');
@@ -135,9 +142,9 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.doesNotMatch(studioSource,/motivo:'conversa ociosa econômica'/,'ociosidade não pode gastar tokens');
   assert.doesNotMatch(studioSource,/_ultimoDesenho[^\n]+80/,'animação não pode continuar limitada a 12,5 fps');
   const index=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
-  for(const id of ['floor','hudStats','dockGerente','dockTarefas','dockProdutos','dockLog','dockIA','modal','btnFundar','btnConfig','btnAcervo','mainMenu','menuContinuar','zoomMais','zoomMenos'])assert.match(index,new RegExp(`id="${id}"`));
+  for(const id of ['floor','gameHud','hudCollapse','hudStats','dockGerente','dockTarefas','dockProdutos','dockEstado','dockLog','dockIA','modal','btnFundar','btnConfig','btnAcervo','mainMenu','menuContinuar','zoomMais','zoomMenos'])assert.match(index,new RegExp(`id="${id}"`));
   const gameUi=fs.readFileSync(path.join(__dirname,'..','game-ui.js'),'utf8');
-  for(const fluxo of ['type="file"','data-promover-produto','data-sol-branch','atualizarPeloUsuario','atualizarProjetoDados'])assert.match(gameUi,new RegExp(fluxo));
+  for(const fluxo of ['type="file"','data-promover-produto','data-sol-branch','atualizarPeloUsuario','atualizarProjetoDados','abrirArtefato','baixarProjetoZip','abrirSalaReuniao','pointermove','Copiar todos'])assert.match(gameUi,new RegExp(fluxo));
   for(const legado of ['classico.html','app.css','ui.js'])assert.equal(fs.existsSync(path.join(__dirname,'..',legado)),false,`${legado} deve ter sido removido`);
   console.log('flow-smoke: ok — trabalho/delegação/acervos/branch/pipeline/release/bundle/retention/caixa/zip/jogo');
 })().catch(err=>{console.error(err);process.exitCode=1;});

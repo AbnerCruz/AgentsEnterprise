@@ -1,4 +1,4 @@
-# Agents Enterprise — v56
+# Agents Enterprise — v57
 
 Agents Enterprise é um jogo 2D top-down, mobile-first e projetado para jogar com o celular na horizontal. O jogador funda e administra empresas de agentes de IA cujo objetivo é produzir arquivos reais, prontos para vender ou distribuir fora do jogo.
 
@@ -8,7 +8,7 @@ Agents Enterprise é um jogo 2D top-down, mobile-first e projetado para jogar co
 2. Funde uma empresa, descreva o negócio, o público e o tipo de produto desejado.
 3. A gerente cria a estratégia, monta a equipe e converte decisões em tarefas delegadas.
 4. Funcionários procuram tarefas abertas e materializam produtos pelo pipeline `esboço → protótipo → candidato → produto`.
-5. Abra os painéis inferiores para acompanhar produção, produtos, logs e métricas de IA. Use `−` e `+` no HUD para controlar o zoom.
+5. Abra a central lateral para acompanhar produção, artefatos, estado ao vivo, logs e métricas de IA. Arraste o mapa com um dedo, use pinça ou `−`/`+` para controlar o zoom.
 6. Baixe os produtos finais ou envie os melhores ao acervo da empresa.
 
 ## Mundo do jogo
@@ -17,7 +17,8 @@ Agents Enterprise é um jogo 2D top-down, mobile-first e projetado para jogar co
 - Agentes podem sair pela porta, caminhar na praça e usar espaços externos durante o tempo livre.
 - Movimento utiliza busca de caminho e colisões com paredes, árvores, lago e objetos persistentes.
 - O canvas anima em cada frame do navegador; o motor de trabalho continua orientado por estado, sem depender do FPS.
-- O HUD é mínimo. Administração, acervos, construção, economia e IA ficam em painéis abertos sob demanda.
+- O HUD lateral recolhe ou expande e fica sobre o mapa em tela cheia. Cada painel abre sob demanda sem esconder informações nos demais.
+- Tocar a sala de reuniões abre a sala em tela cheia, com toda a equipe, decisões críticas e registro copiável.
 
 ## Trabalho produtivo
 
@@ -26,7 +27,15 @@ Agents Enterprise é um jogo 2D top-down, mobile-first e projetado para jogar co
 - Tarefas órfãs, atribuídas a IDs removidos ou salvas em estados legados voltam à fila.
 - A fila vazia exige uma decisão gerencial e, se necessário, abre uma nova frente de produto real.
 - Conversas ociosas são locais e não consomem tokens. IA é usada em decisões, revisão e produção com consequência persistente.
-- Logs registram atribuição, início, entrega, falha, revisão, release, custo, tokens e latência.
+- Logs registram atribuição, início, entrega, falha, revisão, release, custo, tokens e latência e podem ser copiados ou exportados em JSON.
+- Durante esboço, protótipo e candidato, a equipe evolui o mesmo artefato. Cada revisão anterior permanece auditável; somente um produto publicado inicia uma nova versão imutável.
+
+## Artefatos e site institucional
+
+- A central de artefatos mostra itens internos, em produção e publicados, sem limite visual arbitrário.
+- A ficha de cada artefato oferece prévia, fonte copiável, download, edição direta e solicitação de edição.
+- Tokens, entrada, saída, custo em USD, latência, modelo, provedor, funcionário, tarefa e projeto ficam atribuídos à ficha. Bundles rateiam o custo por bytes sem duplicar o total.
+- Toda empresa recebe um projeto obrigatório de site institucional estático. A equipe cria `index.html` e arquivos relativos; o jogo oferece uma prévia isolada e exporta ZIP pronto para GitHub Pages com os arquivos na raiz.
 
 ## Acervos soberanos
 
@@ -42,7 +51,7 @@ Agents Enterprise é um jogo 2D top-down, mobile-first e projetado para jogar co
 
 - Chave de API, Management Key e modelos são globais; cada empresa possui caixa próprio.
 - O caixa pode ser alocado manualmente ou dividido igualmente entre empresas, sempre limitado ao saldo real disponível.
-- Cada chamada registra custo estimado/real no caixa da empresa e respeita limites do provedor.
+- Cada chamada persiste custo estimado/real, tokens e detalhamento do provedor no caixa da empresa; o painel separa gasto atribuído de telemetria legada não atribuível.
 - Novos créditos detectados viram receita a identificar; registrar uma venda apenas associa essa receita a um produto, sem duplicar dinheiro.
 
 ## Verificação
