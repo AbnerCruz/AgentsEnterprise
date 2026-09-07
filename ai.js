@@ -484,7 +484,7 @@
     if (!chaveUsada) throw new Error('Nenhuma chave do OpenRouter configurada.');
     if (estado.pausado && !op.forcar) throw new Error('A equipe está pausada.');
     if (Date.now() < Number(sp.bloqueadaAte||0) && !op.forcar) {
-      throw new Error(`OpenRouter em espera por ${Math.ceil((sp.bloqueadaAte-Date.now())/1000)}s após um limite.`);
+      const er=new Error(`OpenRouter em espera por ${Math.ceil((sp.bloqueadaAte-Date.now())/1000)}s após um limite.`);er.transitoria=true;er.codigo='provedor_em_espera';throw er;
     }
     if (!op._skipSync) await sincronizarOpenRouter();
     const orStatus = stateProvedor('openrouter');
@@ -492,10 +492,10 @@
       const er=new Error('Limite real da chave OpenRouter esgotado. A equipe não fará novas chamadas pagas até a renovação ou aumento do limite.'); er.cota=true; throw er;
     }
     if (Date.now() < l.bloqueadaAte && !op.forcar) {
-      throw new Error(`IA de ${agente || agenteId} em recuperação após uma falha temporária.`);
+      const er=new Error(`IA de ${agente || agenteId} em recuperação após uma falha temporária.`);er.transitoria=true;er.codigo='lane_em_recuperacao';throw er;
     }
     if (l.emVoo > 0 && !op.forcar && !op._recuperacao && !op._failover) {
-      throw new Error(`A IA própria de ${agente || agenteId} já está trabalhando.`);
+      const er=new Error(`A IA própria de ${agente || agenteId} já está trabalhando.`);er.transitoria=true;er.codigo='lane_ocupada';throw er;
     }
 
     const q = usoHoje();
@@ -542,9 +542,14 @@
           ...(provedorUsado==='openrouter'
             ? {reasoning:{effort:op.reasoning_effort || (tipo==='conteudo'?'medium':'low'),exclude:true}}
             : {reasoning_effort:op.reasoning_effort || (tipo==='conteudo'?'medium':'low')})
-        }),signal:typeof AbortSignal!=='undefined'&&AbortSignal.timeout?AbortSignal.timeout(90000):undefined
+        }),signal:typeof AbortSignal!=='undefined'&&AbortSignal.timeout?AbortSignal.timeout(tipo==='conteudo'?240000:90000):undefined
       });
-      let dados=null; try{dados=await resp.json();}catch(_){}
+      let corpoResposta='';
+      try{corpoResposta=await resp.text();}catch(err){err.transitoria=true;err.codigo='leitura_resposta_interrompida';throw err;}
+      let dados=null;
+      if(corpoResposta.trim()){
+        try{dados=JSON.parse(corpoResposta);}catch(_){const er=new Error(`${provInfo.nome} devolveu JSON malformado. A tarefa continuará preservada para retomada.`);er.transitoria=true;er.codigo='resposta_json_invalida';throw er;}
+      }
       lerHeaders(resp, provedorUsado);
       const ms=Date.now()-inicio;
       if(resp.ok && dados && dados.usage) {

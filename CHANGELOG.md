@@ -4,6 +4,18 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v65 — recuperação da produção e correção da coordenação gerencial
+
+- Corrigida a causa recorrente de “OpenRouter respondeu sem um corpo JSON utilizável”: o limite de transporte de produção passou de 90 para 240 segundos, enquanto chamadas curtas continuam limitadas a 90 segundos.
+- A leitura do corpo da resposta não engole mais `AbortError` nem JSON interrompido. Falhas de transporte, leitura e parsing recebem códigos próprios, permanecem transitórias e preservam a tarefa.
+- Espera do provedor, lane em recuperação e lane já ocupada deixam de consumir tentativas de qualidade ou bloquear uma tarefa após quatro ciclos locais.
+- Um chefe de setor não pode mais revisar um artefato e assumir produção simultaneamente no mesmo ciclo.
+- A gerente não abre outra linhagem de produto enquanto já existe esboço, protótipo ou candidato do projeto aguardando conclusão; ela acompanha o pipeline existente.
+- Requisitos de extensão em palavras são extraídos do briefing e conferidos deterministicamente. Métricas exatas do artefato base entram no contexto de inspeção, impedindo relatórios que inventem contagens.
+- Diagnóstico da execução anexada: 78 chamadas, 606.512 tokens e US$ 0,07938485; produção concentrou 513.527 tokens e 8 das 28 chamadas de produção falharam. Os oito casos ocorreram na leitura longa da resposta e foram preservados, mas geraram retomadas evitáveis.
+
+---
+
 # v64 — runtime inicial do servidor e distribuição real de trabalho
 
 - API Node/PostgreSQL executável com health, snapshot versionado e comandos idempotentes.

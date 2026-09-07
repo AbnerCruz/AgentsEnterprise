@@ -55,6 +55,7 @@
 
   function limparNome(nome, tipo) {
     let n = String(nome || '').replace(/[\\/:*?"<>|]+/g, '').replace(/\*+/g, '').trim();
+    if(tipo!=='zip')n=n.replace(/(?:[-_\s]+zip)(?=\.[^.]+$|$)/i,'');
     n = n.split(/\s+/).slice(0, 8).join(' ').slice(0, 70) || 'entrega';
     const ext = '.' + tipo;
     if (!n.toLowerCase().endsWith(ext)) n = slug(n).slice(0, 60) + ext;
@@ -102,8 +103,37 @@
     return { pronto: notas.length === 0, notas: notas.slice(0, 6), verificadoEm: Date.now(), tipo: t };
   }
 
-  function validarFinal(conteudo, tipo) {
-    const base = validar(conteudo, tipo);
+  function contarPalavras(conteudo) {
+    return (String(conteudo||'').normalize('NFC').match(/[\p{L}\p{N}]+(?:[’'\-][\p{L}\p{N}]+)*/gu)||[]).length;
+  }
+  function limitesPalavras(briefing) {
+    const texto=String(briefing||'').replace(/[\u202f\u00a0]/g,' ');
+    const numero=v=>Number(String(v||'').replace(/[^\d]/g,''));
+    let m=texto.match(/entre\s+(\d(?:[\d .,]*\d)?)\s+e\s+(\d(?:[\d .,]*\d)?)\s+palavras/i)
+      || texto.match(/(\d(?:[\d .,]*\d)?)\s*(?:a|até|-)\s*(\d(?:[\d .,]*\d)?)\s+palavras/i);
+    if(m)return{minimo:numero(m[1]),maximo:numero(m[2])};
+    m=texto.match(/(?:m[ií]nimo(?:\s+de)?|ao menos|pelo menos)\s+(\d(?:[\d .,]*\d)?)\s+palavras/i);
+    return m?{minimo:numero(m[1]),maximo:null}:null;
+  }
+  function aplicarRequisitosDeterministicos(validacao,conteudo,tipo,briefing) {
+    const saida=Object.assign({},validacao,{notas:(validacao.notas||[]).slice()});
+    const t=String(tipo||'').toLowerCase(),limites=TIPOS_TEXTO.includes(t)&&limitesPalavras(briefing),palavras=contarPalavras(conteudo);
+    saida.metricas=Object.assign({},saida.metricas,{palavras,caracteres:String(conteudo||'').length,linhas:String(conteudo||'').split(/\r?\n/).length});
+    if(limites&&palavras<limites.minimo)saida.notas.push(`extensão insuficiente: ${palavras} palavras; mínimo verificável de ${limites.minimo}`);
+    if(limites&&limites.maximo&&palavras>limites.maximo)saida.notas.push(`extensão excedida: ${palavras} palavras; máximo verificável de ${limites.maximo}`);
+    saida.notas=saida.notas.slice(0,12);saida.pronto=saida.notas.length===0;saida.prontoEstrutural=saida.pronto;return saida;
+  }
+  function conferirAlegacoesDaBase(validacao,conteudo,metricasBase) {
+    if(!metricasBase)return validacao;
+    const alegadas=[];let m,rx=/\b(?:total|extens[aã]o|contagem)[^\n.]{0,80}?(\d(?:[\d ., \u202f]*\d)?)\s+palavras\b/gi;
+    while((m=rx.exec(String(conteudo||''))))alegadas.push(Number(m[1].replace(/[^\d]/g,'')));
+    const divergente=alegadas.find(n=>Number.isFinite(n)&&Math.abs(n-metricasBase.palavras)>Math.max(5,metricasBase.palavras*0.02));
+    if(divergente!=null){validacao.notas=(validacao.notas||[]).concat(`alegação quantitativa inválida: relatório declarou ${divergente} palavras, mas a base contém ${metricasBase.palavras}`).slice(0,12);validacao.pronto=false;validacao.prontoEstrutural=false;}
+    return validacao;
+  }
+
+  function validarFinal(conteudo, tipo, briefing) {
+    const base = aplicarRequisitosDeterministicos(validar(conteudo, tipo),conteudo,tipo,briefing);
     const notas = (base.notas || []).slice();
     const texto = String(conteudo || '');
     const t = String(tipo || 'md').toLowerCase();
@@ -119,7 +149,7 @@
       const numerados=[...texto.matchAll(/^\s*(?:#{1,6}\s*)?(?:cap[ií]tulo|conto)\s+(\d+)\b/gim)].map(m=>Number(m[1])).filter(Number.isFinite);
       if(numerados.length>=2&&!numerados.includes(1))notas.push('sequência de capítulos/contos incompleta: a entrega não contém o item 1');
     }
-    return { pronto: notas.length === 0, prontoEstrutural: notas.length === 0, notas: notas.slice(0, 10), verificadoEm: Date.now(), tipo: t, gate: 'cliente-final' };
+    return { pronto: notas.length === 0, prontoEstrutural: notas.length === 0, notas: notas.slice(0, 10), metricas:base.metricas, verificadoEm: Date.now(), tipo: t, gate: 'cliente-final' };
   }
 
   function referenciasLocais(conteudo) {
@@ -134,8 +164,8 @@
     return [...new Set(refs)];
   }
 
-  function validarPacote(conteudo,tipo,arquivosDisponiveis) {
-    const base=validarFinal(conteudo,tipo),notas=(base.notas||[]).slice();
+  function validarPacote(conteudo,tipo,arquivosDisponiveis,briefing) {
+    const base=validarFinal(conteudo,tipo,briefing),notas=(base.notas||[]).slice();
     const nomes=(arquivosDisponiveis||[]).map(a=>String(a&&a.nome||a||'').replace(/^\.\//,'').replace(/^\//,'')).filter(Boolean);
     const conhecidos=new Set(nomes.concat(nomes.map(n=>n.split('/').pop())));
     const ausentes=referenciasLocais(conteudo).filter(ref=>!conhecidos.has(ref)&&!conhecidos.has(ref.split('/').pop()));
@@ -181,6 +211,7 @@
         ? 'ETAPA PROTÓTIPO: transforme o esboço em uma versão completa e utilizável para teste/revisão. Resolva estrutura, conteúdo e integração. Não inclua bilhetes editoriais dentro do conteúdo destinado ao cliente.'
         : 'ETAPA CANDIDATO FINAL: entregue somente o que o cliente final deve receber. Remova rascunhos, anotações internas, status, checklist, notas para marketing/editor, pedidos de aprovação, TODOs e qualquer texto sobre o processo de produção.';
     const base = op && op.baseArquivoId ? (e.arquivos || []).find(a => a.id === op.baseArquivoId) : null;
+    const metricasBase=base&&!TIPOS_IMAGEM.includes(String(base.tipo||'').toLowerCase())?{palavras:contarPalavras(base.conteudo),caracteres:String(base.conteudo||'').length,linhas:String(base.conteudo||'').split(/\r?\n/).length}:null;
     const projeto = (e.projetos || []).find(p => p.id === (op && op.projectId)) ||
                     (e.projetos || []).find(p => p.status === 'ativo') || (e.projetos || [])[0] || null;
     const ferramentas=S.ferramentas&&S.ferramentas.contexto?S.ferramentas.contexto(projeto&&projeto.id,base&&base.id):null;
@@ -217,6 +248,7 @@
       `DADOS DO PROJETO: ${projeto&&projeto.dados?`resumo=${projeto.dados.resumo||''}; requisitos=${projeto.dados.requisitos||''}; público=${projeto.dados.publico||''}; riscos=${projeto.dados.riscos||''}`:'não registrados'}`,
       `PRINCÍPIOS IMUTÁVEIS:\n${S.principiosTexto?S.principiosTexto():''}`,
       `FERRAMENTAS DETERMINÍSTICAS JÁ EXECUTADAS (use estes fatos; não os recalcule nem os contradiga):\n${ferramentas?JSON.stringify(ferramentas):'indisponíveis'}`,
+      `MÉTRICAS DETERMINÍSTICAS DO ARTEFATO BASE: ${metricasBase?JSON.stringify(metricasBase):'não há base textual'}. Qualquer relatório de inspeção deve usar estes valores exatos, nunca estimativas inventadas.`,
       `ACERVO SOBERANO DO USUÁRIO — SOMENTE LEITURA:\n${acervoSoberano}`,
       `BRIEFING DA TAREFA: ${briefing}`,
       `DESTINO: ${clienteVisivel ? 'produto que poderá chegar diretamente ao cliente' : 'artefato interno de trabalho'}`,
@@ -307,7 +339,10 @@
     const tipo = base ? tipoValido(base.tipo, kit) : tipoValido(campos.tipo, kit);
     const nome = base ? limparNome(base.nome, tipo) : limparNome(campos.arquivo || (op && op.titulo) || 'entrega', tipo);
     const disponiveis=(e.arquivos||[]).filter(a=>a.projectId===(projeto&&projeto.id)).concat({nome,tipo,conteudo});
-    const validacao = (clienteVisivel && etapa === 'candidato') ? validarPacote(conteudo, tipo, disponiveis) : validar(conteudo, tipo);
+    let validacao = (clienteVisivel && etapa === 'candidato')
+      ? validarPacote(conteudo, tipo, disponiveis,briefing)
+      : aplicarRequisitosDeterministicos(validar(conteudo, tipo),conteudo,tipo,briefing);
+    if(kit==='laboratorio')validacao=conferirAlegacoesDaBase(validacao,conteudo,metricasBase);
     validacao.prontoEstrutural = validacao.pronto;
     validacao.declaradoPronto = String(campos.pronto || '').toLowerCase() === 'sim' || campos.pronto === true;
     if (String(campos.pronto || '').toLowerCase() === 'nao' || campos.pronto === false) {
@@ -329,5 +364,5 @@
     };
   }
 
-  S.factory = { KITS, porId, produzir, validar, validarFinal, validarPacote, referenciasLocais };
+  S.factory = { KITS, porId, produzir, validar, validarFinal, validarPacote, referenciasLocais, contarPalavras, limitesPalavras };
 })(window.S);

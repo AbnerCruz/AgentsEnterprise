@@ -44,11 +44,14 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
     respostasChat++;
     return respostasChat===1
       ? new Response('null',{status:200,headers:{'content-type':'application/json'}})
-      : new Response(JSON.stringify({choices:null,usage:{prompt_tokens:12,completion_tokens:0,total_tokens:12,cost:0.000001}}),{status:200,headers:{'content-type':'application/json'}});
+      : respostasChat===2
+        ? new Response(JSON.stringify({choices:null,usage:{prompt_tokens:12,completion_tokens:0,total_tokens:12,cost:0.000001}}),{status:200,headers:{'content-type':'application/json'}})
+        : new Response('{json interrompido',{status:200,headers:{'content-type':'application/json'}});
   };
   await assert.rejects(()=>S.ai.chamar({sistema:'teste',pedido:'teste',agente:'Ana',agenteId:'a1',forcar:true,_skipSync:false}),err=>err&&err.transitoria&&/corpo JSON/.test(err.message));
   await assert.rejects(()=>S.ai.chamar({sistema:'teste',pedido:'teste',agente:'Ana',agenteId:'a1',forcar:true,_skipSync:false}),err=>err&&err.transitoria&&/choices/.test(err.message));
   assert.equal(eProvider.iaChamadas.at(-1).transitoria,true);assert.equal(eProvider.iaChamadas.at(-1).tokens,12,'uso de resposta sem choices continua auditável');
+  await assert.rejects(()=>S.ai.chamar({sistema:'teste',pedido:'teste',agente:'Ana',agenteId:'a1',forcar:true,_skipSync:false}),err=>err&&err.transitoria&&err.codigo==='resposta_json_invalida');
   global.fetch=fetchOriginal;selecionar(e);
   assert.equal(S.ai.rotear({tipo:'pensamento',agenteId:'a1',motivo:'triagem curta'}).nivel,'leve');
   assert.equal(S.ai.rotear({tipo:'conteudo',agenteId:'a1',motivo:'produção de artefato'}).nivel,'padrao');
@@ -66,6 +69,10 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   const contaminado='# Produto\n\nConteúdo entregue.\n\n## Checklist de validação\n\n- executar `pandoc livro.md`';
   assert.equal(S.factory.validarFinal(contaminado,'md').pronto,false,'checklist e comandos internos não podem chegar ao cliente');
   assert.equal(S.factory.validarFinal('CAPÍTULO 2\n\nTexto completo.\n\nCAPÍTULO 3\n\nOutro texto completo.','txt').pronto,false,'uma coleção numerada sem o primeiro item deve permanecer incompleta');
+  assert.equal(S.factory.contarPalavras('Um conto com palavras reais.'),5);
+  assert.deepEqual(S.factory.limitesPalavras('Extensão entre 5 000 e 7 110 palavras.'),{minimo:5000,maximo:7110});
+  const curto=S.factory.validarFinal('palavra '.repeat(120),'md','Extensão entre 5 000 e 7 110 palavras.');
+  assert.equal(curto.pronto,false);assert.match(curto.notas.join(' '),/120 palavras/,'extensão declarada precisa ser conferida deterministicamente');
   const pacoteIncompleto=S.factory.validarPacote('# Livro\n\n![Capa](cover.png)\n\n[Mapa](map.png)','md',[{nome:'livro.md'}]);
   assert.equal(pacoteIncompleto.pronto,false);assert.match(pacoteIncompleto.notas.join(' '),/cover\.png/,'referências locais ausentes devem bloquear o pacote');
   const texto='# Produto\n\nConteúdo final utilizável pelo comprador.\n\n'.repeat(8);
@@ -147,6 +154,12 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   const produzido=await S.factory.produzir({kit:'pagina',briefing:'Criar um site completo com múltiplos arquivos',etapa:'esboco',clienteVisivel:true,agente:desenvolvedor,projectId:'pr1'});
   assert.equal(produzido.arquivos.length,2,'bundle elimina caminhos duplicados e preserva arquivos distintos');
   assert.deepEqual(produzido.arquivos.map(x=>x.nome),['index.html','app.js']);
+  const baseLab=S.studio.salvarArquivos([{nome:'conto-zip.md',tipo:'md',conteudo:'# Conto\n\n'+'palavra '.repeat(120)}],{projectId:'pr1',classe:'prototipo',clienteVisivel:true,kit:'texto'},e.equipe[0])[0];
+  S.ai.chamar=async()=>({texto:'ARQUIVO: relatorio.md\nTIPO: md\nRESUMO: inspeção\nOPERACAO: substituir\nPRONTO: sim\n---\n# Relatório\n\n## Extensão\n\nTotal aproximado: 5 000 palavras.\n\n## Conclusão\n\nMaterial aprovado.'});
+  const laboratorista=Object.assign({},e.equipe[0],{id:'lab-teste',papel:'func',especialidade:'laboratorio'});
+  const inspecao=await S.factory.produzir({kit:'laboratorio',briefing:'Inspecionar a extensão real.',etapa:'prototipo',clienteVisivel:false,agente:laboratorista,projectId:'pr1',baseArquivoId:baseLab.id});
+  assert.equal(inspecao.validacao.pronto,false);assert.match(inspecao.validacao.notas.join(' '),/relatório declarou 5000 palavras/,'laboratório não pode aprovar contagem inventada');
+  assert.equal(inspecao.arquivos[0].nome,'conto.md','um Markdown não pode se apresentar falsamente como ZIP');
   const visual=S.studio.salvarArquivos([{nome:'capa.png',tipo:'png',conteudo:'data:image/png;base64,cG5n'}],{projectId:'pr1',classe:'esboco',clienteVisivel:true,kit:'visual'},e.equipe[0])[0];
   const artista=Object.assign({},e.equipe[0],{id:'artista-teste',papel:'func',especialidade:'criacao'});
   await assert.rejects(()=>S.factory.produzir({kit:'visual',briefing:'Plano de negócio que menciona capa',etapa:'esboco',clienteVisivel:false,agente:artista,projectId:'pr1'}),/explicitamente classificada como visual/);
@@ -209,9 +222,10 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.match(studioSource,/ATIVO VISUAL BINÁRIO/);assert.match(studioSource,/solicitacoesContratacao/);assert.match(studioSource,/liderSetor/);assert.match(studioSource,/bloquearTarefaSemOrcamento/);
   assert.match(studioSource,/capacidadeFinanceiraEquipe/);assert.doesNotMatch(studioSource,/teto operacional de 8/);assert.match(studioSource,/Acompanhamento a/);
   assert.match(studioSource,/abrirHandoffParaCandidato/);assert.match(studioSource,/handoff criação→laboratório/);assert.match(studioSource,/abrirFrentesPosRelease/);
+  assert.match(studioSource,/lideresEmRevisao\.has\(p\.id\)/,'um chefe não pode revisar e produzir simultaneamente');assert.match(studioSource,/linhagemEmProducao/,'gerente não pode abrir produto paralelo enquanto o pipeline atual está incompleto');
   const aiSource=fs.readFileSync(path.join(__dirname,'..','ai.js'),'utf8');
   assert.doesNotMatch(aiSource,/max_completion_tokens\s*:/,'nenhuma resposta pode receber teto de saída');assert.match(aiSource,/finish_reason=.*Nenhuma entrega parcial/);
-  assert.match(aiSource,/AbortSignal\.timeout\(90000\)/);assert.match(aiSource,/podeChamarEstimado/);assert.match(aiSource,/limiteDiarioBase/);assert.match(aiSource,/function rotear\(op\)/);assert.match(aiSource,/alvoHoras=6/);
+  assert.match(aiSource,/AbortSignal\.timeout\(tipo==='conteudo'\?240000:90000\)/);assert.match(aiSource,/podeChamarEstimado/);assert.match(aiSource,/limiteDiarioBase/);assert.match(aiSource,/function rotear\(op\)/);assert.match(aiSource,/alvoHoras=6/);
   assert.match(aiSource,/choices_ausente/);assert.match(aiSource,/resposta_json_vazia/);assert.match(studioSource,/falhasTransitorias/);assert.match(studioSource,/retomarAposIA/);
   assert.equal(e.equipe[0].ia.independente,true);assert.equal(e.equipe[0].ia.leve,'openai/gpt-oss-20b');assert.equal(e.equipe[0].ia.padrao,'openai/gpt-oss-120b');assert.equal(e.equipe[0].ia.avancado,'deepseek/deepseek-v3.2');
   const index=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
