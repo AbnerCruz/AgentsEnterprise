@@ -121,26 +121,7 @@
 <script src="./factory.js"></script>
 <script src="./assets.js"></script>
 <script src="./agency.js"></script>
-<script>
-(async function carregarRuntimeDoJogo(){
-  const status=document.getElementById('menuStatus');
-  try{
-    const resposta=await fetch('./studio.js?v=66',{cache:'no-store'});
-    if(!resposta.ok)throw new Error('studio.js HTTP '+resposta.status);
-    let codigo=await resposta.text();
-    codigo=codigo.replace(/^Warning: truncated output \(original token count: \d+\)\r?\nTotal output lines: \d+\r?\n\r?\n/,'');
-    if(!/^\s*\/\*/.test(codigo) || !codigo.includes('S.studio'))throw new Error('studio.js inválido ou incompleto');
-    (0,eval)(codigo+'\n//# sourceURL=studio.js');
-    if(!window.S || !S.studio || typeof S.studio.definirLayout!=='function')throw new Error('runtime do estúdio não inicializou');
-    const ui=document.createElement('script');
-    ui.src='./game-ui.js?v=66';
-    ui.onerror=()=>{if(status)status.textContent='Falha ao carregar a interface. Atualize a página.';};
-    document.body.appendChild(ui);
-  }catch(err){
-    console.error('boot Agents Enterprise',err);
-    if(status)status.textContent='Falha ao iniciar: '+(err&&err.message?err.message:String(err));
-  }
-})();
-</script>
+<script src="./studio.js"></script>
+<script src="./game-ui.js"></script>
 </body>
 </html>

@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 52771)
-Total output lines: 2500
-
 /* ============================================================
    ESTÚDIO — o simulador propriamente dito.
    O motor coordena lanes independentes por funcionário. Claims atômicos
@@ -515,7 +512,7 @@ Total output lines: 2500
     (e.tarefas||[]).forEach(t=>{if(t.status==='aberta'&&t.para&&!funcionarios.has(t.para))t.para=null;});
     const dia=new Date().toISOString().slice(0,10),intensivo=S.ai.orcamento&&S.ai.orcamento().modoOrcamento==='intensivo';
     const abertas=tarefasAbertas().filter(t=>{
-      if(!dependenciasOK(t)||t.bloqueada||t._agenteEmExecucao||Date.now()<Number(t.retomarAposIA||0))return false;
+      if(!dependenciasOK(t)||t.bloqueada||t._agenteEmExecucao)return false;
       if(intensivo||t.aguardandoOrcamentoDia!==dia)return true;
       const atual=estimativaTarefa(e,p,t);if(atual.ok){delete t.aguardandoOrcamentoDia;delete t.motivoEsperaOrcamento;return true;}return false;
     });
@@ -650,7 +647,7 @@ Total output lines: 2500
     const baseMeta=meta.baseArquivoId ? e.arquivos.find(x=>x.id===meta.baseArquivoId) : null;
     const classeMeta=['esboco','prototipo','candidato'].includes(meta.classe) ? meta.classe : 'esboco';
     const disponiveisPacote=(e.arquivos||[]).filter(a=>a.projectId===(meta.projectId||a.projectId)).concat(lista);
-    const validarEntrega=a=>classeMeta==='candidato'&&meta.clienteVisivel&&S.factory.validarPacote?S.factory.validarPacote(a.conteudo,a.tipo,disponiveisPacote,meta.briefing):(classeMeta==='candidato'&&meta.clienteVisivel&&S.factory.validarFinal?S.factory.validarFinal(a.conteudo,a.tipo,meta.briefing):S.factory.validar(a.conteudo,a.tipo));
+    const validarEntrega=a=>classeMeta==='candidato'&&meta.clienteVisivel&&S.factory.validarPacote?S.factory.validarPacote(a.conteudo,a.tipo,disponiveisPacote):(classeMeta==='candidato'&&meta.clienteVisivel&&S.factory.validarFinal?S.factory.validarFinal(a.conteudo,a.tipo):S.factory.validar(a.conteudo,a.tipo));
     const etapasMeta=historicoPipeline(e,baseMeta,classeMeta);
     const grupoEntrega=meta.grupoEntrega || (lista.length>1 ? uid('grp') : null);
     const chamadas=(e.iaChamadas||[]).filter(c=>meta.taskId&&c.taskId===meta.taskId&&(c.ok||c.incompleta));
@@ -732,7 +729,7 @@ Total output lines: 2500
     a.editadoEm = Date.now();
     a.quando = S.fmt.dataHora();
     a.versaoEdicao = Number(a.versaoEdicao || 0) + 1;
-    a.validacao = a.classe === 'candidato' && a.clienteVisivel && S.factory.validarFinal ? S.factory.validarFinal(conteudo,a.tipo,a.briefing) : S.factory.validar(conteudo,a.tipo);
+    a.validacao = a.classe === 'candidato' && a.clienteVisivel && S.factory.validarFinal ? S.factory.validarFinal(conteudo,a.tipo) : S.factory.validar(conteudo,a.tipo);
     // Editar não permite pular nem voltar etapas. Um candidato editado continua
     // candidato, mas perde a liberação e precisa passar novamente pelo gate final.
     a.liberadoPublicacao = false;
@@ -780,7 +777,7 @@ Total output lines: 2500
       return null;
     }
     const arquivosProjeto=(e.arquivos||[]).filter(a=>a.projectId===base.projectId);
-    const gateFinal = S.factory && S.factory.validarPacote ? S.factory.validarPacote(base.conteudo,base.tipo,arquivosProjeto,base.briefing) : (S.factory&&S.factory.validarFinal?S.factory.validarFinal(base.conteudo,base.tipo,base.briefing):(base.validacao || {pronto:false,notas:['validação final indisponível']}));
+    const gateFinal = S.factory && S.factory.validarPacote ? S.factory.validarPacote(base.conteudo,base.tipo,arquivosProjeto) : (S.factory&&S.factory.validarFinal?S.factory.validarFinal(base.conteudo,base.tipo):(base.validacao || {pronto:false,notas:['validação final indisponível']}));
     base.validacaoFinal = gateFinal;
     if (!gateFinal.pronto) {
       base.liberadoPublicacao = false;
@@ -1192,7 +1189,131 @@ Total output lines: 2500
         return;
       }
       const local=cand.validacao ? ((cand.validacao.notas||[]).join(' | ')||'sem bloqueios estruturais') : 'não registrada';
- …2771 tokens truncated…${rev.correcoes} correções solicitadas; repetição=${rev.repeticoes || 0}
+      const papelRevisor=g.liderSetor?`líder de ${nomeSetor(g.especialidade)}, com autonomia para decisões intermediárias do próprio setor e obrigação de escalar decisões críticas à gerente geral`:`gerente geral e autoridade final`;
+      const sistema=`Você é ${g.nome}, ${papelRevisor} de ${e.nome}. Revise a entrega REAL abaixo. Ela está na etapa ${etapa.toUpperCase()} e ${interno?'é um artefato INTERNO, que nunca deve ser publicado como produto':'faz parte de um PRODUTO destinado ao cliente'}.
+
+ACERVO SOBERANO DO USUÁRIO — SOMENTE LEITURA:
+${acervoCtx}
+Nada pode contradizer essas referências. Se uma alteração nelas parecer necessária, solicite ao dono; nunca mande a equipe editar o original.
+
+MISSÃO: ${e.missao}
+PROJETO: ${projeto?projeto.nome:'principal'}
+OBJETIVO: ${projeto?projeto.objetivo:e.missao}
+ARQUIVO: ${cand.id} ${cand.nome} [${cand.tipo}]
+VALIDAÇÃO LOCAL: ${local}
+CONTEÚDO:
+${conteudoParaAvaliacao(cand.conteudo,cand.tipo)}
+
+REGRAS:
+- Não pule etapas do produto.
+- ESBOÇO só pode avançar para PROTÓTIPO.
+- PROTÓTIPO só pode avançar para CANDIDATO FINAL.
+- Um artefato interno pode ser aceito internamente, corrigido ou descartado; jamais vira produto por acidente.
+- Se avançar, descreva no campo ACAO o trabalho concreto da próxima etapa.
+- Não invente dependências externas nem peça Asana, e-mail, assinatura ou upload.
+- Para produto, a etapa CANDIDATO será responsável por remover qualquer anotação interna antes do release.
+
+RETORNE SOMENTE:
+DECISAO: ${interno?'aceitar | corrigir | descartar':'avancar | corrigir | descartar'}
+ANALISE: <até 90 palavras, baseada no conteúdo>
+ACAO: <correção ou trabalho da próxima etapa, até 90 palavras>
+PARA: <id de funcionário ou vazio>
+ACERVO_ID: <id exato ou vazio>
+SOLICITACAO_ACERVO: <consideração objetiva ao dono ou vazio>`;
+      const r=await S.ai.perguntar({sistema,pedido:`Inspecione ${cand.nome} e decida o próximo estado sem pular o pipeline.`,nivel:rev.correcoes>=2?'avancado':'padrao',correcoes:rev.correcoes,etapa,tokens:420,reasoning_effort:'low',agente:g.nome,agenteId:g.id,motivo:'revisão de etapa de produção',taskId:cand.taskId||null,projectId:cand.projectId||null,artifactId:cand.id});
+      if(!r){logPessoa(g,`a revisão de ${cand.nome} não recebeu resposta; continuará no próximo ciclo.`,'alerta');return;}
+      const c=r.campos||{},dec=normalizarFrase(c.decisao).replace(/ /g,'_'),analise=String(c.analise||'').trim(),acao=String(c.acao||'').trim();
+      if(c.acervo_id&&c.solicitacao_acervo&&S.acervo)S.acervo.solicitarMudanca(String(c.acervo_id).trim(),projeto&&projeto.id,g.id,String(c.solicitacao_acervo));
+      g.ref.pensamento=`${dec||'revisão'}: ${analise||'sem síntese'}`.slice(0,500);g.balao=(analise||dec||'revisado').slice(0,70);
+      if(interno){
+        if(dec==='aceitar' || (!dec && cand.validacao&&cand.validacao.pronto)){
+          cand.avaliado=true;cand.liberadoPublicacao=false;cand.aceitoInternamente=true;
+          registrarReuniao(g.nome,`ACEITE INTERNO: ${cand.nome}. ${analise}`,'decisao');
+          lembrar(g,`Aceitou internamente ${cand.nome}; não é produto de cliente.`,'decisao',3,[cand.id]);
+        }else if(dec==='descartar'){
+          cand.avaliado=true;e.arquivos=e.arquivos.filter(a=>a.id!==cand.id);if(projeto)projeto.arquivoIds=projeto.arquivoIds.filter(id=>id!==cand.id);
+          registrarReuniao(g.nome,`Descartei o artefato interno ${cand.nome}. ${analise}`,'decisao');
+        }else{
+          cand.avaliado=true;rev.correcoes++;
+          const t=novaTarefa({titulo:`Corrigir material interno: ${cand.nome}`,briefing:acao||`Corrigir os problemas concretos de ${cand.nome}: ${analise}`,kit:cand.kit||'autonomo',para:String(c.para||'').trim()||cand.autorId,projectId:cand.projectId,baseArquivoId:cand.id,clienteVisivel:false,etapaDestino:etapa,origem:'revisão interna da gerente'});
+          registrarReuniao(g.nome,`O material interno ${cand.nome} voltou para correção${t?'':' (tarefa equivalente já existia)'}.`,'ordem');
+        }
+        return;
+      }
+      if(dec==='descartar'){
+        cand.avaliado=true;e.arquivos=e.arquivos.filter(a=>a.id!==cand.id);if(projeto)projeto.arquivoIds=projeto.arquivoIds.filter(id=>id!==cand.id);
+        registrarReuniao(g.nome,`Descartei ${cand.nome} na etapa ${etapa}. ${analise}`,'decisao');return;
+      }
+      if(dec==='avancar' && prox){
+        cand.avaliado=true;rev.correcoes=0;
+        const isImg=['png','jpg','jpeg','webp'].includes(String(cand.tipo||'').toLowerCase());
+        if(isImg){
+          // Para ativos binários, a passagem de etapa é um gate de revisão real;
+          // não fabricamos uma nova imagem idêntica só para provar progresso.
+          const promovido=Object.assign({},cand,{id:uid('f'),classe:prox,baseArquivoId:cand.id,criadoEm:Date.now(),quando:S.fmt.dataHora(),avaliado:false,liberadoPublicacao:false,pipeline:{versao:1,etapas:historicoPipeline(e,cand,prox),etapaAtual:prox,clienteVisivel:true}});
+          e.arquivos.unshift(promovido);if(projeto&&!projeto.arquivoIds.includes(promovido.id))projeto.arquivoIds.unshift(promovido.id);
+          registrarReuniao(g.nome,`${cand.nome} passou de ${etapa} para ${prox} após revisão.`, 'decisao');
+        }else if(prox==='candidato'){
+          const handoff=abrirHandoffParaCandidato(e,cand,acao);
+          registrarReuniao(g.nome,`${cand.nome} concluiu ${etapa}; ${handoff.qa?'encaminhei testes ao Laboratório & Pesquisa e ':''}${handoff.tarefa?'deleguei o acabamento final a Produção & Entrega':'o acabamento final já estava aberto'}.`,'ordem');
+        }else{
+          const briefing=acao||`Transformar o esboço ${cand.nome} em uma versão completa e utilizável, preservando o que funciona e resolvendo lacunas.`;
+          const t=novaTarefa({titulo:`Desenvolver protótipo: ${cand.nome}`,briefing,kit:cand.kit||'autonomo',para:String(c.para||'').trim()||cand.autorId,projectId:cand.projectId,baseArquivoId:cand.id,clienteVisivel:true,etapaDestino:prox,origem:`avanço obrigatório ${etapa}→${prox}`});
+          registrarReuniao(g.nome,`${cand.nome} concluiu ${etapa}; ${t?`abri a etapa ${prox}`:`a etapa ${prox} já estava aberta`}.`,'ordem');
+        }
+        return;
+      }
+      // Qualquer decisão ambígua na etapa intermediária vira correção da MESMA
+      // etapa; nunca usamos ambiguidade para promover um produto.
+      cand.avaliado=true;rev.correcoes++;
+      const t=novaTarefa({titulo:`Corrigir ${etapa}: ${cand.nome}`,briefing:acao||`Corrigir os problemas concretos encontrados em ${cand.nome}: ${analise||'revisar conteúdo e coerência desta etapa'}`,kit:cand.kit||'autonomo',para:String(c.para||'').trim()||cand.autorId,projectId:cand.projectId,baseArquivoId:cand.id,clienteVisivel:true,etapaDestino:etapa,origem:`correção da etapa ${etapa}`});
+      registrarReuniao(g.nome,`${cand.nome} permanece em ${etapa}; ${t?'enviei para correção':'já existe uma correção equivalente'}.`,'ordem');
+    }catch(err){logPessoa(g,`falha ao revisar etapa de ${cand.nome}: ${err&&err.message||err}. A revisão volta no próximo ciclo operacional.`,'erro');}
+    finally{g.ocupado=false;g.balao=null;g.estado='sentado';S.state.gravar();S.bus.emit('arquivos');S.bus.emit('trabalho');S.bus.emit('equipe');}
+  }
+
+  async function avaliar(g,candidatoPreferido) {
+    const e = S.state.atual(); if (!e || !g || g.ocupado || (S.ai.orcamentoIndisponivel && S.ai.orcamentoIndisponivel())) return;
+    const agora = Date.now();
+    limparFilaCandidatos(e);
+    const candidatos = e.arquivos.filter(a => ['esboco','prototipo','candidato'].includes(a.classe) && !a.avaliado);
+    const cand = candidatoPreferido&&candidatos.includes(candidatoPreferido)?candidatoPreferido:candidatos.find(a=>{
+      if(!g.liderSetor)return true;
+      const esp=(S.factory.porId(a.kit||'autonomo')||{}).especialidade;
+      return esp===g.especialidade&&!(a.classe==='candidato'&&a.clienteVisivel);
+    });
+    if (!cand) return;
+    if(cand.classe==='candidato'&&cand.clienteVisivel)registrarAprovacaoProprietario(e,cand);
+    if (cand.classe === 'esboco' || cand.classe === 'prototipo' || !cand.clienteVisivel || cand.escopo === 'interno') {
+      return avaliarEtapaIntermediaria(g,cand,e);
+    }
+    cand.tentativasAvaliacao = (cand.tentativasAvaliacao || 0) + 1;
+    const rev = estadoLinhagem(e, cand);
+    rev.avaliacoes++; rev.atualizadoEm=agora;
+    // O limite é da LINHAGEM, não do id transitório do arquivo.
+    const ultimaChance = rev.correcoes >= MAX_CORRECOES_LINHAGEM || cand.tentativasAvaliacao >= 3;
+    if(['png','jpg','jpeg','webp'].includes(String(cand.tipo||'').toLowerCase())){
+      const valido=Boolean(cand.validacao&&cand.validacao.pronto);
+      cand.avaliado=true;
+      if(valido){cand.liberadoPublicacao=true;const produto=publicar(cand.id,g.nome,'Imagem gerada pelo modelo visual e validada localmente como arquivo binário utilizável.');registrarReuniao(g.nome,produto?`Liberei ${produto.nome}: o ativo visual foi gerado e salvo corretamente.`:`O ativo visual ${cand.nome} já foi processado.`,'decisao');lembrar(g,`Aprovou ativo visual ${cand.nome}.`,'decisao',4,[cand.id]);}
+      else {cand.classe='prototipo';cand.motivoEncerramento='imagem inválida ou sem bytes utilizáveis';registrarReuniao(g.nome,`Retive ${cand.nome}: a geração visual não produziu um arquivo binário válido.`,'alerta');}
+      S.state.gravar();S.bus.emit('arquivos');S.bus.emit('equipe');return;
+    }
+    g.ocupado = true; g.estado = 'trabalhando'; g.balao = 'lendo a entrega';
+    const projeto = e.projetos.find(x => x.id === cand.projectId) || e.projetos.find(x => x.status === 'ativo') || e.projetos[0];
+    const tarefa = cand.taskId ? e.tarefas.find(t => t.id === cand.taskId) : null;
+    const contexto = `Você é ${g.nome}, gerente e autoridade final do estúdio ${e.nome}. Sua função não é dar uma nota. Você deve INSPECIONAR o conteúdo real, comparar com o objetivo do projeto, lembrar decisões anteriores e decidir o destino desta entrega.
+
+MISSÃO: ${e.missao}
+PÚBLICO: ${e.publico}
+PROJETO: ${projeto ? projeto.nome : 'principal'}
+OBJETIVO: ${projeto ? projeto.objetivo : e.missao}
+TAREFA QUE GEROU A ENTREGA: ${tarefa ? tarefa.titulo + ' | ' + tarefa.briefing : 'não registrada'}
+ARQUIVO: ${cand.id} | ${cand.nome} | ${cand.tipo} | autor=${cand.autor} | versão=${cand.versao || 1}
+ARTEFATO BASE: ${cand.baseArquivoId || 'nenhum'}
+VALIDAÇÃO LOCAL (sem IA): ${cand.validacao ? (cand.validacao.prontoEstrutural === false ? (cand.validacao.notas||[]).filter(n=>!/próprio autor declarou/i.test(n)).join(' | ') : (cand.validacao.prontoEstrutural === true ? 'sem bloqueios estruturais' : (cand.validacao.pronto ? 'sem bloqueios estruturais' : (cand.validacao.notas||[]).join(' | ')))) : 'não registrada'}
+DECLARAÇÃO DO AUTOR: ${cand.validacao && cand.validacao.declaradoPronto === false ? 'o autor marcou a versão como incompleta; confira se é limitação interna real ou apenas dependência externa' : 'sem ressalva registrada'}
+HISTÓRICO DA LINHAGEM: ${rev.avaliacoes} avaliações; ${rev.correcoes} correções solicitadas; repetição=${rev.repeticoes || 0}
 
 CONTEÚDO COMPLETO DA ENTREGA:
 ${conteudoParaAvaliacao(cand.conteudo,cand.tipo)}
@@ -1888,18 +2009,9 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     return sucesso;
   }
 
-  function linhagemProdutoEmCurso(e,projectId){
-    return (e.arquivos||[]).find(a=>(!projectId||a.projectId===projectId)&&a.clienteVisivel&&['esboco','prototipo','candidato'].includes(a.classe)&&!a.incompleto&&!a.motivoEncerramento)||null;
-  }
   function abrirFrenteProduto(e,g,decisao){
     const projeto=e.projetos.find(x=>x.status==='ativo')||e.projetos[0];if(!projeto)return null;
     const base=(e.arquivos||[]).find(a=>a.classe==='produto'&&a.projectId===projeto.id)||null;
-    const linhagemEmProducao=linhagemProdutoEmCurso(e,projeto.id);
-    if(!base&&linhagemEmProducao){
-      e.gerencia=e.gerencia||{};
-      if(Date.now()-Number(e.gerencia.ultimoBloqueioNovaFrente||0)>5*60*1000){e.gerencia.ultimoBloqueioNovaFrente=Date.now();registrarReuniao(g.nome,`Não abri outro produto: ${linhagemEmProducao.nome} ainda precisa concluir o pipeline atual.`,'acompanhamento');}
-      return null;
-    }
     const direcao=String(decisao&&(decisao.briefing||decisao.abordagem||decisao.motivo)||'').trim();
     const plano=String(e.fundacao&&e.fundacao.primeiroProduto||projeto.objetivo||e.missao);
     const titulo=base?`Produzir nova versão vendável de ${base.nome}`:`Materializar próximo produto real de ${projeto.nome}`;
@@ -2067,7 +2179,7 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
       // O estado da fila — não um relógio — dispara a próxima decisão. Enquanto
       // houver trabalho executável, a equipe produz; quando a fila esvazia, a
       // gerente define imediatamente a próxima evolução de produto real.
-      if(!abertasGerencia.length&&!linhagemProdutoEmCurso(e)){
+      if(!abertasGerencia.length){
         trabalhoGerencia=(async()=>{const d=await S.agency.decidir(g,true);
           if(d&&d.acao==='sugerir_acervo'){S.agency.marcarAcao(g,d);await materializarDecisaoAgente(g,d);}
           const produtiva=d&&['criar_tarefa','revisar','estudar','planejar','executar_tarefa'].includes(d.acao);
@@ -2081,12 +2193,11 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     // localmente tarefas existentes/sem dono. Sem tarefa útil, entram no modo
     // Sims-like e ficam disponíveis até a gerente ou a fila produzir demanda.
     const livres=rt.filter(p=>p.papel==='func'&&!p.ocupado&&Number(p.ref.energia)>10).sort((a,b)=>Number(a.liderSetor)-Number(b.liderSetor));
-    const lideresEmRevisao=new Set();
     const revisoesLideres=livres.filter(p=>p.liderSetor&&Date.now()>=Number(e.gerencia.circuitBreakerRevisaoAte||0)).map(lider=>{
       const cand=e.arquivos.find(a=>['esboco','prototipo'].includes(a.classe)&&!a.avaliado&&!a._revisorEmExecucao&&(S.factory.porId(a.kit||'autonomo')||{}).especialidade===lider.especialidade);
-      if(cand)lideresEmRevisao.add(lider.id);return cand?revisarComClaim(lider,cand):Promise.resolve(false);
+      return cand?revisarComClaim(lider,cand):Promise.resolve(false);
     });
-    const trabalhoEquipe=Promise.allSettled(livres.filter(p=>!lideresEmRevisao.has(p.id)).map(async p=>{
+    const trabalhoEquipe=Promise.allSettled(livres.map(async p=>{
       if(p.ocupado)return;
       const atribuida=tarefaAdequadaLocal(e,p);
       if(atribuida){ if(p.estado!=='sentado')await acordarParaTrabalho(p); atribuida.para=p.id; await executar(p,atribuida); return; }
