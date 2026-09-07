@@ -91,6 +91,23 @@ window.S = window.S || {};
   const DB = { estudios: [], atual: null, versao: 4, acervoUsuario: [] };
   S.DB = DB;
 
+  /* Constituição do produto. Não vem de localStorage e não possui setter:
+     toda carga reaplica esta versão canônica congelada. */
+  const PRINCIPIOS_FUNDAMENTAIS = Object.freeze({
+    versao:'1.0.0', imutavel:true,
+    objetivoMaximo:'Criar empresas de agentes de IA que produzam produtos finais utilizáveis no mundo real pelo jogador, inclusive para venda, prestação de serviços ou distribuição.',
+    custoQualidade:'Buscar simultaneamente o menor custo real e a maior qualidade possível; economia nunca autoriza truncamento, produto medíocre ou simulação de entrega.',
+    caixaReal:'Sincronizar automaticamente o saldo real disponível no provedor e impedir que a soma dos caixas empresariais ultrapasse esse saldo.',
+    alocacao:'Permitir caixa dedicado por porcentagem do saldo real ou por valor digitado, sempre limitado ao orçamento efetivamente disponível.',
+    ferramentas:'Mesmo modelos baratos ou pequenos devem receber ferramentas determinísticas de leitura, validação, custos, projetos e acervo para maximizar a eficiência da saída.',
+    especializacao:'Cada funcionário atua somente em sua função e setor; a gerente coordena, delega e aprova, sem produzir no lugar da equipe.',
+    integridade:'Entradas e saídas nunca são deliberadamente cortadas. Qualquer resposta interrompida permanece incompleta e não pode virar produto final.',
+    realidadeHumana:'Agentes nunca inventam nem assumem ações humanas ou externas. Contatos, e-mails, mensagens, vendas, pagamentos, cadastros, uploads e publicações dependem do jogador e devem ser solicitados explicitamente.',
+    soberania:'O acervo do jogador é soberano e somente o jogador pode alterá-lo.'
+  });
+  S.PRINCIPIOS_FUNDAMENTAIS=PRINCIPIOS_FUNDAMENTAIS;
+  S.principiosTexto=()=>Object.entries(PRINCIPIOS_FUNDAMENTAIS).filter(([k])=>!['versao','imutavel'].includes(k)).map(([k,v])=>`${k}: ${v}`).join('\n');
+
   function normalizarItemAcervo(a){
     if(!a||typeof a!=='object')return null;
     const nome=String(a.nome||'').replace(/[\x00-\x1f]/g,'').trim();if(!nome)return null;
@@ -103,6 +120,7 @@ window.S = window.S || {};
   function normalizarEstudio(e) {
     if (!e || typeof e !== 'object') return null;
     e.id = e.id || uid('e');
+    e.principiosVersao=PRINCIPIOS_FUNDAMENTAIS.versao;
     /* Empresas fundadas antes da limpeza de markdown guardaram nomes como
        "**Eldoria Press**". Corrigimos na carga para não contaminar a
        interface nem os prompts. */
@@ -124,6 +142,11 @@ window.S = window.S || {};
     e.fundacao.primeiroProduto = String(e.fundacao.primeiroProduto || '');
     e.fundacao.equipePlanejada = Array.isArray(e.fundacao.equipePlanejada) ? e.fundacao.equipePlanejada.slice(0,6) : [];
     e.fundacao.ultimaTentativa = Number(e.fundacao.ultimaTentativa) || 0;
+    e.fundacao.retomarApos = Number(e.fundacao.retomarApos||e.fundacao.proximaTentativa) || 0;
+    delete e.fundacao.proximaTentativa;
+    e.fundacao.tentativas = Number(e.fundacao.tentativas) || 0;
+    e.fundacao.ultimoErro = String(e.fundacao.ultimoErro || '').slice(0,400);
+    e.fundacao.reuniaoInicialRealizada = Number(e.fundacao.reuniaoInicialRealizada) || 0;
     e.fundacao.concluidaEm = Number(e.fundacao.concluidaEm) || 0;
     e.criadoEm = e.criadoEm || Date.now();
     e.xp = Number(e.xp) || 0;
@@ -143,6 +166,13 @@ window.S = window.S || {};
     e.economia.cicloInicio = Number(e.economia.cicloInicio)||Date.now();
     e.economia.cicloDias = 30;
     e.economia.modoTrabalho = e.economia.modoTrabalho === 'intensivo' ? 'intensivo' : 'normal';
+    e.economia.alocacao=e.economia.alocacao&&typeof e.economia.alocacao==='object'?e.economia.alocacao:{};
+    e.economia.alocacao.tipo=e.economia.alocacao.tipo==='percentual'?'percentual':'valor';
+    e.economia.alocacao.percentual=Math.max(0,Math.min(100,Number(e.economia.alocacao.percentual)||0));
+    e.economia.alocacao.valorUSD=Math.max(0,Number(e.economia.alocacao.valorUSD)||e.economia.caixaUSD||0);
+    e.economia.imagens=e.economia.imagens&&typeof e.economia.imagens==='object'?e.economia.imagens:{};
+    e.economia.imagens.limitePorImagemUSD=Math.max(0.001,Number(e.economia.imagens.limitePorImagemUSD)||0.05);
+    e.economia.imagens.percentualMaxCaixa=Math.max(1,Math.min(100,Number(e.economia.imagens.percentualMaxCaixa)||15));
     e.economia.dia = e.economia.dia && typeof e.economia.dia==='object' ? e.economia.dia : {chave:'',gastoUSD:0};
     e.economia.historico = Array.isArray(e.economia.historico) ? e.economia.historico.slice(-2000) : [];
     e.economia.vendas = Array.isArray(e.economia.vendas) ? e.economia.vendas.slice(-120) : [];
@@ -172,6 +202,7 @@ window.S = window.S || {};
       f.papel = f.papel === 'gerente' ? 'gerente' : 'func';
       f.cargo = String(f.cargo || 'Generalista');
       f.especialidade = ({dados:'operacoes',geral:'producao'}[f.especialidade] || f.especialidade || mapearEspecialidade(f.cargo));
+      if(!['criacao','desenvolvimento','producao','operacoes','comercial','financeiro','laboratorio'].includes(f.especialidade))f.especialidade=mapearEspecialidade(f.cargo);
       f.cor = f.cor || PALETA[i % PALETA.length];
       f.energia = Number.isFinite(f.energia) ? f.energia : 80;
       f.humor = Number.isFinite(f.humor) ? f.humor : 68;
@@ -267,7 +298,7 @@ window.S = window.S || {};
       t.projectId = t.projectId || (e.projetos[0] && e.projetos[0].id);
       // Kits continuam sendo apenas roteamento de capacidade; não definem um
       // template de produto. Preservamos o kit novo quando conhecido.
-      t.kit = ['autonomo','texto','visual','pagina','dados','comercial'].includes(t.kit) ? t.kit : 'autonomo';
+      t.kit = ['autonomo','texto','visual','pagina','codigo','dados','comercial','financeiro','laboratorio'].includes(t.kit) ? t.kit : 'autonomo';
       t.dependsOn = Array.isArray(t.dependsOn) ? t.dependsOn : [];
       t.acervoBaseIds=Array.isArray(t.acervoBaseIds)?[...new Set(t.acervoBaseIds.map(String))]:[];
       t.handoff = t.handoff || null;
@@ -354,6 +385,9 @@ window.S = window.S || {};
     e.acervoUsuario=Array.isArray(e.acervoUsuario)?e.acervoUsuario.map(normalizarItemAcervo).filter(Boolean):[];
     e.iaChamadas=Array.isArray(e.iaChamadas)?e.iaChamadas.slice(-2000):[];
     e.decisoesCriticas=Array.isArray(e.decisoesCriticas)?e.decisoesCriticas.slice(-200):[];
+    e.financeiro=e.financeiro&&typeof e.financeiro==='object'?e.financeiro:{};
+    e.financeiro.analises=Array.isArray(e.financeiro.analises)?e.financeiro.analises.slice(-300):[];
+    e.financeiro.recomendacoes=Array.isArray(e.financeiro.recomendacoes)?e.financeiro.recomendacoes.slice(-120):[];
     e.log = Array.isArray(e.log) ? e.log.slice(-2000) : [];
     // Nenhuma execução assíncrona sobrevive a um fechamento da página. Estados
     // transitórios persistidos precisam voltar à fila; caso contrário uma tarefa
@@ -430,9 +464,12 @@ window.S = window.S || {};
   function mapearEspecialidade(cargo) {
     const c = String(cargo || '').toLowerCase();
     if (/cria|design|arte|marca/.test(c)) return 'criacao';
-    if (/produ|tec|dev|engen|program/.test(c)) return 'producao';
+    if (/software|dev|engenh.*(?:software|sistema)|program|front.?end|back.?end/.test(c)) return 'desenvolvimento';
+    if (/financ|cust|or[cç]ament|controlador|tesour/.test(c)) return 'financeiro';
+    if (/laborat|pesquis|teste|experimento|cient[ií]f|prototipagem/.test(c)) return 'laboratorio';
+    if (/produ|tec|montagem|editor|revis/.test(c)) return 'producao';
     if (/atend|vend|comerc|client|marketing|crescimento/.test(c)) return 'comercial';
-    if (/dado|anal|financ|opera|qa|document/.test(c)) return 'operacoes';
+    if (/dado|anal|opera|qa|document/.test(c)) return 'operacoes';
     return 'producao';
   }
 
@@ -538,9 +575,26 @@ window.S = window.S || {};
     if(v>livre+1e-6) throw new Error(`Só há US$ ${livre.toFixed(4)} não alocados. A soma dos caixas nunca pode exceder o saldo real do OpenRouter.`);
     const antes=caixaDisponivel(e);
     e.economia.caixaUSD=v;
+    e.economia.alocacao={tipo:'valor',valorUSD:v,percentual:0,atualizadoEm:Date.now()};
     if(!e.economia.caixaInicialUSD) e.economia.caixaInicialUSD=v;
     registrarMovimento(e,'ajuste_caixa',v-antes,'Caixa definido pelo jogador',{saldoProvedorUSD:saldo});
     gravar(); S.bus.emit('economia'); return v;
+  }
+  function definirCaixaPorPercentual(percentual,saldoProvedor){
+    const e=atual();if(!e)throw new Error('Nenhuma empresa selecionada.');const saldo=Number(saldoProvedor),pct=Math.max(0,Math.min(100,Number(percentual)||0));
+    if(!Number.isFinite(saldo))throw new Error('Sincronize o saldo real do OpenRouter antes de definir uma porcentagem.');
+    const outras=DB.estudios.filter(x=>x.id!==e.id&&x.economia&&x.economia.alocacao&&x.economia.alocacao.tipo==='percentual').reduce((n,x)=>n+Number(x.economia.alocacao.percentual||0),0);
+    if(outras+pct>100.000001)throw new Error(`As porcentagens dedicadas somariam ${(outras+pct).toFixed(2)}%. O máximo global é 100%.`);
+    const alvo=saldo*pct/100,livre=saldoNaoAlocado(saldo,e.id);if(alvo>livre+1e-6)throw new Error(`Esta porcentagem exige US$ ${alvo.toFixed(4)}, mas somente US$ ${livre.toFixed(4)} estão disponíveis.`);
+    const antes=caixaDisponivel(e);e.economia.caixaUSD=alvo;e.economia.alocacao={tipo:'percentual',percentual:pct,valorUSD:alvo,atualizadoEm:Date.now()};registrarMovimento(e,'ajuste_caixa_percentual',alvo-antes,`Caixa definido em ${pct.toFixed(2)}% do saldo real`,{saldoProvedorUSD:saldo,percentual:pct});gravar();S.bus.emit('economia');return alvo;
+  }
+  function sincronizarAlocacoes(saldoProvedor){
+    const saldo=Math.max(0,Number(saldoProvedor));if(!Number.isFinite(saldo))return false;
+    const percentuais=DB.estudios.filter(e=>e.economia&&e.economia.alocacao&&e.economia.alocacao.tipo==='percentual');
+    const fixas=DB.estudios.filter(e=>!percentuais.includes(e));let reservado=0;
+    percentuais.forEach(e=>{const alvo=saldo*Math.max(0,Math.min(100,Number(e.economia.alocacao.percentual)||0))/100;e.economia.caixaUSD=alvo;e.economia.alocacao.valorUSD=alvo;reservado+=alvo;});
+    const restante=Math.max(0,saldo-reservado),desejado=fixas.reduce((n,e)=>n+Math.max(0,Number(e.economia.alocacao&&e.economia.alocacao.valorUSD)||0),0),fator=desejado>restante&&desejado>0?restante/desejado:1;
+    fixas.forEach(e=>{e.economia.caixaUSD=Math.max(0,Number(e.economia.alocacao&&e.economia.alocacao.valorUSD)||0)*fator;});gravar();S.bus.emit('economia');return true;
   }
   function distribuirIgualmente(saldoProvedor,motivo){
     if(saldoProvedor===null||saldoProvedor===undefined||saldoProvedor==='')throw new Error('Sincronize o saldo do OpenRouter antes de distribuir o caixa.');
@@ -551,6 +605,7 @@ window.S = window.S || {};
     DB.estudios.forEach(x=>{
       const antes=caixaDisponivel(x);
       x.economia.caixaUSD=cota;
+      x.economia.alocacao={tipo:'valor',valorUSD:cota,percentual:0,atualizadoEm:Date.now()};
       if(!x.economia.caixaInicialUSD)x.economia.caixaInicialUSD=cota;
       if(Math.abs(cota-antes)<=0.000001)return;
       registrarMovimento(x,'distribuicao_caixa',cota-antes,motivo||'Saldo OpenRouter distribuído igualmente entre as empresas',{saldoProvedorUSD:saldo,empresas:DB.estudios.length});
@@ -584,7 +639,7 @@ window.S = window.S || {};
       }
     }
     if(modoDistribuicao==='igual'&&Number.isFinite(sa))distribuirIgualmente(sa,nova?'Novo crédito detectado; redistribuição automática global':'Reconciliação automática com o saldo real');
-    if(modoDistribuicao!=='igual'&&Number.isFinite(sa))reconciliarLastroGlobal(sa);
+    if(modoDistribuicao!=='igual'&&Number.isFinite(sa))sincronizarAlocacoes(sa);
     DB.estudios.forEach(x=>{const px=x.economia.provedor||(x.economia.provedor={});if(Number.isFinite(tc))px.totalCreditos=tc;if(Number.isFinite(tu))px.totalUso=tu;if(Number.isFinite(sa))px.saldo=sa;px.ultimoSync=Date.now();});
     gravar(); if(nova)S.bus.emit('economia');
     return {novaReceitaUSD:nova};
@@ -608,10 +663,11 @@ window.S = window.S || {};
     const e=atual(); if(!e)return null; garantirDiaEconomia(e); processarFolhaInterna(e);
     return {caixaUSD:caixaDisponivel(e),receitaUSD:Number(e.economia.receitaUSD)||0,gastoIAUSD:Number(e.economia.gastoIAUSD)||0,
       gastoHojeUSD:Number(e.economia.dia.gastoUSD)||0,receitaNaoIdentificadaUSD:Number(e.economia.receitaNaoIdentificadaUSD)||0,
-      modoTrabalho:e.economia.modoTrabalho||'normal',vendas:(e.economia.vendas||[]).slice(),historico:(e.economia.historico||[]).slice(),provedor:Object.assign({},e.economia.provedor||{})};
+      modoTrabalho:e.economia.modoTrabalho||'normal',alocacao:Object.assign({},e.economia.alocacao||{}),imagens:Object.assign({},e.economia.imagens||{}),vendas:(e.economia.vendas||[]).slice(),historico:(e.economia.historico||[]).slice(),provedor:Object.assign({},e.economia.provedor||{})};
   }
   function definirModoTrabalho(modo){const e=atual();if(!e)throw new Error('Nenhuma empresa selecionada.');e.economia.modoTrabalho=modo==='intensivo'?'intensivo':'normal';registrar(`Ritmo de IA alterado para ${e.economia.modoTrabalho}.`,'economia');gravarJa();S.bus.emit('economia');S.bus.emit('ia');return e.economia.modoTrabalho;}
-  S.economia={resumo:resumoEconomia,caixa:()=>{const e=atual();return caixaDisponivel(e);},debitarIA,definirCaixa,definirModoTrabalho,distribuirIgualmente,reconciliarLastroGlobal,totalCaixas,saldoNaoAlocado,reconciliarFornecedor,registrarVenda,processarFolhaInterna};
+  function definirPoliticaImagem(limitePorImagemUSD,percentualMaxCaixa){const e=atual();if(!e)throw new Error('Nenhuma empresa selecionada.');e.economia.imagens={limitePorImagemUSD:Math.max(0.001,Math.min(10,Number(limitePorImagemUSD)||0.05)),percentualMaxCaixa:Math.max(1,Math.min(100,Number(percentualMaxCaixa)||15))};registrar(`Política econômica de imagens: até US$ ${e.economia.imagens.limitePorImagemUSD.toFixed(4)} e ${e.economia.imagens.percentualMaxCaixa}% do caixa por geração.`,'economia');gravarJa();S.bus.emit('economia');return Object.assign({},e.economia.imagens);}
+  S.economia={resumo:resumoEconomia,caixa:()=>{const e=atual();return caixaDisponivel(e);},debitarIA,definirCaixa,definirCaixaPorPercentual,sincronizarAlocacoes,definirModoTrabalho,definirPoliticaImagem,distribuirIgualmente,reconciliarLastroGlobal,totalCaixas,saldoNaoAlocado,reconciliarFornecedor,registrarVenda,processarFolhaInterna};
 
   /* ---------- acervos soberanos do usuário ----------
      Cada empresa possui seu próprio acervo. O global agrega espelhos desses
@@ -673,6 +729,28 @@ window.S = window.S || {};
   }
   function atualizarProjetoDados(projectId,dados){const e=atual(),p=e&&(e.projetos||[]).find(x=>x.id===projectId);if(!p)throw new Error('Projeto não encontrado.');p.dados=Object.assign({},p.dados||{});['resumo','requisitos','publico','riscos'].forEach(k=>{if(dados&&dados[k]!==undefined)p.dados[k]=String(dados[k]||'').slice(0,k==='requisitos'?3000:1600);});p.dados.atualizadoEm=Date.now();gravarJa();S.bus.emit('projetos');return p.dados;}
   S.acervo={todos:todosAcervo,globais:globaisAcervo,item:itemAcervo,adicionar:adicionarAcervo,atualizarPeloUsuario:atualizarAcervoPeloUsuario,remover:removerAcervo,vincular:vincularAcervo,desvincular:desvincularAcervo,promoverProduto,contexto:contextoAcervo,solicitarMudanca:solicitarMudancaAcervo,atualizarProjetoDados};
+
+  /* Ferramentas determinísticas e gratuitas. Elas preparam fatos completos
+     antes da inferência e evitam gastar tokens pedindo ao modelo para calcular
+     ou adivinhar aquilo que o runtime já sabe. */
+  const CATALOGO_FERRAMENTAS=Object.freeze([
+    {id:'consultar_projeto',descricao:'Estado, requisitos, tarefas e arquivos de um projeto.'},
+    {id:'ler_artefato',descricao:'Conteúdo integral e metadados de um artefato.'},
+    {id:'consultar_acervo',descricao:'Referências soberanas integrais vinculadas ao projeto.'},
+    {id:'consultar_financas',descricao:'Caixa, gasto, tokens, falhas, modelos e custo de imagens.'},
+    {id:'validar_artefato',descricao:'Validação estrutural/final determinística sem nova chamada de IA.'}
+  ]);
+  function executarFerramenta(id,args){
+    const e=atual();args=args||{};if(!e)return null;
+    if(id==='consultar_projeto'){const p=(e.projetos||[]).find(x=>x.id===args.projectId);return p?{projeto:p,tarefas:(e.tarefas||[]).filter(t=>t.projectId===p.id),arquivos:(e.arquivos||[]).filter(a=>a.projectId===p.id).map(a=>({id:a.id,nome:a.nome,tipo:a.tipo,classe:a.classe,kit:a.kit,validacao:a.validacao,custoUSD:a.custoProducaoUSD,tokens:a.tokensProducao}))}:null;}
+    if(id==='ler_artefato'){const a=(e.arquivos||[]).find(x=>x.id===args.artefatoId);return a?Object.assign({},a):null;}
+    if(id==='consultar_acervo')return contextoAcervo(args.projectId);
+    if(id==='consultar_financas'){const calls=e.iaChamadas||[];return{economia:resumoEconomia(),chamadas:calls.length,tokens:calls.reduce((n,c)=>n+Number(c.tokens||0),0),custoUSD:calls.reduce((n,c)=>n+Number(c.custo||0),0),falhas:calls.filter(c=>!c.ok).length,incompletas:calls.filter(c=>c.incompleta).length,custoImagensUSD:calls.filter(c=>c.motivo==='produção visual').reduce((n,c)=>n+Number(c.custo||0),0),porModelo:calls.reduce((o,c)=>{const k=c.modelo||'desconhecido';o[k]=(o[k]||0)+Number(c.custo||0);return o;},{})};}
+    if(id==='validar_artefato'){const a=(e.arquivos||[]).find(x=>x.id===args.artefatoId);if(!a||!S.factory)return null;return args.final&&S.factory.validarFinal?S.factory.validarFinal(a.conteudo,a.tipo):S.factory.validar(a.conteudo,a.tipo);}
+    return null;
+  }
+  function contextoFerramentas(projectId,baseArquivoId){const pacote={catalogo:CATALOGO_FERRAMENTAS,projeto:executarFerramenta('consultar_projeto',{projectId}),financas:executarFerramenta('consultar_financas',{}),acervo:executarFerramenta('consultar_acervo',{projectId})};if(baseArquivoId)pacote.artefatoBase=executarFerramenta('ler_artefato',{artefatoId:baseArquivoId});return pacote;}
+  S.ferramentas={catalogo:CATALOGO_FERRAMENTAS,executar:executarFerramenta,contexto:contextoFerramentas};
 
   S.state = {
     PALETA, carregar, gravar, gravarJa, atual, registrar, registrarPessoa, ganharXP,

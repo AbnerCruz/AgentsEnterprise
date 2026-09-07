@@ -352,8 +352,8 @@
     const pessoa=((S.state.atual()||{}).equipe||[]).find(f=>f.id===agenteId);
     const proprio=pessoa&&pessoa.ia&&pessoa.ia.imagem;
     const modelo=MODELOS_IMAGEM_OPENROUTER.some(m=>m.id===(op.modelo||proprio))?(op.modelo||proprio):cfg.imagem;
-    const estimativa=0.05;
-    if(restanteUSD()<estimativa || (!modoIntensivo()&&restanteDiaUSD()<estimativa)){const er=new Error('Orçamento disponível pequeno demais para iniciar uma imagem com segurança.');er.limiteLocal=true;throw er;}
+    const eco=economiaAtual(),politica=eco&&eco.imagens||{},estimativa=0.05,limiteImagem=Math.max(0.001,Number(politica.limitePorImagemUSD)||0.05),limiteCaixa=Math.max(0,Number(eco&&eco.caixaUSD||0))*Math.max(1,Number(politica.percentualMaxCaixa)||15)/100;
+    if(estimativa>limiteImagem||estimativa>limiteCaixa||restanteUSD()<estimativa || (!modoIntensivo()&&restanteDiaUSD()<estimativa)){const er=new Error(`Imagem bloqueada pela política econômica: estimativa US$ ${estimativa.toFixed(4)}, limite por imagem US$ ${limiteImagem.toFixed(4)}, limite proporcional US$ ${limiteCaixa.toFixed(4)}.`);er.limiteLocal=true;throw er;}
     estado.emVoo++;l.emVoo++;situar('ocupada','IA criando imagem',`${op.agente||agenteId} · ${modelo}`);const inicio=Date.now();
     try{
       const resp=await fetch('https://openrouter.ai/api/v1/images',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+chaves.openrouter},body:JSON.stringify({model:modelo,prompt:String(op.prompt||''),aspect_ratio:op.aspect_ratio||'1:1'})});

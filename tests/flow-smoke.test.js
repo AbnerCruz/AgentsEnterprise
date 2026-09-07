@@ -103,12 +103,14 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.equal(e.arquivos.length,quantidadeAntesInvalido,'bundle inválido não pode deixar entrega parcial');
 
   S.ai={
+    cfg:{pensamento:'openai/gpt-oss-120b',producao:'openai/gpt-oss-20b',imagem:'google/gemini-2.5-flash-image'},
     campos:t=>Object.fromEntries(String(t).split(/\n/).map(l=>l.match(/^(ARQUIVO|TIPO|RESUMO|OPERACAO|PRONTO):\s*(.*)$/i)).filter(Boolean).map(m=>[m[1].toLowerCase(),m[2]])),
     corpo:t=>String(t).split(/\n---\n/).slice(1).join('\n---\n'),
     chamar:async()=>({texto:`ARQUIVO: pacote.zip\nTIPO: bundle\nRESUMO: site completo\nOPERACAO: substituir\nPRONTO: sim\n---\n<<<ARQUIVO: index.html>>>\n<main>\n<h1>Produto real</h1>\n<p>Conteúdo completo para uso.</p>\n<section>Entrega funcional.</section>\n</main>\n<<<FIM_ARQUIVO>>>\n<<<ARQUIVO: index.html>>>\n<main>duplicado que deve ser ignorado</main>\n<<<FIM_ARQUIVO>>>\n<<<ARQUIVO: app.js>>>\nconst produto = { pronto: true, itens: ['a','b','c'] };\nfunction iniciar(){ return produto.itens.join(','); }\niniciar();\n<<<FIM_ARQUIVO>>>`}),
     gerarImagem:async()=>({mediaType:'image/png',b64:Buffer.from('png-real').toString('base64')})
   };
-  const produzido=await S.factory.produzir({kit:'pagina',briefing:'Criar um site completo com múltiplos arquivos',etapa:'esboco',clienteVisivel:true,agente:e.equipe[0],projectId:'pr1'});
+  const desenvolvedor=Object.assign({},e.equipe[0],{id:'dev-teste',papel:'func',especialidade:'desenvolvimento'});
+  const produzido=await S.factory.produzir({kit:'pagina',briefing:'Criar um site completo com múltiplos arquivos',etapa:'esboco',clienteVisivel:true,agente:desenvolvedor,projectId:'pr1'});
   assert.equal(produzido.arquivos.length,2,'bundle elimina caminhos duplicados e preserva arquivos distintos');
   assert.deepEqual(produzido.arquivos.map(x=>x.nome),['index.html','app.js']);
   const visual=S.studio.salvarArquivos([{nome:'capa.png',tipo:'png',conteudo:'data:image/png;base64,cG5n'}],{projectId:'pr1',classe:'esboco',clienteVisivel:true,kit:'visual'},e.equipe[0])[0];
@@ -120,11 +122,22 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   for(let i=0;i<105;i++)salvar('esboco',null,texto,`item-${i}.md`);
   assert.equal(e.arquivos.length,antes+105,'artefatos antigos não podem sumir silenciosamente');
 
+  assert.equal(S.PRINCIPIOS_FUNDAMENTAIS.imutavel,true);assert.match(S.principiosTexto(),/menor custo real/);
+  const pendente=S.studio.iniciarFundacao();assert.equal(pendente.equipe.length,1,'o clique de fundação já deve nomear a gerente');assert.equal(pendente.fundacao.estado,'aguardando_jogador');
+  S.studio.configurarFundacao(pendente,{ideia:'software útil',objetivo:'entrega real',tipoProduto:'aplicativo',publico:'usuários',restricoes:'sem backend'});assert.equal(pendente.fundacao.estado,'criando');
+  selecionar(e);const tarefasAntesHumano=e.tarefas.length;
+  assert.equal(S.studio.novaTarefa({titulo:'Contatar cliente por email',briefing:'Enviar email ao cliente para confirmar os dados.',projectId:'pr1'}),null);
+  const pedidoHumano=e.decisoesCriticas.find(d=>d.status==='pendente'&&d.tipo==='acao_humana');assert.ok(pedidoHumano,'ação humana deve ir à caixa executiva, não ser simulada');assert.equal(e.tarefas.length,tarefasAntesHumano);
+  assert.equal(S.studio.responderDecisaoCritica(pedidoHumano.id,'Cliente confirmou pessoalmente os requisitos A e B.'),true);assert.ok(e.tarefas.length>tarefasAntesHumano,'dados reais do dono retomam o trabalho interno');
+  const analise=S.studio.analisarFinancas(e,true);assert.equal(typeof analise.custoUSD,'number');assert.ok(analise.quadro);
+
   const e2=empresa('e2');S.DB.estudios=[e,e2];S.DB.atual=e.id;
   S.economia.definirCaixa(6,10);S.DB.atual=e2.id;S.economia.definirCaixa(4,10);
   assert.throws(()=>S.economia.definirCaixa(5,10),/não alocados/);
   S.economia.distribuirIgualmente(10,'teste');
   assert.equal(e.economia.caixaUSD,5);assert.equal(e2.economia.caixaUSD,5);
+  S.DB.atual=e.id;S.economia.definirCaixaPorPercentual(30,10);assert.equal(e.economia.alocacao.tipo,'percentual');assert.equal(e.economia.caixaUSD,3);
+  assert.throws(()=>{S.DB.atual=e2.id;S.economia.definirCaixaPorPercentual(80,10);},/somariam/);S.DB.atual=e.id;
   e.economia.caixaUSD=8;e2.economia.caixaUSD=8;S.economia.reconciliarLastroGlobal(10);
   assert.equal(e.economia.caixaUSD,5);assert.equal(e2.economia.caixaUSD,5,'alocações legadas acima do saldo são reconciliadas');
   S.DB.atual=e.id;e.economia.receitaNaoIdentificadaUSD=2;
@@ -140,6 +153,7 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   const corpoZip=Buffer.from(await zipImagem.arrayBuffer()).toString('latin1');assert.match(corpoZip,/png-real/);assert.doesNotMatch(corpoZip,/data:image\/png/,'ZIP deve conter bytes da imagem, não a data URL textual');
   const studioSource=fs.readFileSync(path.join(__dirname,'..','studio.js'),'utf8');
   assert.doesNotMatch(studioSource,/cadenciaGerencia|ESPERA_FUNDACAO_MS|proximaAvaliacao\s*=|proximaTentativa\s*=\s*Date/);
+  assert.doesNotMatch(studioSource,/fundacoesTentadasNestaSessao/,'falha de rede não pode impedir nova tentativa na mesma sessão');assert.match(studioSource,/retomarApos=Date\.now\(\)\+espera/);
   assert.match(studioSource,/if\(p\.papel==='gerente'\)/,'gerente precisa de guarda explícita contra produção');
   assert.doesNotMatch(studioSource,/motivo:'conversa ociosa econômica'/,'ociosidade não pode gastar tokens');
   assert.doesNotMatch(studioSource,/_ultimoDesenho[^\n]+80/,'animação não pode continuar limitada a 12,5 fps');
@@ -151,6 +165,7 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   for(const id of ['floor','gameHud','hudCollapse','hudStats','dockGerente','dockTarefas','dockProdutos','dockEstado','dockLog','dockIA','modal','btnFundar','btnConfig','btnAcervo','mainMenu','menuContinuar','zoomMais','zoomMenos'])assert.match(index,new RegExp(`id="${id}"`));
   const gameUi=fs.readFileSync(path.join(__dirname,'..','game-ui.js'),'utf8');
   for(const fluxo of ['type="file"','data-promover-produto','data-sol-branch','atualizarPeloUsuario','atualizarProjetoDados','abrirArtefato','baixarProjetoZip','abrirSalaReuniao','pointermove','Copiar todos'])assert.match(gameUi,new RegExp(fluxo));
+  assert.match(gameUi,/navigator\.wakeLock\.request\('screen'\)/);assert.match(gameUi,/Caixa executiva/);assert.match(gameUi,/data-enviar-humana/);
   for(const legado of ['classico.html','app.css','ui.js'])assert.equal(fs.existsSync(path.join(__dirname,'..',legado)),false,`${legado} deve ter sido removido`);
   console.log('flow-smoke: ok — trabalho/delegação/acervos/branch/pipeline/release/bundle/retention/caixa/zip/jogo');
 })().catch(err=>{console.error(err);process.exitCode=1;});

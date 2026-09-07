@@ -12,12 +12,11 @@
   const PREDIO={x:188,y:152,w:1224,h:456},OX=200,OY=160;
   const sala=(id,nome,x,y,w,h,piso)=>({id,nome,x:x+OX,y:y+OY,w,h,piso});
   const SALAS = {
-    gerencia:sala('gerencia','DIREÇÃO',24,24,220,158,'madeira'),reuniao:sala('reuniao','SALA DE REUNIÃO',250,24,290,158,'tapete'),
-    criacao:sala('criacao','PRODUTO & DESIGN',546,24,300,158,'madeira'),producao:sala('producao','TECNOLOGIA',852,24,324,158,'madeira'),
-    comercial:sala('comercial','CRESCIMENTO',24,194,240,182,'madeira'),operacoes:sala('operacoes','OPERAÇÕES & QA',270,194,270,182,'tapete'),
-    geral:sala('geral','CONVIVÊNCIA',546,194,630,182,'madeira')
+    gerencia:sala('gerencia','DIREÇÃO',24,24,380,110,'madeira'),reuniao:sala('reuniao','SALA DE REUNIÃO',414,24,380,110,'tapete'),financeiro:sala('financeiro','FINANÇAS',804,24,372,110,'madeira'),
+    criacao:sala('criacao','PRODUTO & CRIAÇÃO',24,142,380,110,'madeira'),desenvolvimento:sala('desenvolvimento','DESENVOLVIMENTO',414,142,380,110,'madeira'),laboratorio:sala('laboratorio','LABORATÓRIO',804,142,372,110,'tapete'),
+    producao:sala('producao','PRODUÇÃO',24,260,380,110,'madeira'),operacoes:sala('operacoes','OPERAÇÕES & DADOS',414,260,380,110,'tapete'),comercial:sala('comercial','COMERCIAL',804,260,372,110,'madeira')
   };
-  const salaDe = f => (f.papel === 'gerente') ? SALAS.gerencia : (SALAS[f.especialidade] || SALAS.geral);
+  const salaDe = f => (f.papel === 'gerente') ? SALAS.gerencia : (SALAS[f.especialidade] || SALAS.producao);
 
   function slotEmSala(f, sala) {
     const cols = Math.max(1, Math.floor((sala.w - 28) / 108));
@@ -36,14 +35,14 @@
       return slotEmSala(f || { id: 'x' }, sala);
     },
     estacoes: {
-      cafe:{x:840,y:430,rotulo:'café',sprite:[2,2],w:50,h:54},descanso:{x:970,y:446,rotulo:'descanso',sprite:[3,1],w:94,h:54},
-      tv:{x:1100,y:406,rotulo:'televisão',sprite:[3,2],w:82,h:52},dormitorio:{x:1260,y:444,rotulo:'dormitório',sprite:[0,3],w:68,h:76},
-      quadro:{x:540,y:230,rotulo:'quadro',sprite:[1,3],w:84,h:46},reuniao:{x:620,y:285,rotulo:'reunião',sprite:[2,1],w:112,h:76},
+      cafe:{x:840,y:650,rotulo:'café',sprite:[2,2],w:50,h:54},descanso:{x:970,y:690,rotulo:'descanso',sprite:[3,1],w:94,h:54},
+      tv:{x:1100,y:675,rotulo:'televisão',sprite:[3,2],w:82,h:52},dormitorio:{x:1260,y:690,rotulo:'dormitório',sprite:[0,3],w:68,h:76},
+      quadro:{x:540,y:230,rotulo:'quadro',sprite:[1,3],w:84,h:46},reuniao:{x:804,y:238,rotulo:'reunião',sprite:[2,1],w:112,h:76},
       jardim:{x:350,y:716,rotulo:'jardim',w:72,h:40,exterior:true},banco:{x:1260,y:710,rotulo:'banco',w:92,h:38,exterior:true},parque:{x:800,y:710,rotulo:'praça',w:70,h:38,exterior:true}
     },
     zonas: {
-      trabalho: SALAS.geral, arquivo: SALAS.operacoes, planejamento: SALAS.reuniao,
-      convivio: SALAS.geral, bemestar: SALAS.geral, prototipo: SALAS.producao
+      trabalho: SALAS.producao, arquivo: SALAS.operacoes, planejamento: SALAS.reuniao,
+      convivio: {x:680,y:620,w:260,h:130}, bemestar: {x:940,y:620,w:380,h:130}, prototipo: SALAS.laboratorio
     },
     decoracoes:[{tipo:'arvore',x:90,y:100},{tipo:'arvore',x:150,y:700},{tipo:'arvore',x:1510,y:110},{tipo:'arvore',x:1480,y:690},{tipo:'arvore',x:80,y:420},{tipo:'arvore',x:1515,y:420},{tipo:'lago',x:1040,y:72,w:260,h:64},{tipo:'canteiro',x:260,y:674,w:180,h:84},{tipo:'banco',x:1260,y:700},{tipo:'banco',x:760,y:700}],
     colisoes:[{x:188,y:152,w:1224,h:14},{x:188,y:152,w:14,h:456},{x:1398,y:152,w:14,h:456},{x:188,y:594,w:566,h:14},{x:846,y:594,w:566,h:14},{x:1010,y:42,w:320,h:98},
@@ -156,6 +155,7 @@
       : 'Em preparação: a gerente está definindo a estratégia.';
     const pr = (e.projetos || []).find(p => p.status === 'ativo') || (e.projetos || [])[0];
     $('#railProduto').textContent = pr ? `${pr.nome} — ${pr.objetivo}` : 'ainda não definido';
+    if($('#railPrincipios'))$('#railPrincipios').textContent=Object.values(S.PRINCIPIOS_FUNDAMENTAIS||{}).filter(v=>typeof v==='string'&&!/^\d+\.\d+/.test(v)).join(' · ');
   }
 
   /* ---------- dock: tarefas ---------- */
@@ -184,8 +184,12 @@
   function pintarChat() {
     const e = S.state.atual(); const el = $('#dockGerente'); if (!e) { el.innerHTML = ''; return; }
     const msgs = ((e.reuniao && e.reuniao.mensagens) || []).slice(-24);
-    el.innerHTML = msgs.length ? msgs.map(m => {const s=(e.solicitacoesAcervo||[]).find(x=>x.id===m.solicitacaoId),pendente=m.tipo==='solicitacao_acervo'&&s&&s.status==='pendente';return `<div class="fala ${m.tipo==='solicitacao_acervo'?'solicitacao-especial':''}"><b>${esc(m.quem)}:</b> ${esc(m.texto)}${pendente?`<div class="solicitacao-acoes"><button data-sol-branch="${esc(m.solicitacaoId)}">Autorizar branch</button><button data-sol-editar="${esc(m.solicitacaoId)}">Editar sozinho</button><button data-sol-recusar="${esc(m.solicitacaoId)}">Recusar</button></div>`:''}</div>`;}).join('')
-      : '<div class="fala"><small>Fale com a equipe pela caixa abaixo.</small></div>';
+    const pendencias=(e.solicitacoesAcervo||[]).filter(x=>x.status==='pendente').length+(e.decisoesCriticas||[]).filter(x=>x.status==='pendente').length+(e.aprovacoes||[]).filter(x=>x.status==='pendente').length;
+    const fundacaoAviso=e.fundacao&&e.fundacao.estado!=='operacional'&&e.fundacao.estado!=='aguardando_jogador'?`<div class="critical-card"><b>Fundação aguardando retomada</b><small>${esc(e.fundacao.ultimoErro||'A gerente está estruturando a empresa.')}</small><button class="mini-action" id="tentarFundacaoAgora">Tentar agora</button></div>`:'';
+    el.innerHTML = fundacaoAviso+`<button class="meeting-inbox" id="abrirCaixaReuniao"><b>Caixa executiva</b><span>${pendencias} pendência(s) · aprovações, decisões e relatórios</span></button>`+(msgs.length ? msgs.map(m => {const s=(e.solicitacoesAcervo||[]).find(x=>x.id===m.solicitacaoId),pendente=m.tipo==='solicitacao_acervo'&&s&&s.status==='pendente';return `<div class="fala ${m.tipo==='solicitacao_acervo'?'solicitacao-especial':''}"><b>${esc(m.quem)}:</b> ${esc(m.texto)}${pendente?`<div class="solicitacao-acoes"><button data-sol-branch="${esc(m.solicitacaoId)}">Autorizar branch</button><button data-sol-editar="${esc(m.solicitacaoId)}">Editar sozinho</button><button data-sol-recusar="${esc(m.solicitacaoId)}">Recusar</button></div>`:''}</div>`;}).join('')
+      : '<div class="fala"><small>Fale com a equipe pela caixa abaixo.</small></div>');
+    $('#abrirCaixaReuniao').onclick=abrirSalaReuniao;
+    if($('#tentarFundacaoAgora'))$('#tentarFundacaoAgora').onclick=async()=>{const b=$('#tentarFundacaoAgora');b.disabled=true;b.textContent='Tentando…';const ok=await S.studio.processarFundacaoAtual(true);toast(ok?'Fundação concluída.':'A rede ainda não respondeu; a retomada automática continua ativa.',ok?'ok':'erro');pintarTudo();};
     el.querySelectorAll('[data-sol-branch]').forEach(b=>b.onclick=()=>{const s=S.studio.decidirSolicitacaoAcervo(b.dataset.solBranch,'branch');if(s){toast('Branch autorizada: um projeto independente foi criado.','ok');pintarTudo();}});
     el.querySelectorAll('[data-sol-editar]').forEach(b=>b.onclick=()=>{const s=S.studio.decidirSolicitacaoAcervo(b.dataset.solEditar,'editar');if(s)editarReferencia(s.acervoId,s.projectId);});
     el.querySelectorAll('[data-sol-recusar]').forEach(b=>b.onclick=()=>{S.studio.decidirSolicitacaoAcervo(b.dataset.solRecusar,'recusar');pintarChat();});
@@ -242,7 +246,10 @@
   function pintarStatusMundo() {
     const e=S.state.atual(),n = S.studio.pessoas().filter(p => p.ocupado).length;
     const bloqueadas=e?(e.tarefas||[]).filter(t=>t.bloqueada).length:0,espera=Math.max(0,Number(S.ai.estado.bloqueadaAte||0)-Date.now());
-    $('#mundoStatus').textContent = n ? `${n} agente${n > 1 ? 's' : ''} produzindo agora` : espera?`OpenRouter limitou chamadas · retoma em ${S.fmt.dur(espera)}`:bloqueadas?`${bloqueadas} tarefa(s) bloqueada(s) aguardando decisão`:'Fila observada · gerente reage quando ficar vazia';
+    const fund=e&&e.fundacao;
+    if(fund&&fund.estado==='aguardando_jogador')$('#mundoStatus').textContent=`${e.equipe[0]?.nome||'Gerente'} aguarda o briefing de fundação`;
+    else if(fund&&fund.estado!=='operacional')$('#mundoStatus').textContent=fund.ultimoErro?'Fundação pausada · retomada automática programada':'Gerente estruturando e contratando a empresa';
+    else $('#mundoStatus').textContent = n ? `${n} agente${n > 1 ? 's' : ''} produzindo agora` : espera?`OpenRouter limitou chamadas · retoma em ${S.fmt.dur(espera)}`:bloqueadas?`${bloqueadas} tarefa(s) bloqueada(s) aguardando decisão`:'Fila observada · gerente reage quando ficar vazia';
   }
 
   function pintarSelecao() {
@@ -277,10 +284,12 @@
     const msgs=((e.reuniao&&e.reuniao.mensagens)||[]).slice().reverse();
     const crit=(e.solicitacoesAcervo||[]).filter(s=>s.status==='pendente').concat((e.decisoesCriticas||[]).filter(d=>d.status==='pendente'));
     const aprs=(e.aprovacoes||[]).slice().sort((a,b)=>b.criadaEm-a.criadaEm);
-    abrirModal(`<span class="modal-fecha" id="srFechar">✕</span><h2>Sala de reuniões · ${esc(e.nome)}</h2><p class="modal-nota">A gerente aprova autonomamente todo trabalho comum. Alterações no acervo soberano continuam exclusivas do proprietário. Você pode revisar, aprovar ou recusar qualquer entrega abaixo sem bloquear a equipe.</p><div class="meeting-table"><b>MESA EXECUTIVA</b><small>${crit.length} decisão(ões) crítica(s) · ${aprs.filter(a=>a.status==='pendente').length} entrega(s) para revisão</small></div><div class="meeting-grid">${(e.equipe||[]).map((f,i)=>{const rt=S.studio.pessoa(f.id);return`<button class="meeting-person" data-meeting-person="${esc(f.id)}"><div class="meeting-sprite" style="background-position:${-(i%4)*64}px ${-((i+1)%4)*64}px"></div><b>${esc(f.nome)}</b><small>${esc(f.cargo)}</small><div class="progress" style="--p:${Math.round(Number(f.energia||0))}%"><i></i></div><small>${esc(rt&&rt.estado||'disponível')} · ${esc(f.foco||f.pensamento||'')}</small></button>`;}).join('')}</div><h3 class="modal-subtitulo">Decisões críticas</h3>${crit.map(s=>`<div class="critical-card"><b>${esc(s.acervoNome||s.titulo||'Decisão crítica')}</b><p>${esc(s.texto||s.descricao||'')}</p>${s.acervoId?`<div class="solicitacao-acoes"><button data-sr-branch="${esc(s.id)}">Autorizar branch</button><button data-sr-editar="${esc(s.id)}">Editar pessoalmente</button><button data-sr-recusar="${esc(s.id)}">Recusar</button></div>`:''}</div>`).join('')||'<div class="item"><small>Nenhuma decisão crítica pendente.</small></div>'}<h3 class="modal-subtitulo">Entregas para aprovação</h3><div class="agent-log">${aprs.map(a=>`<div class="item"><b>${esc(a.titulo)}</b><small>${esc(a.status.replaceAll('_',' '))} · ${S.fmt.dataHora(a.criadaEm)} · ${esc(a.autor||'equipe')}</small><div class="solicitacao-acoes"><button data-apr-ver="${esc(a.produtoId||a.artefatoId)}">Ver artefato</button>${['pendente','aprovada_gerente'].includes(a.status)?`<button data-apr-ok="${esc(a.id)}">Aprovar</button><button data-apr-no="${esc(a.id)}">Recusar</button>`:''}</div></div>`).join('')||'<div class="item"><small>Nenhuma entrega chegou ao gate de candidato final.</small></div>'}</div><h3 class="modal-subtitulo">Registro completo da reunião</h3><div class="panel-tools"><button class="mini-action" id="srCopiar">Copiar registro</button></div><div class="agent-log">${msgs.map(m=>`<div class="item ${m.tipo==='solicitacao_acervo'?'solicitacao-especial':''}"><b>${esc(m.quem)}</b><small>${S.fmt.dataHora(m.t)}</small><p>${esc(m.texto)}</p></div>`).join('')||'<div class="item"><small>A sala ainda não possui registros.</small></div>'}</div>`);
+    const frecs=(e.financeiro?.recomendacoes||[]).slice().reverse();
+    abrirModal(`<span class="modal-fecha" id="srFechar">✕</span><h2>Sala de reuniões · ${esc(e.nome)}</h2><p class="modal-nota">Esta tela possui caixas executivas próprias, separadas do chat. A gerente decide autonomamente o trabalho comum; alterações no acervo e ações humanas/externas ficam exclusivamente com você.</p><div class="meeting-table"><b>MESA EXECUTIVA</b><small>${crit.length} decisão(ões) para você · ${aprs.filter(a=>a.status==='pendente').length} entrega(s) revisáveis · ${frecs.filter(x=>x.status==='pendente_gerencia').length} alerta(s) financeiro(s)</small></div><div class="meeting-grid">${(e.equipe||[]).map((f,i)=>{const rt=S.studio.pessoa(f.id);return`<button class="meeting-person" data-meeting-person="${esc(f.id)}"><div class="meeting-sprite" style="background-position:${-(i%4)*64}px ${-((i+1)%4)*64}px"></div><b>${esc(f.nome)}</b><small>${esc(f.cargo)}</small><div class="progress" style="--p:${Math.round(Number(f.energia||0))}%"><i></i></div><small>${esc(rt&&rt.estado||'disponível')} · ${esc(f.foco||f.pensamento||'')}</small></button>`;}).join('')}</div><h3 class="modal-subtitulo">Caixa de decisões do proprietário</h3>${crit.map(s=>`<div class="critical-card"><b>${esc(s.acervoNome||s.titulo||'Decisão crítica')}</b><p>${esc(s.texto||s.descricao||'')}</p>${s.acervoId?`<div class="solicitacao-acoes"><button data-sr-branch="${esc(s.id)}">Autorizar branch</button><button data-sr-editar="${esc(s.id)}">Editar pessoalmente</button><button data-sr-recusar="${esc(s.id)}">Recusar</button></div>`:`<textarea data-resposta-humana="${esc(s.id)}" placeholder="Informe o que você fez e os dados reais obtidos. A equipe não presumirá nada."></textarea><button class="mini-action" data-enviar-humana="${esc(s.id)}">Enviar dados à gerente</button>`}</div>`).join('')||'<div class="item"><small>Nenhuma decisão crítica ou ação externa aguarda você.</small></div>'}<h3 class="modal-subtitulo">Entregas para aprovação</h3><div class="agent-log">${aprs.map(a=>`<div class="item"><b>${esc(a.titulo)}</b><small>${esc(a.status.replaceAll('_',' '))} · ${S.fmt.dataHora(a.criadaEm)} · ${esc(a.autor||'equipe')}</small><div class="solicitacao-acoes"><button data-apr-ver="${esc(a.produtoId||a.artefatoId)}">Ver artefato</button>${['pendente','aprovada_gerente'].includes(a.status)?`<button data-apr-ok="${esc(a.id)}">Aprovar</button><button data-apr-no="${esc(a.id)}">Recusar</button>`:''}</div></div>`).join('')||'<div class="item"><small>Nenhuma entrega chegou ao gate de candidato final.</small></div>'}</div><h3 class="modal-subtitulo">Relatórios do setor financeiro</h3><div class="agent-log">${frecs.map(r=>`<div class="item"><b>${esc(r.status==='pendente_gerencia'?'Pendente da gerência':'Registrado')}</b><small>${S.fmt.dataHora(r.em)}</small><p>${esc(r.texto)}</p></div>`).join('')||'<div class="item"><small>A análise financeira automática ainda não emitiu recomendações.</small></div>'}</div><h3 class="modal-subtitulo">Registro completo da reunião</h3><div class="panel-tools"><button class="mini-action" id="srCopiar">Copiar registro</button></div><div class="agent-log">${msgs.map(m=>`<div class="item ${/solicitacao/.test(m.tipo||'')?'solicitacao-especial':''}"><b>${esc(m.quem)}</b><small>${S.fmt.dataHora(m.t)}</small><p>${esc(m.texto)}</p></div>`).join('')||'<div class="item"><small>A sala ainda não possui registros.</small></div>'}</div>`);
     $('#modalCaixa').classList.add('painel-tela');$('#srFechar').onclick=fecharModal;$('#srCopiar').onclick=()=>copiarTexto(msgs.slice().reverse().map(m=>`${new Date(m.t).toISOString()} ${m.quem}: ${m.texto}`).join('\n'));
     document.querySelectorAll('[data-meeting-person]').forEach(b=>b.onclick=()=>abrirPessoa(S.studio.pessoa(b.dataset.meetingPerson)));
     document.querySelectorAll('[data-sr-branch]').forEach(b=>b.onclick=()=>{S.studio.decidirSolicitacaoAcervo(b.dataset.srBranch,'branch');abrirSalaReuniao();});document.querySelectorAll('[data-sr-editar]').forEach(b=>b.onclick=()=>{const s=S.studio.decidirSolicitacaoAcervo(b.dataset.srEditar,'editar');if(s)editarReferencia(s.acervoId,s.projectId);});document.querySelectorAll('[data-sr-recusar]').forEach(b=>b.onclick=()=>{S.studio.decidirSolicitacaoAcervo(b.dataset.srRecusar,'recusar');abrirSalaReuniao();});
+    document.querySelectorAll('[data-enviar-humana]').forEach(b=>b.onclick=()=>{try{const campo=document.querySelector(`[data-resposta-humana="${CSS.escape(b.dataset.enviarHumana)}"]`);S.studio.responderDecisaoCritica(b.dataset.enviarHumana,campo&&campo.value);toast('Dados reais entregues à gerente.','ok');abrirSalaReuniao();}catch(err){toast(err.message||'Informe uma resposta.','erro');}});
     document.querySelectorAll('[data-apr-ver]').forEach(b=>b.onclick=()=>abrirArtefato(b.dataset.aprVer));document.querySelectorAll('[data-apr-ok]').forEach(b=>b.onclick=()=>{S.studio.decidirAprovacao(b.dataset.aprOk,'aprovar');abrirSalaReuniao();});document.querySelectorAll('[data-apr-no]').forEach(b=>b.onclick=()=>{const motivo=prompt('O que precisa mudar nesta versão?','Requer acabamento adicional antes de aceitar.');if(motivo!==null){S.studio.decidirAprovacao(b.dataset.aprNo,'recusar',motivo);abrirSalaReuniao();}});
   }
 
@@ -316,26 +325,29 @@
     await S.ai.sincronizarCreditosOpenRouter();
     const orc=S.ai.orcamento(),igual=S.ai.cfg.distribuicaoCaixa==='igual',livre=S.economia.saldoNaoAlocado(orc.openrouterSaldoEfetivo,null);
     if(!Number.isFinite(orc.openrouterSaldoEfetivo)){toast('A Management Key precisa sincronizar o saldo real antes da fundação.','erro');abrirConfig(abrirFundar);return;}
+    const e=S.studio.iniciarFundacao(),g=(e.equipe||[]).find(x=>x.papel==='gerente'),q=e.fundacao.perguntas||{};
     abrirModal(`
       <span class="modal-fecha" id="fFechar">✕</span>
-      <h2>Fundar empresa</h2>
+      <h2>Entrevista de fundação</h2>
+      <p class="modal-nota"><b>${esc(g&&g.nome||'A gerente')}</b> já foi nomeada e está aguardando suas respostas. Ao receber o briefing, ela definirá a empresa, contratará a equipe especializada e convocará a reunião inicial.</p>
       <label>Ideia / negócio</label>
-      <textarea id="fIdeia" placeholder="ex: editora de fantasia, loja de roupas, agência de conteúdo…"></textarea>
+      <textarea id="fIdeia" placeholder="ex: editora de fantasia, loja de roupas, agência de conteúdo…">${esc(q.ideia||'')}</textarea>
       <label>Objetivo</label>
-      <textarea id="fObjetivo" placeholder="o que essa empresa deve alcançar"></textarea>
+      <textarea id="fObjetivo" placeholder="o que essa empresa deve alcançar">${esc(q.objetivo||'')}</textarea>
       <label>Tipo de produto</label>
-      <input id="fTipo" placeholder="ex: contos e sagas, camisetas, posts">
+      <input id="fTipo" value="${esc(q.tipoProduto||'')}" placeholder="ex: software, contos, serviço, kit comercial">
       <label>Público</label>
-      <input id="fPublico" placeholder="para quem é">
+      <input id="fPublico" value="${esc(q.publico||'')}" placeholder="para quem é">
       <label>Restrições / recursos</label>
-      <input id="fRestricoes" placeholder="opcional">
+      <input id="fRestricoes" value="${esc(q.restricoes||'')}" placeholder="opcional">
       ${S.acervo.globais().length?`<label>Referências do acervo global para o primeiro projeto</label><div class="fundar-acervo">${S.acervo.globais().map(a=>`<label><input type="checkbox" name="fAcervo" value="${esc(a.id)}"> <span>${esc(a.nome)} · v${Number(a.versao||1)}</span></label>`).join('')}</div>`:''}
-      ${igual?`<p class="modal-nota">Caixa automático: o saldo global será dividido igualmente entre todas as empresas após a criação.</p>`:`<label>Caixa inicial desta empresa (US$)</label><input id="fCaixa" type="number" min="0" max="${Number(livre||0)}" step="0.0001" value="0"><p class="modal-nota">Disponível sem alocação: US$ ${Number(livre||0).toFixed(4)}.</p>`}
+      ${igual?`<p class="modal-nota">Caixa automático: o saldo global será dividido igualmente entre todas as empresas.</p>`:`<label>Forma do caixa dedicado</label><select id="fAlocacao"><option value="valor">Valor fixo em US$</option><option value="percentual">Porcentagem do saldo real</option></select><div id="fValorWrap"><label>Valor (US$)</label><input id="fCaixa" type="number" min="0" max="${Number(livre||0)}" step="0.0001" value="0"></div><div id="fPctWrap" class="oculto"><label>Porcentagem dedicada</label><input id="fPercentual" type="number" min="0" max="100" step="0.1" value="10"></div><p class="modal-nota">Saldo real: US$ ${Number(orc.openrouterSaldoEfetivo||0).toFixed(4)} · disponível sem alocação: US$ ${Number(livre||0).toFixed(4)}.</p>`}
       <div class="modal-linha">
-        <button id="okFundar" class="botao">Fundar e deixar a gerente decidir</button>
+        <button id="okFundar" class="botao">Entregar briefing à gerente</button>
       </div>
     `);
     $('#fFechar').onclick = fecharModal;
+    if($('#fAlocacao'))$('#fAlocacao').onchange=()=>{$('#fValorWrap').classList.toggle('oculto',$('#fAlocacao').value!=='valor');$('#fPctWrap').classList.toggle('oculto',$('#fAlocacao').value!=='percentual');};
     $('#okFundar').onclick = async () => {
       const b = $('#okFundar');
       const d = {
@@ -347,15 +359,16 @@
       if (!d.ideia && !d.objetivo && !d.tipoProduto) { toast('Informe pelo menos a ideia, o objetivo ou o tipo de produto.', 'erro'); return; }
       b.disabled = true; b.textContent = 'Criando empresa…';
       try {
-        const e = S.studio.fundar(d);
+        S.studio.configurarFundacao(e,d);
         if(igual&&Number.isFinite(orc.openrouterSaldoEfetivo))S.economia.distribuirIgualmente(orc.openrouterSaldoEfetivo,'Nova empresa criada; redistribuição automática');
+        else if($('#fAlocacao').value==='percentual')S.economia.definirCaixaPorPercentual(Number($('#fPercentual').value||0),orc.openrouterSaldoEfetivo);
         else S.economia.definirCaixa(Number($('#fCaixa')&&$('#fCaixa').value||0),orc.openrouterSaldoEfetivo);
         await S.studio.processarFundacaoAtual(true);
         fecharModal();
         const ok = e.fundacao && e.fundacao.estado === 'operacional';
         toast(ok ? 'Empresa fundada. A gerente definiu a estratégia e montou a equipe.' : 'Empresa criada. A gerente concluirá a fundação quando a IA estiver disponível.', ok ? 'ok' : 'info');
       } catch (err) {
-        b.disabled = false; b.textContent = 'Fundar e deixar a gerente decidir';
+        b.disabled = false; b.textContent = 'Entregar briefing à gerente';
         toast(err.message || 'Falha ao fundar a empresa.', 'erro');
       }
     };
@@ -396,7 +409,8 @@
       <h2>Economia · ${esc(e.nome)}</h2>
       <p style="font-size:13px;line-height:1.55"><b>Caixa:</b> US$ ${Number(x.caixaUSD||0).toFixed(4)}<br><b>Saldo OpenRouter:</b> ${saldo!=null?'US$ '+Number(saldo).toFixed(4):'não sincronizado'}<br><b>Gasto IA:</b> US$ ${Number(x.gastoIAUSD||0).toFixed(4)}<br><b>Receita detectada:</b> US$ ${Number(x.receitaUSD||0).toFixed(4)}<br><b>A identificar:</b> US$ ${Number(x.receitaNaoIdentificadaUSD||0).toFixed(4)}<br><b>Limite de hoje:</b> US$ ${Number(o.limiteDiarioUSD||0).toFixed(4)}</p>
       <label>Ritmo de trabalho desta empresa</label><select id="eModo"><option value="normal" ${x.modoTrabalho!=='intensivo'?'selected':''}>Normal · respeitar ritmo diário</option><option value="intensivo" ${x.modoTrabalho==='intensivo'?'selected':''}>Intensivo · trabalhar até acabar o caixa</option></select><p class="modal-nota">No modo intensivo somente o limite diário é ignorado. O caixa dedicado e os limites reais do OpenRouter continuam invioláveis.</p>
-      ${igual?`<p class="modal-nota">Distribuição automática ativa: cada empresa recebe uma parcela igual do saldo global sincronizado.</p>`:`<label>Caixa dedicado desta empresa (US$)</label><input id="eCaixa" type="number" min="0" step="0.0001" value="${Number(x.caixaUSD||0).toFixed(4)}"><p class="modal-nota">Máximo para esta empresa: US$ ${Number(livre||0).toFixed(4)}, já descontados os caixas das outras.</p><button id="eSalvarCaixa" class="botao fraco">Atualizar caixa</button>`}
+      ${igual?`<p class="modal-nota">Distribuição automática ativa: cada empresa recebe uma parcela igual do saldo global sincronizado.</p>`:`<label>Forma do caixa dedicado</label><select id="eAlocacao"><option value="valor" ${x.alocacao?.tipo!=='percentual'?'selected':''}>Valor fixo em US$</option><option value="percentual" ${x.alocacao?.tipo==='percentual'?'selected':''}>Porcentagem do saldo real</option></select><div id="eValorWrap" class="${x.alocacao?.tipo==='percentual'?'oculto':''}"><label>Valor (US$)</label><input id="eCaixa" type="number" min="0" step="0.0001" value="${Number(x.alocacao?.valorUSD!=null?x.alocacao.valorUSD:x.caixaUSD||0).toFixed(4)}"></div><div id="ePctWrap" class="${x.alocacao?.tipo==='percentual'?'':'oculto'}"><label>Porcentagem dedicada</label><input id="ePercentual" type="number" min="0" max="100" step="0.1" value="${Number(x.alocacao?.percentual||0)}"></div><p class="modal-nota">Máximo disponível para esta empresa: US$ ${Number(livre||0).toFixed(4)}, já descontados os caixas das outras.</p><button id="eSalvarCaixa" class="botao fraco">Atualizar caixa</button>`}
+      <h3 class="modal-subtitulo">Política econômica de imagens</h3><div class="acervo-duas"><div><label>Máximo por imagem (US$)</label><input id="eImgValor" type="number" min="0.001" step="0.001" value="${Number(x.imagens?.limitePorImagemUSD||0.05)}"></div><div><label>Máximo do caixa por imagem (%)</label><input id="eImgPct" type="number" min="1" max="100" step="1" value="${Number(x.imagens?.percentualMaxCaixa||15)}"></div></div><button id="eSalvarImagem" class="botao fraco">Salvar política de imagens</button><p class="modal-nota">Gerações visuais são bloqueadas antes da chamada quando a estimativa ultrapassa qualquer um desses limites.</p>
       <label>Produto vendido</label>
       <select id="eProduto"><option value="">Outro / ainda não classificado</option>${produtos.map(a=>`<option value="${esc(a.id)}">${esc(a.nome)}</option>`).join('')}</select>
       <label>Descrição</label><input id="eDescricao" placeholder="ex.: licença, pacote ou serviço">
@@ -406,7 +420,9 @@
       <div style="margin-top:12px;max-height:170px;overflow:auto">${x.vendas.slice(-8).reverse().map(v=>`<p style="font-size:12px;margin:6px 0">US$ ${Number(v.valorUSD).toFixed(4)} · ${esc(v.produto)}</p>`).join('')||'<p style="font-size:12px;color:var(--texto-fraco)">Nenhuma venda identificada.</p>'}</div>
     `);
     $('#eFechar').onclick=fecharModal;
-    if($('#eSalvarCaixa'))$('#eSalvarCaixa').onclick=()=>{try{S.economia.definirCaixa($('#eCaixa').value,saldoEfetivo);toast('Caixa desta empresa atualizado.','ok');abrirEconomia();pintarHud();}catch(err){toast(err.message||'Falha ao atualizar caixa.','erro');}};
+    if($('#eAlocacao'))$('#eAlocacao').onchange=()=>{$('#eValorWrap').classList.toggle('oculto',$('#eAlocacao').value!=='valor');$('#ePctWrap').classList.toggle('oculto',$('#eAlocacao').value!=='percentual');};
+    if($('#eSalvarCaixa'))$('#eSalvarCaixa').onclick=()=>{try{$('#eAlocacao').value==='percentual'?S.economia.definirCaixaPorPercentual($('#ePercentual').value,saldoEfetivo):S.economia.definirCaixa($('#eCaixa').value,saldoEfetivo);toast('Caixa desta empresa atualizado.','ok');abrirEconomia();pintarHud();}catch(err){toast(err.message||'Falha ao atualizar caixa.','erro');}};
+    $('#eSalvarImagem').onclick=()=>{try{S.economia.definirPoliticaImagem($('#eImgValor').value,$('#eImgPct').value);toast('Política de imagens atualizada.','ok');abrirEconomia();}catch(err){toast(err.message||'Falha ao salvar política.','erro');}};
     $('#eModo').onchange=()=>{S.economia.definirModoTrabalho($('#eModo').value);toast('Ritmo desta empresa atualizado.','ok');abrirEconomia();pintarHud();};
     $('#eRegistrar').onclick=()=>{try{S.economia.registrarVenda($('#eProduto').value,$('#eDescricao').value,$('#eValor').value);toast('Venda registrada.','ok');abrirEconomia();pintarHud();}catch(err){toast(err.message||'Falha ao registrar venda.','erro');}};
   }
@@ -486,11 +502,21 @@
   function ajustar() { S.studio.ajustarCanvas(); }
   window.addEventListener('resize', ajustar);
 
+  let bloqueioTela=null;
+  async function manterTelaAcesa(){
+    if(!('wakeLock' in navigator)||document.visibilityState!=='visible'||bloqueioTela)return false;
+    try{bloqueioTela=await navigator.wakeLock.request('screen');bloqueioTela.addEventListener('release',()=>{bloqueioTela=null;});document.documentElement.dataset.wakeLock='ativo';return true;}
+    catch(_){document.documentElement.dataset.wakeLock='indisponivel';return false;}
+  }
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){void manterTelaAcesa();const e=S.state.atual();if(e&&e.fundacao&&e.fundacao.estado!=='operacional'&&e.fundacao.estado!=='aguardando_jogador')void S.studio.processarFundacaoAtual(true);}});
+  window.addEventListener('pointerdown',()=>{void manterTelaAcesa();},{once:true,passive:true});
+
   /* ---------- boot ---------- */
   function iniciar() {
     S.state.carregar();
     S.ai.iniciar();
     S.studio.montar();
+    void manterTelaAcesa();
     ajustar();
     pintarTudo();
     S.bus.on('estudio', () => { pintarHud(); pintarRail(); pintarStatusMundo(); pintarSelecao(); ajustar(); });

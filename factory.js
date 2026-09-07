@@ -15,9 +15,12 @@
     { id: 'autonomo',  nome: 'Trabalho autônomo',  especialidade: 'producao',  tipo: 'md'   },
     { id: 'texto',     nome: 'Texto e conteúdo',   especialidade: 'criacao',   tipo: 'md'   },
     { id: 'visual',    nome: 'Imagem / direção de arte', especialidade: 'criacao', tipo: 'png' },
-    { id: 'pagina',    nome: 'Página / interface', especialidade: 'producao',  tipo: 'html' },
+    { id: 'pagina',    nome: 'Página / interface', especialidade: 'desenvolvimento',  tipo: 'html' },
+    { id: 'codigo',    nome: 'Software / código', especialidade: 'desenvolvimento', tipo: 'js' },
     { id: 'dados',     nome: 'Dados e catálogo',   especialidade: 'operacoes', tipo: 'csv'  },
-    { id: 'comercial', nome: 'Material comercial', especialidade: 'comercial', tipo: 'md'   }
+    { id: 'comercial', nome: 'Material comercial', especialidade: 'comercial', tipo: 'md'   },
+    { id: 'financeiro',nome: 'Análise financeira', especialidade: 'financeiro',tipo: 'json' },
+    { id: 'laboratorio',nome: 'Pesquisa e testes', especialidade: 'laboratorio',tipo: 'md' }
   ];
   const porId = id => KITS.find(k => k.id === id) || KITS[0];
 
@@ -86,6 +89,8 @@
     if (texto.trim().length < minimo) notas.push('conteúdo curto demais para uma entrega completa deste tipo');
     if (!['json','csv','css','js'].includes(t) && texto.split(/\n/).length < 4) notas.push('estrutura insuficiente: poucas linhas');
     PLACEHOLDERS.forEach(rx => { rx.lastIndex = 0; if (rx.test(texto)) notas.push('marcador de preenchimento encontrado: ' + rx.source); });
+    const acaoHumanaFicticia=/\b(?:contatamos|contactamos|entramos em contato|enviamos (?:um |o )?(?:e-?mail|mensagem)|lemos (?:o |um )?e-?mail|telefonamos|ligamos para|realizamos (?:a |o )?(?:venda|pagamento|compra|cadastro|upload|deploy|publica[cç][aã]o externa)|publicamos (?:na|no|em)|recebemos confirma[cç][aã]o externa|assinamos (?:o |um )?contrato)\b/i;
+    if(acaoHumanaFicticia.test(texto))notas.push('afirmação não verificável de ação humana ou externa encontrada');
     if (t === 'json') { try { JSON.parse(texto); } catch (_) { notas.push('JSON inválido'); } }
     if (t === 'html' && !/<(?:html|body|main|section|article|div)[\s>]/i.test(texto)) notas.push('HTML sem estrutura utilizável');
     if (t === 'csv') {
@@ -153,6 +158,7 @@
     const base = op && op.baseArquivoId ? (e.arquivos || []).find(a => a.id === op.baseArquivoId) : null;
     const projeto = (e.projetos || []).find(p => p.id === (op && op.projectId)) ||
                     (e.projetos || []).find(p => p.status === 'ativo') || (e.projetos || [])[0] || null;
+    const ferramentas=S.ferramentas&&S.ferramentas.contexto?S.ferramentas.contexto(projeto&&projeto.id,base&&base.id):null;
     const acervoSoberano=S.acervo&&S.acervo.contexto?S.acervo.contexto(projeto&&projeto.id,8500):'Nenhuma referência soberana vinculada.';
     // Artes visuais usam um modelo dedicado; não desperdiçamos uma chamada de
     // texto pedindo que um LLM descreva uma imagem que outro modelo terá de criar.
@@ -180,6 +186,8 @@
       `IDENTIDADE: ${(e.fundacao && e.fundacao.identidade && e.fundacao.identidade.posicionamento) || 'n/d'}`,
       `PROJETO: ${projeto ? projeto.nome : 'principal'} | objetivo: ${projeto ? projeto.objetivo : e.missao}`,
       `DADOS DO PROJETO: ${projeto&&projeto.dados?`resumo=${projeto.dados.resumo||''}; requisitos=${projeto.dados.requisitos||''}; público=${projeto.dados.publico||''}; riscos=${projeto.dados.riscos||''}`:'não registrados'}`,
+      `PRINCÍPIOS IMUTÁVEIS:\n${S.principiosTexto?S.principiosTexto():''}`,
+      `FERRAMENTAS DETERMINÍSTICAS JÁ EXECUTADAS (use estes fatos; não os recalcule nem os contradiga):\n${ferramentas?JSON.stringify(ferramentas):'indisponíveis'}`,
       `ACERVO SOBERANO DO USUÁRIO — SOMENTE LEITURA:\n${acervoSoberano}`,
       `BRIEFING DA TAREFA: ${briefing}`,
       `DESTINO: ${clienteVisivel ? 'produto que poderá chegar diretamente ao cliente' : 'artefato interno de trabalho'}`,
@@ -192,6 +200,7 @@
       `- Entregue o conteúdo integral do arquivo, sem resumo, sem comentários sobre o processo e sem pedir aprovação.`,
       `- Nada de texto de exemplo, lorem ipsum, TODO, colchetes para preencher ou dados inventados sobre o mundo real.`,
       `- Não invente clientes, vendas, métricas, datas ou aprovações. Hipóteses devem ser declaradas como hipóteses.`,
+      `- JAMAIS afirme ter contatado clientes, lido/enviado e-mails, feito ligações, reuniões externas, compras, vendas, pagamentos, cadastros, uploads, deploys ou qualquer ação que dependa de uma pessoa ou serviço externo. Prepare o material e sinalize a dependência humana ao proprietário.`,
       `- O ACERVO SOBERANO é a fonte máxima deste projeto. Não o altere, não o contradiga e não substitua fatos, decisões, linguagem ou identidade que ele fixa. Use-o como referência e inspiração.`,
       `- Se uma mudança no acervo parecer necessária, não a aplique silenciosamente: preserve o original e descreva a consideração fora do produto para a gerente encaminhar ao dono.`,
       `- Você só pode produzir/editar arquivos dentro deste simulador. Não prometa enviar e-mail, criar tarefa no Asana, obter assinatura, fazer upload externo ou executar qualquer ação em serviço externo.`,
