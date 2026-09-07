@@ -60,6 +60,14 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   for(let i=0;i<20;i++)S.state.registrar('Estado repetitivo de rotina','rotina','a1');
   const rotina=e.log.filter(x=>x.texto==='Estado repetitivo de rotina');
   assert.equal(rotina.length,1,'logs repetitivos devem ser consolidados');assert.equal(rotina[0].quantidade,20);
+  S.state.registrar('Ana foi tomar café','rotina','a1');S.state.registrar('Ana foi ao jardim','rotina','a1');
+  assert.equal(e.log.filter(x=>x.tag==='rotina'&&x.agente==='a1').length,1,'variações de rotina do mesmo agente devem ocupar um registro agregado');
+  assert.equal(e.log.find(x=>x.tag==='rotina'&&x.agente==='a1').quantidade,22);
+  const contaminado='# Produto\n\nConteúdo entregue.\n\n## Checklist de validação\n\n- executar `pandoc livro.md`';
+  assert.equal(S.factory.validarFinal(contaminado,'md').pronto,false,'checklist e comandos internos não podem chegar ao cliente');
+  assert.equal(S.factory.validarFinal('CAPÍTULO 2\n\nTexto completo.\n\nCAPÍTULO 3\n\nOutro texto completo.','txt').pronto,false,'uma coleção numerada sem o primeiro item deve permanecer incompleta');
+  const pacoteIncompleto=S.factory.validarPacote('# Livro\n\n![Capa](cover.png)\n\n[Mapa](map.png)','md',[{nome:'livro.md'}]);
+  assert.equal(pacoteIncompleto.pronto,false);assert.match(pacoteIncompleto.notas.join(' '),/cover\.png/,'referências locais ausentes devem bloquear o pacote');
   const texto='# Produto\n\nConteúdo final utilizável pelo comprador.\n\n'.repeat(8);
   const esboco=salvar('esboco',null,texto);
   const prototipo=salvar('prototipo',esboco,texto+'Versão completa.');
@@ -200,6 +208,7 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.match(studioSource,/Claim atômico/);assert.match(studioSource,/p\.especialidade===exigida/);assert.match(studioSource,/status='incompleta'/);
   assert.match(studioSource,/ATIVO VISUAL BINÁRIO/);assert.match(studioSource,/solicitacoesContratacao/);assert.match(studioSource,/liderSetor/);assert.match(studioSource,/bloquearTarefaSemOrcamento/);
   assert.match(studioSource,/capacidadeFinanceiraEquipe/);assert.doesNotMatch(studioSource,/teto operacional de 8/);assert.match(studioSource,/Acompanhamento a/);
+  assert.match(studioSource,/abrirHandoffParaCandidato/);assert.match(studioSource,/handoff criação→laboratório/);assert.match(studioSource,/abrirFrentesPosRelease/);
   const aiSource=fs.readFileSync(path.join(__dirname,'..','ai.js'),'utf8');
   assert.doesNotMatch(aiSource,/max_completion_tokens\s*:/,'nenhuma resposta pode receber teto de saída');assert.match(aiSource,/finish_reason=.*Nenhuma entrega parcial/);
   assert.match(aiSource,/AbortSignal\.timeout\(90000\)/);assert.match(aiSource,/podeChamarEstimado/);assert.match(aiSource,/limiteDiarioBase/);assert.match(aiSource,/function rotear\(op\)/);assert.match(aiSource,/alvoHoras=6/);
@@ -210,6 +219,8 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   const gameUi=fs.readFileSync(path.join(__dirname,'..','game-ui.js'),'utf8');
   for(const fluxo of ['type="file"','data-promover-produto','data-sol-branch','atualizarPeloUsuario','atualizarProjetoDados','abrirArtefato','baixarProjetoZip','abrirSalaReuniao','pointermove','Copiar todos'])assert.match(gameUi,new RegExp(fluxo));
   assert.match(gameUi,/Salvar JSON no dispositivo/);assert.match(fs.readFileSync(path.join(__dirname,'..','core.js'),'utf8'),/showSaveFilePicker/);
+  assert.match(gameUi,/srBaixar/);assert.match(gameUi,/text\/markdown/);assert.match(gameUi,/ata-reuniao-/);
+  const factorySource=fs.readFileSync(path.join(__dirname,'..','factory.js'),'utf8');assert.doesNotMatch(factorySource,/length\s*>\s*12000\s*\|\|\s*pedeCrescimento/,'tamanho do arquivo nunca pode ativar anexação automática');
   assert.match(gameUi,/navigator\.wakeLock\.request\('screen'\)/);assert.match(gameUi,/Caixa executiva/);assert.match(gameUi,/data-enviar-humana/);
   for(const legado of ['classico.html','app.css','ui.js'])assert.equal(fs.existsSync(path.join(__dirname,'..',legado)),false,`${legado} deve ter sido removido`);
   console.log('flow-smoke: ok — trabalho/delegação/acervos/branch/pipeline/release/bundle/retention/caixa/zip/jogo');

@@ -48,7 +48,9 @@
     /\b(?:remover antes de publicar|n[aã]o mostrar ao cliente)\b/i,
     /\b(?:vers[aã]o preliminar|conceito inicial|apenas um esbo[cç]o|sugest[oõ]es futuras)\b/i,
     /\b(?:este documento (?:prop[oõ]e|descreve)|a equipe dever[aá]|dever[aá] ser implementado)\b/i,
-    /<!--\s*(?:TODO|TBD|INTERNAL|INTERNO|REVISAR)[\s\S]*?-->/i
+    /<!--\s*(?:TODO|TBD|INTERNAL|INTERNO|REVISAR)[\s\S]*?-->/i,
+    /(?:^|\n)\s*(?:#{1,6}\s*)?(?:checklist de valida[cç][aã]o|status de valida[cç][aã]o(?: e empacotamento)?|passos? para finaliza[cç][aã]o|pr[oó]xima a[cç][aã]o sugerida|arquivos? que deve[m]? estar presentes?)\s*(?=\n|$)/im,
+    /\b(?:git add|git commit|pandoc|epubcheck|kindlegen|ebook-convert|zip -r|mkdir\s+download)\b/i
   ];
 
   function limparNome(nome, tipo) {
@@ -114,8 +116,31 @@
       // mas não pertencem ao arquivo que será entregue ao cliente.
       if (/^\s{0,3}#{1,6}\s+(?:notas? internas?|pend[eê]ncias? de revis[aã]o|checklist de publica[cç][aã]o|aprova[cç][oõ]es?|pr[oó]ximos passos internos?)\s*$/im.test(texto))
         notas.push('seção de processo interno encontrada no conteúdo final');
+      const numerados=[...texto.matchAll(/^\s*(?:#{1,6}\s*)?(?:cap[ií]tulo|conto)\s+(\d+)\b/gim)].map(m=>Number(m[1])).filter(Number.isFinite);
+      if(numerados.length>=2&&!numerados.includes(1))notas.push('sequência de capítulos/contos incompleta: a entrega não contém o item 1');
     }
     return { pronto: notas.length === 0, prontoEstrutural: notas.length === 0, notas: notas.slice(0, 10), verificadoEm: Date.now(), tipo: t, gate: 'cliente-final' };
+  }
+
+  function referenciasLocais(conteudo) {
+    const texto=String(conteudo||''),refs=[];
+    const adicionar=valor=>{
+      const bruto=String(valor||'').trim().replace(/^['"]|['"]$/g,'').split(/[?#]/)[0];
+      if(!bruto||/^(?:https?:|data:|mailto:|tel:|javascript:|\/\/|#)/i.test(bruto))return;
+      refs.push(bruto.replace(/^\.\//,'').replace(/^\//,''));
+    };
+    let m;const padroes=[/!?\[[^\]]*\]\(([^)\s]+)(?:\s+['"][^'"]*['"])?\)/g,/<(?:img|script|link|a)\b[^>]*?\b(?:src|href)\s*=\s*['"]([^'"]+)['"]/gi,/url\(\s*['"]?([^)'"\s]+)['"]?\s*\)/gi];
+    padroes.forEach(rx=>{while((m=rx.exec(texto)))adicionar(m[1]);});
+    return [...new Set(refs)];
+  }
+
+  function validarPacote(conteudo,tipo,arquivosDisponiveis) {
+    const base=validarFinal(conteudo,tipo),notas=(base.notas||[]).slice();
+    const nomes=(arquivosDisponiveis||[]).map(a=>String(a&&a.nome||a||'').replace(/^\.\//,'').replace(/^\//,'')).filter(Boolean);
+    const conhecidos=new Set(nomes.concat(nomes.map(n=>n.split('/').pop())));
+    const ausentes=referenciasLocais(conteudo).filter(ref=>!conhecidos.has(ref)&&!conhecidos.has(ref.split('/').pop()));
+    if(ausentes.length)notas.push(`arquivo(s) local(is) referenciado(s), mas ausente(s) do pacote: ${ausentes.slice(0,5).join(', ')}`);
+    return Object.assign({},base,{pronto:notas.length===0,prontoEstrutural:notas.length===0,notas:notas.slice(0,12),gate:'pacote-cliente-final'});
   }
 
   function contextoAcervo(e, baseArquivo, projectId) {
@@ -175,7 +200,10 @@
       const conteudo=compacta.dataUrl;
       return {arquivos:[{nome,tipo:compacta.ext,conteudo}],resumo:baseVisual?'Nova versão do ativo visual gerada pelo modelo de imagem.':'Ativo visual gerado por modelo de imagem.',validacao:(etapa==='candidato'&&clienteVisivel?validarFinal(conteudo,compacta.ext):validar(conteudo,compacta.ext)),classe:etapa,kit,viaIA:true,linhagem:baseVisual?base.linhagem:null,baseArquivoId:baseVisual?base.id:null,operacao:'substituir',imagem:true};
     }
-    const incremental = Boolean(base && (String(base.conteudo||'').length > 12000 || pedeCrescimento(briefing)));
+    // Tamanho nunca implica anexar. Correções de arquivos longos precisam
+    // substituir a versão completa; o antigo atalho contaminava planos com
+    // especificações, capítulos e instruções acumuladas de outras etapas.
+    const incremental = Boolean(base && pedeCrescimento(briefing));
     const basePrompt = base ? trechoBaseParaPrompt(base, incremental) : '';
 
     const sistema = [
@@ -261,7 +289,8 @@
     if (!base && pareceProjetoCompleto(briefing)) {
       const bundle = parseBundle(conteudo);
       if (bundle.length >= 2) {
-        const validacoes = bundle.map(f => (clienteVisivel && etapa === 'candidato') ? validarFinal(f.conteudo, f.tipo) : validar(f.conteudo, f.tipo));
+        const disponiveis=(e.arquivos||[]).filter(a=>a.projectId===(projeto&&projeto.id)).concat(bundle);
+        const validacoes = bundle.map(f => (clienteVisivel && etapa === 'candidato') ? validarPacote(f.conteudo, f.tipo, disponiveis) : validar(f.conteudo, f.tipo));
         const notas = validacoes.flatMap(v => v.notas || []).slice(0, 8);
         return {
           arquivos: bundle,
@@ -277,7 +306,8 @@
     // não à resposta do modelo. Isto impede renomeações acidentais a cada revisão.
     const tipo = base ? tipoValido(base.tipo, kit) : tipoValido(campos.tipo, kit);
     const nome = base ? limparNome(base.nome, tipo) : limparNome(campos.arquivo || (op && op.titulo) || 'entrega', tipo);
-    const validacao = (clienteVisivel && etapa === 'candidato') ? validarFinal(conteudo, tipo) : validar(conteudo, tipo);
+    const disponiveis=(e.arquivos||[]).filter(a=>a.projectId===(projeto&&projeto.id)).concat({nome,tipo,conteudo});
+    const validacao = (clienteVisivel && etapa === 'candidato') ? validarPacote(conteudo, tipo, disponiveis) : validar(conteudo, tipo);
     validacao.prontoEstrutural = validacao.pronto;
     validacao.declaradoPronto = String(campos.pronto || '').toLowerCase() === 'sim' || campos.pronto === true;
     if (String(campos.pronto || '').toLowerCase() === 'nao' || campos.pronto === false) {
@@ -299,5 +329,5 @@
     };
   }
 
-  S.factory = { KITS, porId, produzir, validar, validarFinal };
+  S.factory = { KITS, porId, produzir, validar, validarFinal, validarPacote, referenciasLocais };
 })(window.S);

@@ -4,6 +4,32 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v62 — integridade dos produtos e trabalho setorial
+
+## Correções orientadas pela execução real
+
+- Arquivos longos deixaram de entrar automaticamente em modo de anexação. Uma correção agora substitui a versão integral; anexar só é permitido quando a tarefa pede expansão explícita, impedindo que plano, especificação, capítulos e instruções internas sejam acumulados no mesmo artefato.
+- O gate final bloqueia checklists de validação, status de empacotamento, próximas ações, instruções de build e comandos internos. Links locais em Markdown, HTML e CSS são conferidos contra os arquivos reais do projeto; referências como `cover.png` e `map.png` inexistentes impedem o release.
+- A validação de pacote roda tanto quando o candidato é salvo quanto no instante do release, inclusive em projetos multi-arquivo.
+
+## Equipe e fluxo entre setores
+
+- A passagem de protótipo para candidato final tornou-se um handoff: Produto & Criação conclui o conteúdo, Laboratório & Pesquisa testa quando houver especialista, e Produção & Entrega executa o acabamento no mesmo artefato.
+- Depois de um release, líderes de Crescimento & Comercial e Operações & Dados recebem frentes derivadas reais para kit comercial e catálogo de distribuição. A atividade deixa de ficar concentrada no autor inicial sem violar a especialização de cada funcionário.
+- Um único funcionário ocioso em qualquer setor já aparece na análise financeira. A recomendação exige abrir um handoff útil ou reavaliar a alocação antes de aprovar novas contratações.
+- Registros de rotina diferentes do mesmo agente são agregados em janelas de 15 minutos, preservando amostras e contagem sem esconder decisões, entregas e erros sob milhares de eventos Sims-like.
+
+## Reuniões
+
+- A sala de reuniões ganhou “Baixar ata no dispositivo”. O arquivo Markdown inclui o registro cronológico completo, decisões críticas, aprovações, recomendações financeiras e solicitações de contratação.
+
+## Diagnóstico da telemetria recebida
+
+- A execução analisada registrou 197 chamadas, 1.469.301 tokens, US$ 0,285256 e 34 falhas. Ana Silva concentrou 92 chamadas e 85,2% do custo, enquanto Bruno Costa e Diego Ramos fizeram uma chamada cada; os novos handoffs atacam diretamente essa assimetria.
+- O plano anexado continha capítulos e especificações misturados; o TXT começava no capítulo 2; e o Markdown trazia arquivos inexistentes e instruções internas. Nenhum dos três satisfaz o novo gate de produto final.
+
+---
+
 # v61 — recuperação do provedor e saneamento da fila
 
 ## Regressão `choices=null`

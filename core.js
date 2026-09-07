@@ -501,11 +501,13 @@ window.S = window.S || {};
   function registrar(texto, tag, agenteId) {
     const e = atual(); if (!e) return;
     const agora=Date.now(), mensagem=String(texto), categoria=tag||'info', autor=agenteId||null;
-    const ultima=e.log.slice(-80).reverse().find(x=>x.texto===mensagem&&x.tag===categoria&&x.agente===autor);
+    const rotina=/^(?:rotina|bem-estar)$/.test(categoria);
+    const ultima=e.log.slice(-80).reverse().find(x=>x.tag===categoria&&x.agente===autor&&(rotina||x.texto===mensagem));
     // Estados repetitivos são consolidados. Assim uma hora de rotina não apaga
     // decisões, custos, falhas e entregas do histórico operacional.
     if(ultima&&agora-Number(ultima.ultimaOcorrencia||ultima.t||0)<15*60*1000){
       ultima.quantidade=Number(ultima.quantidade||1)+1;ultima.ultimaOcorrencia=agora;
+      if(rotina){ultima.amostras=Array.isArray(ultima.amostras)?ultima.amostras:[];if(!ultima.amostras.includes(mensagem))ultima.amostras.push(mensagem);ultima.amostras=ultima.amostras.slice(-8);ultima.texto=mensagem;}
     }else e.log.push({ t: agora, texto: mensagem, tag: categoria, agente: autor, quantidade:1, ultimaOcorrencia:agora });
     if (e.log.length > 5000) {
       let excesso=e.log.length-5000;

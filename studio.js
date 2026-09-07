@@ -314,7 +314,7 @@
     if(!quadro.financeiro)ocorrencias.push({codigo:'financeiro_sem_responsavel',texto:'Não há agente responsável por Finanças & Eficiência.',nivel:'critico'});
     ESPECIALIDADES.forEach(esp=>{if(!quadro[esp.id])ocorrencias.push({codigo:`setor_sem_chefe:${esp.id}`,texto:`${esp.cargo} ainda não possui chefe responsável. Contratar somente se a capacidade financeira calculada permitir.`,nivel:'alto',especialidade:esp.id});});
     Object.entries(demanda).forEach(([esp,q])=>{if(q>0&&!quadro[esp])ocorrencias.push({codigo:`sem_especialista:${esp}`,texto:`${q} tarefa(s) exigem ${nomeSetor(esp)}, mas não há agente especializado contratado.`,nivel:'alto',especialidade:esp});});
-    Object.entries(quadro).forEach(([esp,q])=>{if(q>1&&!demanda[esp])ocorrencias.push({codigo:`capacidade_ociosa:${esp}`,texto:`${q} agentes de ${nomeSetor(esp)} estão sem tarefa compatível; a liderança deve revisar a capacidade sem deslocá-los para outra especialidade.`,nivel:'medio',especialidade:esp});});
+    Object.entries(quadro).forEach(([esp,q])=>{if(q>0&&!demanda[esp])ocorrencias.push({codigo:`capacidade_ociosa:${esp}`,texto:`${q} agente(s) de ${nomeSetor(esp)} estão sem tarefa compatível; a gerência deve abrir um handoff real ou reavaliar esta alocação antes de contratar mais pessoas.`,nivel:'medio',especialidade:esp});});
     if(calls.length>=5&&falhas/calls.length>0.15)ocorrencias.push({codigo:'taxa_falha_alta',texto:`Taxa de falhas alta: ${(falhas/calls.length*100).toFixed(1)}% (${falhas}/${calls.length}).`,nivel:'alto',taxa:falhas/calls.length});
     if(incompletas)ocorrencias.push({codigo:'saidas_incompletas',texto:`${incompletas} saída(s) interrompida(s) permanecem incompletas.`,nivel:'alto',quantidade:incompletas});
     if(custo>0&&custoImagem/custo>0.25)ocorrencias.push({codigo:'custo_visual_alto',texto:`Produção visual representa ${(custoImagem/custo*100).toFixed(1)}% do custo de IA (US$ ${custoImagem.toFixed(5)}).`,nivel:'alto',percentual:custoImagem/custo});
@@ -646,6 +646,8 @@
     if(lista.some(a=>!a||!String(a.nome||'').trim()||!String(a.tipo||'').trim()||!String(a.conteudo||'').trim()))throw new Error('A produção devolveu um artefato incompleto; nada foi salvo.');
     const baseMeta=meta.baseArquivoId ? e.arquivos.find(x=>x.id===meta.baseArquivoId) : null;
     const classeMeta=['esboco','prototipo','candidato'].includes(meta.classe) ? meta.classe : 'esboco';
+    const disponiveisPacote=(e.arquivos||[]).filter(a=>a.projectId===(meta.projectId||a.projectId)).concat(lista);
+    const validarEntrega=a=>classeMeta==='candidato'&&meta.clienteVisivel&&S.factory.validarPacote?S.factory.validarPacote(a.conteudo,a.tipo,disponiveisPacote):(classeMeta==='candidato'&&meta.clienteVisivel&&S.factory.validarFinal?S.factory.validarFinal(a.conteudo,a.tipo):S.factory.validar(a.conteudo,a.tipo));
     const etapasMeta=historicoPipeline(e,baseMeta,classeMeta);
     const grupoEntrega=meta.grupoEntrega || (lista.length>1 ? uid('grp') : null);
     const chamadas=(e.iaChamadas||[]).filter(c=>meta.taskId&&c.taskId===meta.taskId&&(c.ok||c.incompleta));
@@ -657,7 +659,7 @@
       const a=lista[0],historico=Array.isArray(baseMeta.historicoVersoes)?baseMeta.historicoVersoes:[];
       historico.push({versaoEdicao:Number(baseMeta.versaoEdicao||0),nome:baseMeta.nome,tipo:baseMeta.tipo,conteudo:String(baseMeta.conteudo||''),classe:baseMeta.classe,validacao:baseMeta.validacao,pipeline:baseMeta.pipeline,metricasIA:baseMeta.metricasIA,autor:baseMeta.autor,autorId:baseMeta.autorId,taskId:baseMeta.taskId,em:baseMeta.editadoEm||baseMeta.criadoEm||Date.now()});
       const anterior=baseMeta.metricasIA||{};const acumulada={chamadas:Number(anterior.chamadas||0)+metricasIA.chamadas,tokens:Number(anterior.tokens||0)+metricasIA.tokens,entrada:Number(anterior.entrada||0)+metricasIA.entrada,saida:Number(anterior.saida||0)+metricasIA.saida,custoUSD:Number(anterior.custoUSD||0)+metricasIA.custoUSD,ms:Number(anterior.ms||0)+metricasIA.ms,modelos:[...new Set([...(anterior.modelos||baseMeta.modelos||[]),...metricasIA.modelos])],provedores:[...new Set([...(anterior.provedores||[]),...metricasIA.provedores])],chamadaIds:[...new Set([...(anterior.chamadaIds||[]),...metricasIA.chamadaIds])]};
-      baseMeta.historicoVersoes=historico.slice(-40);baseMeta.nome=nomeArtefatoSeguro(a.nome,a.tipo,baseMeta.nome);baseMeta.tipo=a.tipo;baseMeta.conteudo=String(a.conteudo);baseMeta.classe=classeMeta;baseMeta.kit=meta.kit||baseMeta.kit||'legado';baseMeta.projectId=meta.projectId||baseMeta.projectId;baseMeta.validacao=meta.validacao&&meta.validacao.tipo!=='bundle'?meta.validacao:(classeMeta==='candidato'&&meta.clienteVisivel&&S.factory.validarFinal?S.factory.validarFinal(a.conteudo,a.tipo):S.factory.validar(a.conteudo,a.tipo));baseMeta.pipeline={versao:1,etapas:etapasMeta.slice(),etapaAtual:classeMeta,clienteVisivel:Boolean(meta.clienteVisivel)};baseMeta.viaIA=Boolean(meta.viaIA);baseMeta.autor=p?p.nome:'equipe';baseMeta.autorId=p?p.id:null;baseMeta.editadoEm=Date.now();baseMeta.quando=S.fmt.dataHora();baseMeta.taskId=meta.taskId||null;baseMeta.baseArquivoId=baseMeta.baseArquivoId||null;baseMeta.briefing=String(meta.briefing||'').slice(0,500);baseMeta.liberadoPublicacao=false;baseMeta.clienteVisivel=Boolean(meta.clienteVisivel);baseMeta.escopo=baseMeta.clienteVisivel?'produto':'interno';baseMeta.avaliado=false;baseMeta.versaoEdicao=Number(baseMeta.versaoEdicao||0)+1;baseMeta.metricasIA=acumulada;baseMeta.modelos=acumulada.modelos.slice();baseMeta.custoProducaoUSD=acumulada.custoUSD;baseMeta.tokensProducao=acumulada.tokens;
+      baseMeta.historicoVersoes=historico.slice(-40);baseMeta.nome=nomeArtefatoSeguro(a.nome,a.tipo,baseMeta.nome);baseMeta.tipo=a.tipo;baseMeta.conteudo=String(a.conteudo);baseMeta.classe=classeMeta;baseMeta.kit=meta.kit||baseMeta.kit||'legado';baseMeta.projectId=meta.projectId||baseMeta.projectId;baseMeta.validacao=meta.validacao&&meta.validacao.tipo!=='bundle'?meta.validacao:validarEntrega(a);baseMeta.pipeline={versao:1,etapas:etapasMeta.slice(),etapaAtual:classeMeta,clienteVisivel:Boolean(meta.clienteVisivel)};baseMeta.viaIA=Boolean(meta.viaIA);baseMeta.autor=p?p.nome:'equipe';baseMeta.autorId=p?p.id:null;baseMeta.editadoEm=Date.now();baseMeta.quando=S.fmt.dataHora();baseMeta.taskId=meta.taskId||null;baseMeta.baseArquivoId=baseMeta.baseArquivoId||null;baseMeta.briefing=String(meta.briefing||'').slice(0,500);baseMeta.liberadoPublicacao=false;baseMeta.clienteVisivel=Boolean(meta.clienteVisivel);baseMeta.escopo=baseMeta.clienteVisivel?'produto':'interno';baseMeta.avaliado=false;baseMeta.versaoEdicao=Number(baseMeta.versaoEdicao||0)+1;baseMeta.metricasIA=acumulada;baseMeta.modelos=acumulada.modelos.slice();baseMeta.custoProducaoUSD=acumulada.custoUSD;baseMeta.tokensProducao=acumulada.tokens;
       chamadas.forEach(c=>{c.artifactId=baseMeta.id;});
       if(p&&p.ref)p.ref.entregas=(p.ref.entregas||0)+1;
       S.state.registrar(`${p?p.nome:'A equipe'} evoluiu o mesmo artefato ${baseMeta.nome} [${baseMeta.classe}/${baseMeta.tipo}, revisão ${baseMeta.versaoEdicao}, ${String(baseMeta.conteudo).length} bytes] · rodada ${metricasIA.tokens} tokens/US$ ${metricasIA.custoUSD.toFixed(6)} · acumulado ${acumulada.tokens} tokens/US$ ${acumulada.custoUSD.toFixed(6)}.`, 'ok',p?p.id:null);
@@ -670,7 +672,7 @@
       const arq = {
         id: uid('f'), nome: a.nome, tipo: a.tipo, conteudo: String(a.conteudo),
         classe: classeMeta, kit: meta.kit || 'legado', projectId: meta.projectId || (e.projetos[0] && e.projetos[0].id),
-        validacao: meta.validacao&&meta.validacao.tipo!=='bundle' ? meta.validacao : (classeMeta==='candidato'&&meta.clienteVisivel&&S.factory.validarFinal?S.factory.validarFinal(a.conteudo,a.tipo):S.factory.validar(a.conteudo,a.tipo)),
+        validacao: meta.validacao&&meta.validacao.tipo!=='bundle' ? meta.validacao : validarEntrega(a),
         escopo: meta.clienteVisivel ? 'produto' : 'interno',
         pipeline: { versao:1, etapas:etapasMeta.slice(), etapaAtual:classeMeta, clienteVisivel:Boolean(meta.clienteVisivel) },
         grupoEntrega,
@@ -774,7 +776,8 @@
       S.state.registrar(`Release bloqueado para ${base.nome}: faltam etapas comprovadas do pipeline esboço → protótipo → candidato.`, 'alerta');
       return null;
     }
-    const gateFinal = S.factory && S.factory.validarFinal ? S.factory.validarFinal(base.conteudo, base.tipo) : (base.validacao || {pronto:false,notas:['validação final indisponível']});
+    const arquivosProjeto=(e.arquivos||[]).filter(a=>a.projectId===base.projectId);
+    const gateFinal = S.factory && S.factory.validarPacote ? S.factory.validarPacote(base.conteudo,base.tipo,arquivosProjeto) : (S.factory&&S.factory.validarFinal?S.factory.validarFinal(base.conteudo,base.tipo):(base.validacao || {pronto:false,notas:['validação final indisponível']}));
     base.validacaoFinal = gateFinal;
     if (!gateFinal.pronto) {
       base.liberadoPublicacao = false;
@@ -861,11 +864,21 @@
       proj.atividade.unshift({ t: Date.now(), tipo: 'publicacao', texto: `${produto.nome} entrou no projeto.` });
       proj.atividade = proj.atividade.slice(-40);
     }
+    abrirFrentesPosRelease(e,produto);
     // Publicar congela uma versão que a gerente considerou pronta para sair.
     // Não existe mercado, cliente ou receita simulados neste aplicativo.
     S.state.gravar();
     S.bus.emit('arquivos');
     return produto;
+  }
+
+  function abrirFrentesPosRelease(e,produto){
+    const projeto=(e.projetos||[]).find(p=>p.id===produto.projectId);if(!projeto)return;
+    const frentes=[
+      {setor:'comercial',kit:'comercial',titulo:`Preparar kit comercial de ${produto.nome}`,briefing:`Crie um kit comercial utilizável para apresentar e vender ${produto.nome}. Use apenas fatos do produto e da empresa; não invente clientes, vendas ou depoimentos e não execute contatos externos.`},
+      {setor:'operacoes',kit:'dados',titulo:`Estruturar catálogo de ${produto.nome}`,briefing:`Crie um catálogo de distribuição estruturado e verificável para ${produto.nome}, com metadados reais do produto, versão, arquivos e instruções de uso. Não invente métricas comerciais.`}
+    ];
+    frentes.forEach(f=>{const lider=liderDoSetor(f.setor);if(lider)novaTarefa({titulo:f.titulo,kit:f.kit,briefing:f.briefing,para:lider.id,projectId:projeto.id,clienteVisivel:true,etapaDestino:'esboco',origem:`handoff pós-release ${produto.id}`});});
   }
 
   /* ---------- ambiente construível ---------- */
@@ -962,7 +975,8 @@
 
   function inferirKitTarefa(dados, e) {
     const base=dados&&dados.baseArquivoId ? (e.arquivos||[]).find(a=>a.id===dados.baseArquivoId) : null;
-    if(base && base.kit) return base.kit;
+    const handoff=/^handoff\b/i.test(String(dados&&dados.origem||''));
+    if(base && base.kit && !handoff) return base.kit;
     const explicito=String(dados&&dados.kit||'').trim();
     const txt=`${dados&&dados.titulo||''} ${dados&&dados.briefing||''}`.toLowerCase();
     const pedidoVisual=/\b(?:criar|gerar|produzir|desenhar|ilustrar|pintar|refinar)\b[^.\n]{0,80}\b(?:imagem|ilustra[cç][aã]o|capa|banner|logo|logotipo|sprite|thumbnail|miniatura|poster|p[oô]ster|concept art|arte visual)\b/.test(txt);
@@ -983,6 +997,14 @@
 
   const ETAPAS_PRODUTO = ['esboco','prototipo','candidato','produto'];
   const PROXIMA_ETAPA = { esboco:'prototipo', prototipo:'candidato', candidato:'produto' };
+  function abrirHandoffParaCandidato(e,cand,acao){
+    const laboratorio=liderDoSetor('laboratorio'),acabamento=liderDoSetor('producao');
+    let qa=null;
+    if(laboratorio)qa=novaTarefa({titulo:`Testar ${cand.nome} antes do acabamento`,kit:'laboratorio',para:laboratorio.id,projectId:cand.projectId,clienteVisivel:false,origem:'handoff criação→laboratório',briefing:`Inspecione o protótipo ${cand.id} (${cand.nome}) contra o objetivo do projeto e o acervo soberano. Entregue um relatório verificável com falhas concretas, coerência, completude e critérios de aceite. Não reescreva o produto e não invente testes externos.`});
+    const briefing=acao||`Transformar ${cand.nome} em candidato final completo. Aplicar acabamento editorial/técnico, incorporar somente achados verificáveis do laboratório e remover anotações internas, status, checklist, instruções de build e metatexto. Entregar a versão integral que o cliente receberá.`;
+    const tarefa=novaTarefa({titulo:`Acabamento final de ${cand.nome}`,briefing,kit:acabamento?'autonomo':(cand.kit||'autonomo'),para:acabamento&&acabamento.id,projectId:cand.projectId,baseArquivoId:cand.id,clienteVisivel:true,etapaDestino:'candidato',dependsOn:qa?[qa.id]:[],origem:qa?'handoff laboratório→produção':'handoff criação→produção'});
+    return {tarefa,qa};
+  }
   function inferirClienteVisivel(dados,e){
     if(dados && typeof dados.clienteVisivel === 'boolean') return dados.clienteVisivel;
     const base=dados&&dados.baseArquivoId ? (e.arquivos||[]).find(a=>a.id===dados.baseArquivoId) : null;
@@ -1231,10 +1253,12 @@ SOLICITACAO_ACERVO: <consideração objetiva ao dono ou vazio>`;
           const promovido=Object.assign({},cand,{id:uid('f'),classe:prox,baseArquivoId:cand.id,criadoEm:Date.now(),quando:S.fmt.dataHora(),avaliado:false,liberadoPublicacao:false,pipeline:{versao:1,etapas:historicoPipeline(e,cand,prox),etapaAtual:prox,clienteVisivel:true}});
           e.arquivos.unshift(promovido);if(projeto&&!projeto.arquivoIds.includes(promovido.id))projeto.arquivoIds.unshift(promovido.id);
           registrarReuniao(g.nome,`${cand.nome} passou de ${etapa} para ${prox} após revisão.`, 'decisao');
+        }else if(prox==='candidato'){
+          const handoff=abrirHandoffParaCandidato(e,cand,acao);
+          registrarReuniao(g.nome,`${cand.nome} concluiu ${etapa}; ${handoff.qa?'encaminhei testes ao Laboratório & Pesquisa e ':''}${handoff.tarefa?'deleguei o acabamento final a Produção & Entrega':'o acabamento final já estava aberto'}.`,'ordem');
         }else{
-          const titulo=prox==='prototipo'?`Desenvolver protótipo: ${cand.nome}`:`Finalizar para o cliente: ${cand.nome}`;
-          const briefing=acao || (prox==='prototipo'?`Transformar o esboço ${cand.nome} em uma versão completa e utilizável, preservando o que funciona e resolvendo lacunas.`:`Transformar ${cand.nome} em candidato final. Remover toda anotação interna, status, checklist, rascunho e metatexto; o arquivo deve conter somente o que o cliente receberá.`);
-          const t=novaTarefa({titulo,briefing,kit:cand.kit||'autonomo',para:String(c.para||'').trim()||cand.autorId,projectId:cand.projectId,baseArquivoId:cand.id,clienteVisivel:true,etapaDestino:prox,origem:`avanço obrigatório ${etapa}→${prox}`});
+          const briefing=acao||`Transformar o esboço ${cand.nome} em uma versão completa e utilizável, preservando o que funciona e resolvendo lacunas.`;
+          const t=novaTarefa({titulo:`Desenvolver protótipo: ${cand.nome}`,briefing,kit:cand.kit||'autonomo',para:String(c.para||'').trim()||cand.autorId,projectId:cand.projectId,baseArquivoId:cand.id,clienteVisivel:true,etapaDestino:prox,origem:`avanço obrigatório ${etapa}→${prox}`});
           registrarReuniao(g.nome,`${cand.nome} concluiu ${etapa}; ${t?`abri a etapa ${prox}`:`a etapa ${prox} já estava aberta`}.`,'ordem');
         }
         return;
