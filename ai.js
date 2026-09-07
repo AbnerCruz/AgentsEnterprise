@@ -29,11 +29,9 @@
   /* No OpenRouter os mesmos modelos abertos saem mais baratos, porque o
      preço é repassado do provedor de origem sem markup. */
   const MODELOS_OPENROUTER = [
-    { id: 'openai/gpt-oss-20b', nome: 'GPT-OSS 20B · produção econômica', nota: '~$0,03 entrada / $0,15 saída por 1M. Padrão de execução, com escalada quando o gate reprovar.' },
-    { id: 'openai/gpt-oss-120b', nome: 'GPT-OSS 120B · raciocínio forte', nota: '~$0,036 entrada / $0,18 saída por 1M. Padrão para pensar, delegar e revisar.' },
-    { id: 'deepseek/deepseek-chat', nome: 'DeepSeek Chat · alternativa', nota: 'Barato e forte em texto longo. Alternativa de produção.' },
-    { id: 'qwen/qwen3-32b', nome: 'Qwen3 32B · raciocínio', nota: 'Alternativa de raciocínio e revisão.' },
-    { id: 'meta-llama/llama-3.3-70b-instruct', nome: 'Llama 3.3 70B · geral', nota: 'Modelo geral robusto, preço médio.' }
+    { id: 'openai/gpt-oss-20b', nome: 'GPT-OSS 20B · muito leve', nota: '$0,02 entrada / $0,10 saída por 1M. Classificação, rotina e transformações simples.' },
+    { id: 'openai/gpt-oss-120b', nome: 'GPT-OSS 120B · padrão', nota: '$0,03 entrada / $0,17 saída por 1M. Produção e revisão substantivas.' },
+    { id: 'deepseek/deepseek-v3.2', nome: 'DeepSeek V3.2 · avançado', nota: '$0,2088 entrada / $0,3096 saída por 1M. Resgate robusto e problemas realmente complexos.' }
   ];
 
   const MODELOS_IMAGEM_OPENROUTER = [
@@ -49,7 +47,7 @@
      migrarModelo — daí a ordem: MODELOS_DE, cfg, migração. */
   const cfg = Object.assign(
     { provedor: 'openrouter', roteamento: 'manual', tier: 'paid', providerSelecionadoEm: 0,
-      pensamento: 'openai/gpt-oss-120b', producao: 'openai/gpt-oss-20b', imagem: 'google/gemini-2.5-flash-image',
+      leve: 'openai/gpt-oss-20b', padrao: 'openai/gpt-oss-120b', avancado: 'deepseek/deepseek-v3.2', imagem: 'google/gemini-2.5-flash-image',
       orcamentoUSD: 3, periodoDias: 30, modoOrcamento: 'normal', margemSegurancaUSD: 0,
       distribuicaoCaixa:'manual', openRouterTotalCreditos:null },
     S.local.json(K_CFG, {})
@@ -61,18 +59,16 @@
     const lista = MODELOS_OPENROUTER;
     return lista.some(m => m.id === id) ? id : (lista.find(m => m.id === 'openai/gpt-oss-20b') || lista[0]).id;
   }
-  cfg.pensamento = migrarModelo(cfg.pensamento || cfg.decisao || cfg.revisao);
-  cfg.producao = migrarModelo(cfg.producao);
-  if(cfg.pensamento==='openai/gpt-oss-20b'&&cfg.producao==='openai/gpt-oss-120b'){
-    cfg.pensamento='openai/gpt-oss-120b';cfg.producao='openai/gpt-oss-20b';
-  }
+  cfg.leve = migrarModelo(cfg.leve || cfg.producao || 'openai/gpt-oss-20b');
+  cfg.padrao = migrarModelo(cfg.padrao || cfg.pensamento || cfg.decisao || cfg.revisao || 'openai/gpt-oss-120b');
+  cfg.avancado = migrarModelo(cfg.avancado || 'deepseek/deepseek-v3.2');
   cfg.imagem = MODELOS_IMAGEM_OPENROUTER.some(m=>m.id===cfg.imagem) ? cfg.imagem : MODELOS_IMAGEM_OPENROUTER[0].id;
   cfg.orcamentoUSD = Math.max(0.10, Math.min(1000, Number(cfg.orcamentoUSD) || 3));
   cfg.periodoDias = 30;
   cfg.modoOrcamento = cfg.modoOrcamento === 'intensivo' ? 'intensivo' : 'normal';
   cfg.distribuicaoCaixa = cfg.distribuicaoCaixa === 'igual' ? 'igual' : 'manual';
   cfg.margemSegurancaUSD = 0;
-  delete cfg.decisao; delete cfg.revisao; delete cfg.maestro;
+  delete cfg.decisao; delete cfg.revisao; delete cfg.maestro; delete cfg.pensamento; delete cfg.producao;
   delete cfg.limiteTokensDia; delete cfg.limiteDiarioUSD; delete cfg.diarioAutomatico;
   S.local.setJson(K_CFG, cfg);
 
@@ -108,11 +104,9 @@
   renovarPeriodoSeNecessario();
   const PRECOS_POR_PROVEDOR = {
     openrouter: {
-      'openai/gpt-oss-20b': { entrada: 0.03, saida: 0.15 },
-      'openai/gpt-oss-120b': { entrada: 0.036, saida: 0.18 },
-      'deepseek/deepseek-chat': { entrada: 0.14, saida: 0.28 },
-      'qwen/qwen3-32b': { entrada: 0.10, saida: 0.30 },
-      'meta-llama/llama-3.3-70b-instruct': { entrada: 0.12, saida: 0.30 }
+      'openai/gpt-oss-20b': { entrada: 0.02, saida: 0.10 },
+      'openai/gpt-oss-120b': { entrada: 0.03, saida: 0.17 },
+      'deepseek/deepseek-v3.2': { entrada: 0.2088, saida: 0.3096 }
     }
   };
   function preco(modelo, provedor){
@@ -123,26 +117,79 @@
     const base=(Number(promptTokens)||0)/1e6*p.entrada + (Number(completionTokens)||0)/1e6*p.saida;
     return base;
   }
+  const NIVEL_PADRAO={leve:'openai/gpt-oss-20b',padrao:'openai/gpt-oss-120b',avancado:'deepseek/deepseek-v3.2'};
+  function modelosDaPessoa(agenteId){
+    const pessoa=((S.state&&S.state.atual&&S.state.atual())||{}).equipe||[];
+    const ia=(pessoa.find(f=>f.id===String(agenteId))||{}).ia||{};
+    return {leve:migrarModelo(ia.leve||cfg.leve||NIVEL_PADRAO.leve),padrao:migrarModelo(ia.padrao||cfg.padrao||NIVEL_PADRAO.padrao),avancado:migrarModelo(ia.avancado||cfg.avancado||NIVEL_PADRAO.avancado)};
+  }
+  /* O roteador não chama outro LLM. Ele decide localmente, de forma auditável,
+     usando o risco, a etapa e o histórico real da mesma linhagem. */
+  function rotear(op){
+    op=op||{};
+    const texto=`${op.motivo||''} ${op.sistema||''} ${op.pedido||''}`.toLowerCase();
+    const entrada=Math.ceil((String(op.sistema||'').length+String(op.pedido||'').length)/4);
+    const tentativas=Math.max(0,Number(op.tentativa||op.tentativas||op.correcoes||0));
+    let nivel=['leve','padrao','avancado'].includes(op.nivel)?op.nivel:null,score=0,motivos=[];
+    if(!nivel){
+      if(tentativas>=2){score+=5;motivos.push(`${tentativas} correções sem resolver`);}
+      if(op.etapa==='candidato'||op.final===true){score+=2;motivos.push('gate final');}
+      if(entrada>60000){score+=2;motivos.push('contexto extenso');}
+      if(/multi-arquivo|projeto completo|arquitetura complexa|migra[cç][aã]o|resgate/.test(texto)){score+=2;motivos.push('integração complexa');}
+      if(/funda[cç][aã]o estrat[eé]gica/.test(texto)){score+=3;motivos.push('fundação integral');}
+      const rotina=/intera[cç][aã]o entre colegas|reuni[aã]o de trabalho|ordem ou conversa|decis[aã]o antes|triagem|classifica[cç][aã]o|financeir/.test(texto);
+      nivel=score>=5?'avancado':(op.tipo==='conteudo'&&!rotina?'padrao':'leve');
+      if(!motivos.length)motivos.push(nivel==='leve'?'operação curta e estruturada':'produção substantiva normal');
+    } else motivos.push('nível solicitado pelo fluxo');
+    const modelos=modelosDaPessoa(op.agenteId||op.idAgente||op.agente);
+    return {nivel,modelo:modelos[nivel],score,motivo:motivos.join('; '),entrada,tentativa:tentativas};
+  }
   function economiaAtual(){ return S.economia && S.economia.resumo ? S.economia.resumo() : null; }
   function modoIntensivo(){const eco=economiaAtual();return Boolean(eco&&eco.modoTrabalho==='intensivo');}
   function custoPeriodo(){ const eco=economiaAtual(); if(eco)return Number(eco.gastoIAUSD)||0; renovarPeriodoSeNecessario(); return Number(periodo.gastoUSD)||0; }
   function restanteUSD(){ const eco=economiaAtual(); if(eco)return Math.max(0,Number(eco.caixaUSD)||0); renovarPeriodoSeNecessario(); return Math.max(0, Number(periodo.limiteUSD)-Number(periodo.gastoUSD||0)); }
   function diasRestantesPeriodo(){
     const e=S.state&&S.state.atual&&S.state.atual();
-    if(e&&e.economia){ const ini=Number(e.economia.cicloInicio)||Date.now(), dias=30; const fim=ini+dias*86400000; if(Date.now()>=fim){e.economia.cicloInicio=Date.now();S.state.gravar();return 30;} return Math.max(1,Math.ceil((fim-Date.now())/86400000)); }
+    if(e&&e.economia){ const ini=Number(e.economia.cicloInicio)||Date.now(), dias=Math.max(1,Number(e.economia.cicloDias)||30); const fim=ini+dias*86400000; if(Date.now()>=fim){e.economia.cicloInicio=Date.now();S.state.gravar();return dias;} return Math.max(1,Math.ceil((fim-Date.now())/86400000)); }
     renovarPeriodoSeNecessario(); return Math.max(1, Math.ceil((periodo.inicio + periodo.dias*86400000 - Date.now()) / 86400000));
   }
-  function limiteDiarioCalculado(){ return Math.max(0, restanteUSD()/diasRestantesPeriodo()); }
+  function limiteDiarioBase(){
+    const eco=economiaAtual(),gastoHoje=eco?Math.max(0,Number(eco.gastoHojeUSD)||0):0;
+    // Caixa restante + o que já foi gasto hoje reconstrói o caixa no início do
+    // expediente. Assim o teto não cai a cada débito, mas reage a novo lastro.
+    return Math.max(0,(restanteUSD()+gastoHoje)/diasRestantesPeriodo());
+  }
+  function turnoAtual(){
+    const e=S.state&&S.state.atual&&S.state.atual(),chave=new Date().toISOString().slice(0,10),alvoHoras=6;
+    if(!e)return{chave,alvoHoras,inicio:Date.now(),decorridoHoras:0,restanteHoras:alvoHoras,orcamentoUSD:limiteDiarioBase(),gastoUSD:custoDoDia(),projecaoHoras:alvoHoras};
+    e.economia=e.economia||{};const t=e.economia.turno;
+    if(!t||t.chave!==chave)e.economia.turno={chave,inicio:Date.now(),alvoHoras,orcamentoUSD:limiteDiarioBase()};
+    const x=e.economia.turno,decorrido=Math.max(0,(Date.now()-Number(x.inicio||Date.now()))/36e5),gasto=custoDoDia(),orc=Math.max(gasto,Number(x.orcamentoUSD)||limiteDiarioBase());
+    return {chave,inicio:x.inicio,alvoHoras,decorridoHoras:decorrido,restanteHoras:Math.max(0,alvoHoras-decorrido),orcamentoUSD:orc,gastoUSD:gasto,ritmoAlvoUSDHora:orc/alvoHoras,projecaoHoras:gasto>0?Math.max(decorrido,decorrido*(orc/gasto)):alvoHoras};
+  }
   function usoHoje() {
     renovarPeriodoSeNecessario();
     const d = new Date().toISOString().slice(0, 10);
     if (uso.dia !== d) {
-      uso = { dia: d, requisicoes: 0, entrada: 0, saida: 0, tokens: 0, headers: null, porModelo: {}, limiteUSD: limiteDiarioCalculado(), limiteAutomaticoV2: true };
+      uso = { dia: d, requisicoes: 0, entrada: 0, saida: 0, tokens: 0, headers: null, porModelo: {}, limiteUSD: limiteDiarioBase(), limiteAutomaticoV2: true };
+      estado.orcamentoPreventivo=false;
       salvarUso();
     } else if (uso.limiteAutomaticoV2 !== true || !Number.isFinite(Number(uso.limiteUSD))) {
-      uso.limiteUSD = limiteDiarioCalculado(); uso.limiteAutomaticoV2 = true; salvarUso();
+      uso.limiteUSD = limiteDiarioBase(); uso.limiteAutomaticoV2 = true; salvarUso();
     }
     return uso;
+  }
+  // Cada empresa guarda a própria fotografia diária. Recalculá-la após cada
+  // débito faria o teto encolher duas vezes; compartilhá-la misturaria caixas.
+  function limiteDiarioCalculado(){
+    const e=S.state&&S.state.atual&&S.state.atual(),chave=new Date().toISOString().slice(0,10);
+    if(e&&e.economia){
+      const mudouDia=!e.economia.dia||e.economia.dia.chave!==chave;
+      e.economia.dia=mudouDia?{chave,gastoUSD:0}:e.economia.dia;if(mudouDia)estado.orcamentoPreventivo=false;
+      e.economia.dia.limiteUSD=limiteDiarioBase();
+      return Math.max(0,Number(e.economia.dia.limiteUSD)||0);
+    }
+    return Math.max(0,Number(usoHoje().limiteUSD)||0);
   }
   function custoDoDia(){ const eco=economiaAtual(); if(eco)return Number(eco.gastoHojeUSD)||0; const q=usoHoje(); return Object.values(q.porModelo||{}).reduce((n,m)=>n+Number(m.custo||0),0) || 0; }
   function restanteDiaUSD(){ return Math.max(0, limiteDiarioCalculado() - custoDoDia()); }
@@ -152,6 +199,20 @@
     return orcamentoEsgotado() || (!modoIntensivo() && (orcamentoDiarioEsgotado() || estado.orcamentoPreventivo));
   }
   function salvarUso() { S.local.setJson(K_USO, uso); }
+
+  function podeChamarEstimado(op){
+    op=op||{};
+    const tipo=op.tipo==='imagem'?'imagem':op.tipo==='conteudo'?'conteudo':'pensamento';
+    const rota=tipo==='imagem'?null:rotear(op);
+    const modelo=MODELOS_OPENROUTER.some(m=>m.id===op.modelo)?op.modelo:(rota?rota.modelo:cfg.leve);
+    const entrada=Math.max(0,Number(op.entrada)||0),saida=Math.max(120,Number(op.saida)||(tipo==='conteudo'?3000:700));
+    const custo=tipo==='imagem'?Math.max(0.001,Number(op.custo)||0.05):estimarCusto('openrouter',modelo,entrada,saida),restante=restanteUSD();
+    if(custo>restante)return{ok:false,custoEstimado:custo,motivo:`Caixa insuficiente: a etapa estima US$ ${custo.toFixed(5)} e restam US$ ${restante.toFixed(5)}.`};
+    if(!modoIntensivo()&&custoDoDia()+custo>limiteDiarioCalculado())return{ok:false,diario:true,custoEstimado:custo,motivo:`Limite diário preservado: a etapa estima US$ ${custo.toFixed(5)} e restam US$ ${restanteDiaUSD().toFixed(5)} hoje.`};
+    const or=stateProvedor('openrouter'),saldo=numeroOpcional(or.saldoConta);
+    if(saldo!==null&&custo>saldo)return{ok:false,cota:true,custoEstimado:custo,motivo:`Saldo real do OpenRouter insuficiente para a etapa estimada.`};
+    return{ok:true,custoEstimado:custo,modelo,nivel:rota&&rota.nivel,rota};
+  }
 
   /* ---------- estado do motor ---------- */
   const estado = {
@@ -350,19 +411,24 @@
   async function gerarImagem(op){
     op=op||{};const agenteId=String(op.agenteId||op.agente||'imagem'),l=lane(agenteId);if(!disponivel(agenteId))throw new Error('IA indisponível para geração de imagem.');
     const pessoa=((S.state.atual()||{}).equipe||[]).find(f=>f.id===agenteId);
+    if(!pessoa||pessoa.papel!=='func'||pessoa.especialidade!=='criacao'||op.saidaVisualAutorizada!==true){const er=new Error('Imagem bloqueada: somente um agente de Produto & Criação, em tarefa explicitamente visual, pode usar este modelo.');er.limiteLocal=true;throw er;}
     const proprio=pessoa&&pessoa.ia&&pessoa.ia.imagem;
     const modelo=MODELOS_IMAGEM_OPENROUTER.some(m=>m.id===(op.modelo||proprio))?(op.modelo||proprio):cfg.imagem;
-    const eco=economiaAtual(),politica=eco&&eco.imagens||{},estimativa=0.05,limiteImagem=Math.max(0.001,Number(politica.limitePorImagemUSD)||0.05),limiteCaixa=Math.max(0,Number(eco&&eco.caixaUSD||0))*Math.max(1,Number(politica.percentualMaxCaixa)||15)/100;
-    if(estimativa>limiteImagem||estimativa>limiteCaixa||restanteUSD()<estimativa || (!modoIntensivo()&&restanteDiaUSD()<estimativa)){const er=new Error(`Imagem bloqueada pela política econômica: estimativa US$ ${estimativa.toFixed(4)}, limite por imagem US$ ${limiteImagem.toFixed(4)}, limite proporcional US$ ${limiteCaixa.toFixed(4)}.`);er.limiteLocal=true;throw er;}
+    const eco=economiaAtual(),empresaAtual=S.state&&S.state.atual&&S.state.atual();if(empresaAtual){empresaAtual.economia=empresaAtual.economia||{};empresaAtual.economia.imagens=empresaAtual.economia.imagens||{};}
+    const politica=empresaAtual&&empresaAtual.economia.imagens||eco&&eco.imagens||{},estimativa=0.05,limiteImagem=Math.max(0.001,Number(politica.limitePorImagemUSD)||0.05),limiteCaixa=Math.max(0,Number(eco&&eco.caixaUSD||0))*Math.min(10,Math.max(1,Number(politica.percentualMaxCaixa)||10))/100,limiteDiaImagem=limiteDiarioCalculado()*0.10,custoImagemDia=((empresaAtual&&empresaAtual.iaChamadas)||[]).filter(c=>{const d=new Date(Number(c.em)||0);return c.ok&&c.nivel==='imagem'&&!Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===new Date().toISOString().slice(0,10);}).reduce((n,c)=>n+Number(c.custo||0),0);
+    politica.ultimasPorProjeto=politica.ultimasPorProjeto&&typeof politica.ultimasPorProjeto==='object'?politica.ultimasPorProjeto:{};
+    const chaveProjeto=String(op.projectId||'principal'),ultimaVisual=Number(politica.ultimasPorProjeto[chaveProjeto]||0),intervaloVisual=5*60*1000;
+    if(ultimaVisual&&Date.now()-ultimaVisual<intervaloVisual){const er=new Error(`Produção visual em espera econômica por ${Math.ceil((intervaloVisual-(Date.now()-ultimaVisual))/1000)}s neste projeto. A imagem anterior deve ser avaliada antes de gastar novamente.`);er.limiteLocal=true;throw er;}
+    if(estimativa>limiteImagem||estimativa>limiteCaixa||custoImagemDia+estimativa>limiteDiaImagem||restanteUSD()<estimativa || (!modoIntensivo()&&restanteDiaUSD()<estimativa)){const er=new Error(`Imagem bloqueada pela política econômica: estimativa US$ ${estimativa.toFixed(4)}, teto visual diário US$ ${limiteDiaImagem.toFixed(4)} e saldo visual hoje US$ ${Math.max(0,limiteDiaImagem-custoImagemDia).toFixed(4)}.`);er.limiteLocal=true;throw er;}
     estado.emVoo++;l.emVoo++;situar('ocupada','IA criando imagem',`${op.agente||agenteId} · ${modelo}`);const inicio=Date.now();
     try{
-      const resp=await fetch('https://openrouter.ai/api/v1/images',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+chaves.openrouter},body:JSON.stringify({model:modelo,prompt:String(op.prompt||''),aspect_ratio:op.aspect_ratio||'1:1'})});
+      const resp=await fetch('https://openrouter.ai/api/v1/images',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+chaves.openrouter},body:JSON.stringify({model:modelo,prompt:String(op.prompt||''),aspect_ratio:op.aspect_ratio||'1:1'}),signal:typeof AbortSignal!=='undefined'&&AbortSignal.timeout?AbortSignal.timeout(120000):undefined});
       const dados=await resp.json().catch(()=>null);if(!resp.ok)throw new Error((dados&&dados.error&&dados.error.message)||`OpenRouter Images respondeu HTTP ${resp.status}.`);
       const item=dados&&dados.data&&dados.data[0];if(!item||!item.b64_json)throw new Error('O modelo de imagem não devolveu bytes utilizáveis.');
       const media=String(item.media_type||'image/png');const ext=/jpeg|jpg/i.test(media)?'jpg':/webp/i.test(media)?'webp':'png';const custo=Number(dados&&dados.usage&&dados.usage.cost)||0;
-      contabilizarCustoDireto(modelo,custo,Date.now()-inicio);registrarChamada({quem:op.agente||agenteId,agenteId,motivo:op.motivo||'geração de imagem',modelo,provedor:'openrouter',ms:Date.now()-inicio,ok:true,tokens:0,custo,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados&&dados.usage||{}});
+      politica.ultimasPorProjeto[chaveProjeto]=Date.now();contabilizarCustoDireto(modelo,custo,Date.now()-inicio);registrarChamada({quem:op.agente||agenteId,agenteId,motivo:op.motivo||'produção visual',nivel:'imagem',rotaMotivo:'tarefa visual explícita e agente autorizado',modelo,provedor:'openrouter',ms:Date.now()-inicio,ok:true,tokens:0,custo,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados&&dados.usage||{}});
       void sincronizarOpenRouterCreditos();situar('pronta','IA pronta','imagem criada');return{b64:item.b64_json,mediaType:media,ext,custo,modelo};
-    }catch(err){if(/could not generate.*\bSTOP\b|finish_reason\s*=\s*(?:length|max_tokens)/i.test(String(err&&err.message||err)))err.incompleta=true;registrarChamada({quem:op.agente||agenteId,agenteId,motivo:op.motivo||'geração de imagem',modelo,provedor:'openrouter',ms:Date.now()-inicio,ok:false,erro:String(err.message||err),em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null});situar('erro','Falha ao criar imagem',String(err.message||err));throw err;}
+    }catch(err){if(/could not generate.*\bSTOP\b|finish_reason\s*=\s*(?:length|max_tokens)/i.test(String(err&&err.message||err)))err.incompleta=true;registrarChamada({quem:op.agente||agenteId,agenteId,motivo:op.motivo||'geração de imagem',nivel:'imagem',rotaMotivo:'tarefa visual explícita e agente autorizado',modelo,provedor:'openrouter',ms:Date.now()-inicio,ok:false,erro:String(err.message||err),em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null});situar('erro','Falha ao criar imagem',String(err.message||err));throw err;}
     finally{estado.emVoo=Math.max(0,estado.emVoo-1);l.emVoo=Math.max(0,l.emVoo-1);S.bus.emit('ia');}
   }
 
@@ -403,10 +469,10 @@
     const agenteId = String(op.agenteId || op.idAgente || agente || 'estudio');
     const l = lane(agenteId);
     const tipo = op.tipo === 'conteudo' ? 'conteudo' : 'pensamento';
-    const pessoa=((S.state.atual()||{}).equipe||[]).find(f=>f.id===agenteId);
-    const proprio=pessoa&&pessoa.ia&&pessoa.ia[tipo==='conteudo'?'producao':'pensamento'];
-    const solicitado=op.modelo||proprio;
-    const modelo=MODELOS_OPENROUTER.some(m=>m.id===solicitado)?solicitado:(tipo==='conteudo'?cfg.producao:cfg.pensamento);
+    const rota=rotear(op);
+    const solicitado=op.modelo||rota.modelo;
+    const modelo=MODELOS_OPENROUTER.some(m=>m.id===solicitado)?solicitado:rota.modelo;
+    const metaRota={nivel:rota.nivel,rotaMotivo:rota.motivo,rotaScore:rota.score,tentativa:rota.tentativa};
     // Apenas uma estimativa preventiva de caixa; este valor nunca é enviado
     // como max_tokens e portanto jamais corta a resposta do provedor.
     const estimativaSaida = Math.max(120,Number(op.tokens)||(tipo==='conteudo'?3000:700));
@@ -476,7 +542,7 @@
           ...(provedorUsado==='openrouter'
             ? {reasoning:{effort:op.reasoning_effort || (tipo==='conteudo'?'medium':'low'),exclude:true}}
             : {reasoning_effort:op.reasoning_effort || (tipo==='conteudo'?'medium':'low')})
-        })
+        }),signal:typeof AbortSignal!=='undefined'&&AbortSignal.timeout?AbortSignal.timeout(90000):undefined
       });
       let dados=null; try{dados=await resp.json();}catch(_){}
       lerHeaders(resp, provedorUsado);
@@ -513,7 +579,7 @@
       const fim=String(escolha.finish_reason||'').toLowerCase();
       if(['length','max_tokens','content_filter'].includes(fim)){
         const custoIncompleto=numeroOpcional((dados.usage||{}).cost)||estimarCusto(provedorUsado,modelo,(dados.usage||{}).prompt_tokens,(dados.usage||{}).completion_tokens);
-        registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,modelo,provedor:provedorUsado,ms,ok:false,incompleta:true,erro:`finish_reason=${fim}`,entrada:Number((dados.usage||{}).prompt_tokens||0),saida:Number((dados.usage||{}).completion_tokens||0),tokens:Number((dados.usage||{}).total_tokens||0),custo:custoIncompleto,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados.usage||{},finishReason:fim});
+        registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,...metaRota,modelo,provedor:provedorUsado,ms,ok:false,incompleta:true,erro:`finish_reason=${fim}`,entrada:Number((dados.usage||{}).prompt_tokens||0),saida:Number((dados.usage||{}).completion_tokens||0),tokens:Number((dados.usage||{}).total_tokens||0),custo:custoIncompleto,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados.usage||{},finishReason:fim});
         const er=new Error(`Resposta interrompida pelo provedor (finish_reason=${fim}). Nenhuma entrega parcial será tratada como concluída.`);er.incompleta=true;er.textoParcial=texto;er.finishReason=fim;er.jaRegistrada=true;throw er;
       }
       if(!texto){
@@ -523,7 +589,7 @@
 
       estado.falhas=0; estado.orcamentoPreventivo=false; l.falhas=0; l.bloqueadaAte=0; sp.status='disponivel';
       const custoChamada=numeroOpcional((dados.usage||{}).cost)||estimarCusto(provedorUsado,modelo,(dados.usage||{}).prompt_tokens,(dados.usage||{}).completion_tokens);
-      registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,modelo,provedor:provedorUsado,ms,ok:true,
+      registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,...metaRota,modelo,provedor:provedorUsado,ms,ok:true,
         entrada:Number((dados.usage||{}).prompt_tokens||0),saida:Number((dados.usage||{}).completion_tokens||0),
         tokens:Number((dados.usage||{}).total_tokens||0),custo:custoChamada,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados.usage||{},finishReason:escolha.finish_reason||null});
       situar('pronta','IA pronta',`última resposta em ${(ms/1000).toFixed(1)}s`);
@@ -538,7 +604,7 @@
       }else if(!err.limiteLocal){
         l.bloqueadaAte=Date.now() + (/401|inválida/i.test(msg)?90000:Math.min(30000,5000*l.falhas));
       }
-      if(!err.jaRegistrada)registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,modelo,provedor:provedorUsado,ms:Date.now()-inicio,ok:false,erro:msg,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null});
+      if(!err.jaRegistrada)registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,...metaRota,modelo,provedor:provedorUsado,ms:Date.now()-inicio,ok:false,erro:msg,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null});
       situar((err.limiteLocal||err.orcamento)?'pronta':'erro',(err.orcamento?'Orçamento do período atingido':err.diario?'Limite diário atingido':err.limiteLocal?'Limite local atingido':'Falha na IA'),msg);
       throw err;
     }finally{
@@ -643,15 +709,16 @@
     return sincronizarOpenRouterCreditos();
   }
 
-  function salvarCfg(novaChave, pensamento, producao, _ignored1, orcamentoUSD, _ignored2, _ignored3, modoOrcamento, _ignored4, imagem) {
+  function salvarCfg(novaChave, leve, padrao, avancado, orcamentoUSD, _ignored2, _ignored3, modoOrcamento, _ignored4, imagem) {
     if (novaChave !== undefined) {
       const k = String(novaChave).trim();
       if (k && !PROVEDORES.openrouter.regex.test(k)) throw new Error(`A chave do OpenRouter começa com ${PROVEDORES.openrouter.prefixo} e é bem mais longa. Confira o que foi colado.`);
       chaves.openrouter = k;
     }
     const lista = MODELOS_DE(cfg.provedor);
-    if (lista.some(m => m.id === pensamento)) cfg.pensamento = pensamento;
-    if (lista.some(m => m.id === producao)) cfg.producao = producao;
+    if (lista.some(m => m.id === leve)) cfg.leve = leve;
+    if (lista.some(m => m.id === padrao)) cfg.padrao = padrao;
+    if (lista.some(m => m.id === avancado)) cfg.avancado = avancado;
     if (MODELOS_IMAGEM_OPENROUTER.some(m=>m.id===imagem)) cfg.imagem=imagem;
     if (orcamentoUSD !== undefined) {
       const desejado=Math.max(0,Math.min(100000,Number(orcamentoUSD)||0));
@@ -680,7 +747,7 @@
     return cfg.distribuicaoCaixa;
   }
   function configuracaoCompleta(){
-    return Boolean(chave()&&openRouterManagementKey&&MODELOS_OPENROUTER.some(m=>m.id===cfg.pensamento)&&MODELOS_OPENROUTER.some(m=>m.id===cfg.producao));
+    return Boolean(chave()&&openRouterManagementKey&&['leve','padrao','avancado'].every(k=>MODELOS_OPENROUTER.some(m=>m.id===cfg[k])));
   }
 
   function orcamento() {
@@ -697,7 +764,8 @@
     const ritmo=diasEco>0?restante/diasEco:0;
     const diario=limiteDiarioCalculado();
     const gastoDia=custoDoDia();
-    return {requisicoes:q.requisicoes,tokens:q.tokens,entrada:q.entrada,saida:q.saida,pctReq,fonte:(temTok||temReq)?cfg.provedor:'aguardando headers',provedor:cfg.provedor,ref:null,headers:h,porModelo:q.porModelo,custo:gastoDia,custoDiaUSD:gastoDia,limiteDiarioUSD:diario,restanteDiaUSD:Math.max(0,diario-gastoDia),modoOrcamento:modoIntensivo()?'intensivo':'normal',custoPeriodo:custoPeriodo(),orcamentoUSD:eco?Number(eco.caixaUSD)||0:Number(periodo.limiteUSD)||0,margemUSD:0,restanteUSD:restante,diasRestantes:diasEco,ritmoDiarioUSD:ritmo,periodoInicio:(S.state.atual()&&S.state.atual().economia&&S.state.atual().economia.cicloInicio)||periodo.inicio,periodoFim:((S.state.atual()&&S.state.atual().economia&&S.state.atual().economia.cicloInicio)||periodo.inicio)+30*86400000,esgotado:orcamentoEsgotado(),esgotadoDia:(!modoIntensivo() && orcamentoDiarioEsgotado()),tier:'paid',roteamento:'manual',openrouterSaldo:stateProvedor('openrouter').saldoConta,openrouterLimiteChave:stateProvedor('openrouter').limiteRestante,openrouterSaldoEfetivo:saldoOpenRouterDisponivel(),openrouterManagementConfigured:Boolean(openRouterManagementKey),openrouterSync:stateProvedor('openrouter').ultimoSyncCreditos,receitaUSD:eco?eco.receitaUSD:0,receitaNaoIdentificadaUSD:eco?eco.receitaNaoIdentificadaUSD:0,distribuicaoCaixa:cfg.distribuicaoCaixa,chamadas:estado.chamadas.slice()};
+    const periodoInicio=(S.state.atual()&&S.state.atual().economia&&S.state.atual().economia.cicloInicio)||periodo.inicio,periodoDias=(S.state.atual()&&S.state.atual().economia&&S.state.atual().economia.cicloDias)||periodo.dias||30;
+    return {requisicoes:q.requisicoes,tokens:q.tokens,entrada:q.entrada,saida:q.saida,pctReq,fonte:(temTok||temReq)?cfg.provedor:'aguardando headers',provedor:cfg.provedor,ref:null,headers:h,porModelo:q.porModelo,custo:gastoDia,custoDiaUSD:gastoDia,limiteDiarioUSD:diario,restanteDiaUSD:Math.max(0,diario-gastoDia),modoOrcamento:modoIntensivo()?'intensivo':'normal',custoPeriodo:custoPeriodo(),orcamentoUSD:eco?Number(eco.caixaUSD)||0:Number(periodo.limiteUSD)||0,margemUSD:0,restanteUSD:restante,diasRestantes:diasEco,ritmoDiarioUSD:ritmo,turno:turnoAtual(),periodoInicio,periodoFim:periodoInicio+periodoDias*86400000,periodoDias,esgotado:orcamentoEsgotado(),esgotadoDia:(!modoIntensivo() && orcamentoDiarioEsgotado()),tier:'paid',roteamento:'adaptativo-local',openrouterSaldo:stateProvedor('openrouter').saldoConta,openrouterLimiteChave:stateProvedor('openrouter').limiteRestante,openrouterSaldoEfetivo:saldoOpenRouterDisponivel(),openrouterManagementConfigured:Boolean(openRouterManagementKey),openrouterSync:stateProvedor('openrouter').ultimoSyncCreditos,receitaUSD:eco?eco.receitaUSD:0,receitaNaoIdentificadaUSD:eco?eco.receitaNaoIdentificadaUSD:0,distribuicaoCaixa:cfg.distribuicaoCaixa,chamadas:estado.chamadas.slice()};
   }
 
   S.ai = {
@@ -708,12 +776,13 @@
       if (p && p !== 'openrouter' && p !== 'auto') return;
       cfg.provedor='openrouter'; cfg.roteamento='manual'; cfg.tier='paid';
       const lista=MODELOS_OPENROUTER;
-      cfg.pensamento = lista.some(m=>m.id===cfg.pensamento) ? cfg.pensamento : lista[0].id;
-      cfg.producao = lista.some(m=>m.id===cfg.producao) ? cfg.producao : (lista[1]||lista[0]).id;
+      cfg.leve = lista.some(m=>m.id===cfg.leve) ? cfg.leve : NIVEL_PADRAO.leve;
+      cfg.padrao = lista.some(m=>m.id===cfg.padrao) ? cfg.padrao : NIVEL_PADRAO.padrao;
+      cfg.avancado = lista.some(m=>m.id===cfg.avancado) ? cfg.avancado : NIVEL_PADRAO.avancado;
       S.local.setJson(K_CFG,cfg); estado.bloqueadaAte=0; estado.falhas=0;
       situar(chave()?'pronta':'off',chave()?'IA pronta':'IA desligada',chave()?'usando OpenRouter':'informe a chave do OpenRouter');
     },    provedorAtual: () => cfg.provedor, cfg, estado, chamar, gerarImagem, deliberar, perguntar, campos, corpo, testar, salvarCfg, salvarChaves, salvarChaveGerenciamentoOpenRouter, salvarDistribuicaoCaixa, configuracaoCompleta,
-    orcamento, pronta, disponivel, PRECOS_POR_PROVEDOR, orcamentoEsgotado, orcamentoDiarioEsgotado, orcamentoIndisponivel, restanteUSD, restanteDiaUSD, custoPeriodo, custoDoDia,
+    orcamento, rotear, turnoAtual, pronta, disponivel, PRECOS_POR_PROVEDOR, orcamentoEsgotado, orcamentoDiarioEsgotado, orcamentoIndisponivel, restanteUSD, restanteDiaUSD, custoPeriodo, custoDoDia, podeChamarEstimado,
     sincronizarFornecedor: sincronizarOpenRouter, sincronizarCreditosOpenRouter: sincronizarOpenRouterCreditos,
     statusFornecedores: () => ({ openrouter: stateProvedor('openrouter'), roteamento: 'manual', openrouterSaldo: saldoOpenRouterDisponivel(), openrouterManagementConfigured: Boolean(openRouterManagementKey) }),
     reservarAutonomia, faltaParaAutonomia, msDeHeader,

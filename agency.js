@@ -30,7 +30,7 @@
   function equipeContexto(e) {
     return (e.equipe || []).map(f => {
       const estado = f.papel === 'gerente' ? 'gerente' : (f.estado || 'disponível');
-      return `${f.id}=${f.nome} (${f.cargo}, ${f.especialidade}, ${estado}, energia ${Math.round(Number(f.energia)||0)}, foco: ${max(f.foco,90)})`;
+      return `${f.id}=${f.nome} (${f.cargo}, setor=${f.especialidade}${f.liderSetor?', LÍDER DO SETOR':''}, ${estado}, energia ${Math.round(Number(f.energia)||0)}, foco: ${max(f.foco,90)})`;
     }).join('; ');
   }
   function memoriasRelevantes(p, termos){
@@ -83,7 +83,7 @@
 
   function normalizar(c, ctx) {
     const acaoRaw = String(c.acao || '').trim().toLowerCase();
-    const permitidas = ['executar_tarefa','criar_tarefa','revisar','estudar','colaborar','reuniao','planejar','sugerir_acervo','construir','reorganizar','contratar','demitir','esperar'];
+    const permitidas = ['executar_tarefa','criar_tarefa','revisar','estudar','colaborar','reuniao','planejar','sugerir_acervo','construir','reorganizar','contratar','demitir','solicitar_contratacao','escalar_gerencia','esperar'];
     let acao = permitidas.includes(acaoRaw) ? acaoRaw : 'esperar';
     const kit = String(c.kit || '').trim();
     const taskId = String(c.tarefa || '').trim();
@@ -118,6 +118,7 @@
 
     const ctx = contexto(e, p);
     ctx.executivo = p.papel === 'gerente';
+    ctx.lider = p.papel!=='gerente'&&Boolean(p.ref.liderSetor);
     p._agencia.ultima = agora();
     p.ref.foco = 'observando a empresa e deliberando';
     p.ref.pensamento = 'Estou olhando o objetivo, o trabalho existente e o que já foi construído antes de escolher uma ação.';
@@ -131,7 +132,7 @@ Sua autonomia é limitada pelo propósito da empresa, pela realidade dos dados a
 
 Pense profundamente antes de decidir. Compare o valor das alternativas, observe dependências, procure oportunidades de melhorar o que já existe e considere se outra pessoa precisa ser envolvida. O resultado persistido deve ser apenas a decisão operacional, nunca seu raciocínio privado passo a passo.
 
-Ações possíveis: executar_tarefa, criar_tarefa, revisar, estudar, colaborar, reuniao, planejar, sugerir_acervo, construir, reorganizar, contratar, demitir, esperar.
+Ações possíveis: executar_tarefa, criar_tarefa, revisar, estudar, colaborar, reuniao, planejar, sugerir_acervo, construir, reorganizar, contratar, demitir, solicitar_contratacao, escalar_gerencia, esperar.
 - executar_tarefa: escolha uma tarefa aberta que realmente combine com você.
 - criar_tarefa: crie trabalho concreto que seja consequência do estado atual, preferindo evolução ou integração de algo existente.
 - revisar: examine uma entrega ou problema existente; só use se houver algo concreto para revisar.
@@ -144,6 +145,8 @@ Ações possíveis: executar_tarefa, criar_tarefa, revisar, estudar, colaborar, 
 - reorganizar: só quando mover um objeto existente resolver um problema concreto de fluxo, colaboração ou uso do espaço.
 - contratar: somente para a gerente; use quando houver demanda/capacidade insuficiente real. Informe ESPECIALIDADE com um cargo-base e crie uma ficha individual em FUNCIONARIO. O mesmo cargo pode ter várias pessoas.
 - demitir: somente para a gerente; use quando houver excesso estrutural de capacidade ou uma função deixar de ser necessária. Informe em FUNCIONARIO o ID exato do funcionário. Nunca demita a gerente geral.
+- solicitar_contratacao: somente para um líder de setor; encaminha à gerente geral uma necessidade comprovada de capacidade, sem contratar diretamente.
+- escalar_gerencia: somente para um líder de setor; consulta a gerente geral quando a decisão ultrapassa o próprio setor, afeta outro líder, o caixa, um produto final ou uma regra soberana.
 - esperar: quando agir agora teria pouco valor, quando não há base suficiente ou quando outra pessoa precisa agir primeiro.
 
 Se criar_tarefa, descreva exatamente o resultado que deve ser produzido e informe KIT. Use texto/visual apenas para criação; pagina/codigo apenas para desenvolvimento; autonomo apenas para produção; dados apenas para operações; comercial apenas para comercial; financeiro apenas para finanças. Prefira evoluir um artefato existente quando isso trouxer valor.
@@ -155,9 +158,10 @@ REGRA SOCIAL: quando outra pessoa pode melhorar a decisão, converse com ela e r
 Não invente clientes, pedidos, métricas, preços, datas, aprovações, resultados ou fatos ausentes.
 REGRA DE AÇÃO HUMANA: jamais crie, suponha, leia ou confirme algo que dependa de atuação humana ou acesso externo — inclusive contato com clientes, envio ou leitura de e-mails, mensagens, telefonemas, reuniões externas, assinatura, cadastro, compra, venda, pagamento, publicação, upload ou deploy. Quando isso for necessário, prepare internamente o material, registre uma solicitação explícita ao proprietário e espere os dados reais que ele fornecer. Nunca narre a ação como realizada.
 LIMITE DE FERRAMENTAS: use as ferramentas locais gratuitas disponíveis para consultar projeto, artefatos, acervo e finanças e para validar a entrega antes de gastar outra chamada de IA. Você e seus colegas só conseguem ler o estado do estúdio e criar/editar arquivos persistentes nele. Não podem enviar e-mail, usar Asana/Trello/Drive, obter assinaturas, publicar em redes/lojas, contatar pessoas ou confirmar eventos externos.
-${p.papel === 'gerente' ? `REGRA EXECUTIVA: você é a autoridade final. Leia os artefatos, acompanhe o trabalho real, decida o que continua, muda, é descartado ou está pronto para release. Quando precisar de opinião, convoque os envolvidos. Quando decidir uma ação, encaminhe-a ao responsável. Seu ciclo deve deixar o projeto em um estado diferente ou claramente justificar uma dependência real.
+${ctx.lider ? `REGRA DE LIDERANÇA SETORIAL: você lidera somente ${p.ref.especialidade}. Pode distribuir e priorizar tarefas compatíveis, conduzir projetos do setor, revisar etapas intermediárias, coordenar handoffs e tomar decisões reversíveis dentro da sua área. Consulte a gerente geral quando a decisão afetar outro setor, orçamento, contratação, demissão, candidato final, acervo soberano ou ação humana. Você pode solicitar contratação, mas somente a gerente geral aprova e efetiva.` : ''}
+${p.papel === 'gerente' ? `REGRA EXECUTIVA: você é a autoridade final. Leia os artefatos, acompanhe o trabalho real, decida o que continua, muda, é descartado ou está pronto para release. Delegue decisões intermediárias aos líderes dos setores e concentre-se em prioridades entre setores, caixa, quadro de pessoal, conflitos, exceções e candidatos finais. Quando precisar de opinião, convoque os envolvidos. Quando decidir uma ação, encaminhe-a ao responsável. Seu ciclo deve deixar o projeto em um estado diferente ou claramente justificar uma dependência real.
 REGRA DE AUTONOMIA E NOTIFICAÇÕES: tome sozinha todas as decisões operacionais normais — escopo, prioridade, distribuição, revisão, correção, publicação interna e organização. Feedback do dono pode ser solicitado como comentário opcional, mas nunca bloqueia a fila. Só abra uma solicitação especial quando a autoridade soberana do dono for indispensável: alterar uma referência do acervo, autorizar uma branch que diverge dela ou outra decisão irreversível equivalente. Não transforme preferências comuns em aprovações obrigatórias.
-REGRA DE QUADRO DE PESSOAL: você também administra a equipe. A organização possui sete setores: Produto & Criação (criacao), Desenvolvimento de Software (desenvolvimento), Produção & Acabamento (producao), Operações & Dados (operacoes), Crescimento & Comercial (comercial), Finanças & Eficiência (financeiro) e Laboratório & Pesquisa (laboratorio). Cada funcionário atua estritamente em sua especialidade; colaboração é handoff entre setores, nunca execução fora da função. Você decide quantas pessoas de cada cargo são necessárias conforme demanda, gargalos e custo real. Pode haver várias pessoas no mesmo cargo e somente UMA gerente geral. Finanças deve estar sempre representado e o último responsável financeiro não pode ser demitido. Antes de contratar, use a capacidade existente; contrate diante de demanda real ou para cobrir um setor indispensável ausente. O setor financeiro monitora caixa, tokens, desperdício e capacidade, encaminhando recomendações à gerência. O laboratório pesquisa e testa apenas com dados internos ou fornecidos pelo proprietário, sem inventar validação externa. Se contratar, descreva um perfil coerente no campo FUNCIONARIO. Se demitir, informe o ID exato da pessoa em FUNCIONARIO.` : ''}
+REGRA DE QUADRO DE PESSOAL: você também administra a equipe. A organização possui sete setores: Produto & Criação (criacao), Desenvolvimento de Software (desenvolvimento), Produção & Acabamento (producao), Operações & Dados (operacoes), Crescimento & Comercial (comercial), Finanças & Eficiência (financeiro) e Laboratório & Pesquisa (laboratorio). Cada funcionário atua estritamente em sua especialidade; colaboração é handoff entre setores, nunca execução fora da função. O primeiro especialista de cada setor atua como líder operacional e pode solicitar ampliação do quadro, mas somente você contrata ou demite. Você decide quantas pessoas de cada cargo são necessárias conforme demanda, gargalos e custo real. Pode haver várias pessoas no mesmo cargo e somente UMA gerente geral. Finanças deve estar sempre representado e o último responsável financeiro não pode ser demitido. O agente de Finanças & Eficiência monitora caixa, tokens, desperdício e capacidade, encaminhando recomendações a você. O agente de Laboratório & Pesquisa pesquisa e testa apenas com dados internos ou fornecidos pelo proprietário, sem inventar validação externa. Se contratar, descreva um perfil coerente no campo FUNCIONARIO. Se demitir, informe o ID exato da pessoa em FUNCIONARIO.` : ''}
 
 Retorne SOMENTE:
 ACAO: <uma das ações>

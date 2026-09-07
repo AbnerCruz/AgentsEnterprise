@@ -76,6 +76,7 @@
       const m = mesa(i, (e.equipe || []).length, f);
       return {
         id: f.id, nome: f.nome, papel: f.papel, cargo: f.cargo,
+        liderSetor: Boolean(f.liderSetor),
         especialidade: ({dados:'operacoes',geral:'producao'}[f.especialidade] || f.especialidade || 'producao'), cor: f.cor,
         mesa: m, pos: { x: m.x, y: m.y + 40 }, alvo: null,
         estado: 'sentado', balao: null, ocupado: false, progresso: 0,
@@ -92,6 +93,19 @@
   function logPessoa(p, texto, tag) { if (p && p.id) S.state.registrarPessoa(p.id, texto, tag || 'info'); }
   function logEscritorio(texto, tag) { S.state.registrar(texto, tag || 'info'); }
   const gerente = () => rt.find(p => p.papel === 'gerente') || null;
+  const nomeSetor = id => (ESPECIALIDADES.find(x=>x.id===id)||{}).cargo || id || 'área não definida';
+  function liderDoSetor(especialidade){return rt.find(p=>p.papel==='func'&&p.especialidade===especialidade&&p.ref.liderSetor)||rt.find(p=>p.papel==='func'&&p.especialidade===especialidade)||null;}
+  function rotuloAgente(p){
+    const ref=p&&p.ref?p.ref:p;
+    if(!ref)return 'Sistema';
+    return `${ref.nome} (${ref.papel==='gerente'?'Gerência Geral':nomeSetor(ref.especialidade)+(ref.liderSetor?' · líder':'')})`;
+  }
+  function garantirLiderancas(e){
+    const funcs=(e.equipe||[]).filter(f=>f.papel==='func'), grupos={};
+    funcs.forEach(f=>(grupos[f.especialidade]=grupos[f.especialidade]||[]).push(f));
+    Object.values(grupos).forEach(grupo=>{const lider=grupo.find(f=>f.liderSetor)||grupo[0];grupo.forEach(f=>f.liderSetor=f===lider);});
+    rt.forEach(p=>{p.liderSetor=Boolean(p.ref&&p.ref.liderSetor);});
+  }
 
   const MAX_CORRECOES_LINHAGEM = 3;
   function chaveLinhagem(a) { return String((a && a.linhagem) || (a && a.id) || 'sem-linhagem'); }
@@ -146,8 +160,13 @@
     }
     return false;
   }
-  function conteudoParaAvaliacao(v) {
-    return String(v||'');
+  function conteudoParaAvaliacao(v,tipo) {
+    const conteudo=String(v||''),ext=String(tipo||'').toLowerCase();
+    if(['png','jpg','jpeg','webp','gif'].includes(ext)||/^data:image\//i.test(conteudo)){
+      const mime=(conteudo.match(/^data:([^;,]+)/i)||[])[1]||`image/${ext||'desconhecida'}`;
+      return `[ATIVO VISUAL BINÁRIO — os bytes não são texto e não foram enviados como Base64 ao modelo. mime=${mime}; caracteres=${conteudo.length}; hash-local=${hashVisual(conteudo)}. A validação textual não pode afirmar composição, legibilidade ou qualidade visual.]`;
+    }
+    return conteudo;
   }
   function relacionadosParaAvaliacao(e, cand) {
     const todos=(e.arquivos||[]).filter(a=>a.id!==cand.id && a.projectId===cand.projectId);
@@ -265,7 +284,9 @@
   function registrarReuniao(quem,texto,tipo){
     const e=S.state.atual(); if(!e)return;
     e.reuniao=e.reuniao||{mensagens:[],relatorios:[],reunioes:[]};
-    e.reuniao.mensagens.push({id:uid('m'),t:Date.now(),quem:String(quem),texto:String(texto).slice(0,1200),tipo:tipo||'fala'});
+    const pessoaReal=(e.equipe||[]).find(f=>f.id===quem||f.nome===quem);
+    const autor=pessoaReal?rotuloAgente(pessoaReal):String(quem||'Sistema');
+    e.reuniao.mensagens.push({id:uid('m'),t:Date.now(),quem:autor,agenteId:pessoaReal&&pessoaReal.id||null,setor:pessoaReal&&pessoaReal.especialidade||null,texto:String(texto).slice(0,1200),tipo:tipo||'fala'});
     e.reuniao.mensagens=e.reuniao.mensagens.slice(-180);
     S.state.gravar();S.bus.emit('reuniao');
   }
@@ -279,24 +300,40 @@
 
   function analisarFinancas(e,forcar){
     if(!e)return null;e.financeiro=e.financeiro||{analises:[],recomendacoes:[]};
+    if(!forcar&&e.fundacao&&e.fundacao.estado!=='operacional')return (e.financeiro.analises||[]).slice(-1)[0]||null;
     const calls=e.iaChamadas||[],abertas=(e.tarefas||[]).filter(t=>t.status!=='feita'&&!t.bloqueada),funcs=(e.equipe||[]).filter(f=>f.papel==='func');
     const custo=calls.reduce((n,c)=>n+Number(c.custo||0),0),tokens=calls.reduce((n,c)=>n+Number(c.tokens||0),0),falhas=calls.filter(c=>!c.ok&&!c.incompleta).length,incompletas=calls.filter(c=>c.incompleta).length;
-    const imagens=calls.filter(c=>/imagem/i.test(String(c.motivo||''))),custoImagem=imagens.reduce((n,c)=>n+Number(c.custo||0),0);
+    const imagens=calls.filter(c=>/(imagem|visual)/i.test(String(c.motivo||''))||/image/i.test(String(c.modelo||''))),custoImagem=imagens.reduce((n,c)=>n+Number(c.custo||0),0);
     const demanda={};abertas.forEach(t=>{const esp=(S.factory.porId(t.kit||'autonomo')||{}).especialidade||'producao';demanda[esp]=(demanda[esp]||0)+1;});
     const quadro={};funcs.forEach(f=>quadro[f.especialidade]=(quadro[f.especialidade]||0)+1);
-    const assinatura=JSON.stringify({n:calls.length,c:Number(custo.toFixed(8)),a:abertas.length,f:funcs.length,d:demanda,q:quadro});
+    const capacidade=capacidadeFinanceiraEquipe(e,calls,funcs);
+    const assinatura=JSON.stringify({n:calls.length,c:Number(custo.toFixed(8)),a:abertas.length,f:funcs.length,d:demanda,q:quadro,max:capacidade.maxFuncionarios});
     const anterior=(e.financeiro.analises||[]).slice(-1)[0];if(!forcar&&anterior&&anterior.assinatura===assinatura&&Date.now()-Number(anterior.em||0)<60000)return anterior;
-    const alertas=[];
-    if(!quadro.financeiro)alertas.push('Setor financeiro obrigatório sem responsável.');
-    Object.entries(demanda).forEach(([esp,q])=>{if(q>0&&!quadro[esp])alertas.push(`${q} tarefa(s) de ${esp} sem especialista contratado.`);});
-    Object.entries(quadro).forEach(([esp,q])=>{if(q>1&&!demanda[esp])alertas.push(`Capacidade ociosa em ${esp}: ${q} especialistas e nenhuma tarefa compatível; a gerência deve avaliar realocação futura ou um desligamento, sem executar fora da especialidade.`);});
-    if(calls.length>=5&&falhas/calls.length>0.15)alertas.push(`Taxa de falhas alta: ${(falhas/calls.length*100).toFixed(1)}%.`);
-    if(incompletas)alertas.push(`${incompletas} saída(s) interrompida(s) permanecem incompletas.`);
-    if(custo>0&&custoImagem/custo>0.25)alertas.push(`Imagens representam ${(custoImagem/custo*100).toFixed(1)}% do custo de IA.`);
-    const eco=e.economia||{},recomendacao=alertas[0]||'Custos sob controle; manter modelos leves na produção, ferramentas locais e revisão forte antes de repetir chamadas.';
-    const analise={id:uid('fin'),em:Date.now(),assinatura,caixaUSD:Number(eco.caixaUSD||0),gastoUSD:custo,custoUSD:custo,tokens,chamadas:calls.length,falhas,incompletas,custoImagemUSD:custoImagem,demanda,quadro,recomendacao,alertas};
+    const ocorrencias=[];
+    if(!quadro.financeiro)ocorrencias.push({codigo:'financeiro_sem_responsavel',texto:'Não há agente responsável por Finanças & Eficiência.',nivel:'critico'});
+    ESPECIALIDADES.forEach(esp=>{if(!quadro[esp.id])ocorrencias.push({codigo:`setor_sem_chefe:${esp.id}`,texto:`${esp.cargo} ainda não possui chefe responsável. Contratar somente se a capacidade financeira calculada permitir.`,nivel:'alto',especialidade:esp.id});});
+    Object.entries(demanda).forEach(([esp,q])=>{if(q>0&&!quadro[esp])ocorrencias.push({codigo:`sem_especialista:${esp}`,texto:`${q} tarefa(s) exigem ${nomeSetor(esp)}, mas não há agente especializado contratado.`,nivel:'alto',especialidade:esp});});
+    Object.entries(quadro).forEach(([esp,q])=>{if(q>1&&!demanda[esp])ocorrencias.push({codigo:`capacidade_ociosa:${esp}`,texto:`${q} agentes de ${nomeSetor(esp)} estão sem tarefa compatível; a liderança deve revisar a capacidade sem deslocá-los para outra especialidade.`,nivel:'medio',especialidade:esp});});
+    if(calls.length>=5&&falhas/calls.length>0.15)ocorrencias.push({codigo:'taxa_falha_alta',texto:`Taxa de falhas alta: ${(falhas/calls.length*100).toFixed(1)}% (${falhas}/${calls.length}).`,nivel:'alto',taxa:falhas/calls.length});
+    if(incompletas)ocorrencias.push({codigo:'saidas_incompletas',texto:`${incompletas} saída(s) interrompida(s) permanecem incompletas.`,nivel:'alto',quantidade:incompletas});
+    if(custo>0&&custoImagem/custo>0.25)ocorrencias.push({codigo:'custo_visual_alto',texto:`Produção visual representa ${(custoImagem/custo*100).toFixed(1)}% do custo de IA (US$ ${custoImagem.toFixed(5)}).`,nivel:'alto',percentual:custoImagem/custo});
+    if(funcs.length>capacidade.maxFuncionarios)ocorrencias.push({codigo:'equipe_acima_capacidade',texto:`A equipe tem ${funcs.length} agentes, acima da capacidade financeira projetada de ${capacidade.maxFuncionarios} para este turno.`,nivel:'alto',capacidade});
+    const alertas=ocorrencias.map(x=>x.texto),eco=e.economia||{},recomendacao=alertas[0]||'Custos sob controle; manter modelos leves na produção, ferramentas locais e revisão forte antes de repetir chamadas.';
+    const analise={id:uid('fin'),em:Date.now(),assinatura,caixaUSD:Number(eco.caixaUSD||0),gastoUSD:custo,custoUSD:custo,tokens,chamadas:calls.length,falhas,incompletas,custoImagemUSD:custoImagem,demanda,quadro,capacidadeEquipe:capacidade,recomendacao,alertas,ocorrencias};
     e.financeiro.analises=(e.financeiro.analises||[]).concat(analise).slice(-300);
-    if(alertas.length){const chave=alertas.join('|');const ultima=(e.financeiro.recomendacoes||[]).slice(-1)[0];if(!ultima||ultima.chave!==chave){const rec={id:uid('frec'),em:Date.now(),chave,status:'pendente_gerencia',texto:alertas.join(' '),analiseId:analise.id};e.financeiro.recomendacoes=(e.financeiro.recomendacoes||[]).concat(rec).slice(-120);e.gerencia.recomendacao=`Finanças: ${rec.texto}`;const f=funcs.find(x=>x.especialidade==='financeiro');registrarReuniao(f?f.nome:'Setor financeiro',`Recomendação à gerência: ${rec.texto}`,'financeiro');S.state.registrar(`Análise financeira: ${rec.texto}`,'financeiro',f&&f.id);}}
+    if(alertas.length){
+      const chave=ocorrencias.map(x=>x.codigo).sort().join('|'),agora=Date.now();
+      const anteriorRec=(e.financeiro.recomendacoes||[]).slice().reverse().find(x=>x.chave===chave);
+      if(anteriorRec&&agora-Number(anteriorRec.em||0)<15*60*1000){
+        anteriorRec.atualizadoEm=agora;anteriorRec.texto=alertas.join(' ');anteriorRec.analiseId=analise.id;anteriorRec.ocorrencias=ocorrencias;
+      }else{
+        const rec={id:uid('frec'),em:agora,atualizadoEm:agora,chave,status:'pendente_gerencia',texto:alertas.join(' '),analiseId:analise.id,ocorrencias};
+        e.financeiro.recomendacoes=(e.financeiro.recomendacoes||[]).concat(rec).slice(-120);e.gerencia.recomendacao=`Finanças: ${rec.texto}`;
+        const f=funcs.find(x=>x.especialidade==='financeiro');
+        if(f){registrarReuniao(f.nome,`Recomendação à gerente geral: ${rec.texto}`,'financeiro');logPessoa(rtById(f.id)||{id:f.id},`analisou custos e encaminhou à gerente geral: ${rec.texto}`,'financeiro');}
+        else S.state.registrar(`Sistema: a empresa precisa contratar um agente de Finanças & Eficiência. ${rec.texto}`,'financeiro');
+      }
+    }
     S.state.gravar();S.bus.emit('financeiro');return analise;
   }
 
@@ -456,13 +493,35 @@
     {estado:'comendo',balao:'pegando um café',estacao:'cafe',rotina:'refeicao'}
   ];
   function estaOcioso(p){return !!(p&&!p.ocupado&&['sentado','ocioso','celular','lendo','assistindo','comendo'].includes(p.estado));}
+  function estimativaTarefa(e,p,t){
+    const base=t.baseArquivoId&&(e.arquivos||[]).find(a=>a.id===t.baseArquivoId);
+    const relacionados=(e.arquivos||[]).filter(a=>a.projectId===t.projectId&&(!base||a.id!==base.id)).slice(0,6);
+    const caracteres=(base?String(base.conteudo||'').length:0)+relacionados.reduce((n,a)=>n+(/^data:image\//i.test(String(a.conteudo||''))?160:String(a.conteudo||'').length),0)+24000;
+    return S.ai.podeChamarEstimado({tipo:t.kit==='visual'?'imagem':'conteudo',agenteId:p&&p.id,entrada:Math.ceil(caracteres/4),saida:3000,custo:0.05,etapa:t.etapaDestino,correcoes:Number(t.rodada||0),motivo:'pré-execução de '+t.titulo});
+  }
+  function bloquearTarefaSemOrcamento(e,p,t){
+    if(!S.ai.podeChamarEstimado)return false;
+    const prev=estimativaTarefa(e,p,t);if(prev.ok){delete t.aguardandoOrcamentoDia;delete t.motivoEsperaOrcamento;return false;}
+    const dia=new Date().toISOString().slice(0,10);t.status='aberta';delete t._agenteEmExecucao;t.aguardandoOrcamentoDia=dia;t.motivoEsperaOrcamento=prev.motivo;
+    if(t.ultimoLogOrcamentoDia!==dia){t.ultimoLogOrcamentoDia=dia;S.state.registrar(`${rotuloAgente(p)} preservou “${t.titulo}” na fila sem gastar pensamento: ${prev.motivo}`,'orcamento',p&&p.id);}
+    S.state.gravar();return true;
+  }
   function tarefaAdequadaLocal(e,p){
     const funcionarios=new Set(rt.filter(x=>x.papel==='func').map(x=>x.id));
     (e.tarefas||[]).forEach(t=>{if(t.status==='aberta'&&t.para&&!funcionarios.has(t.para))t.para=null;});
-    const abertas=tarefasAbertas().filter(t=>dependenciasOK(t)&&!t.bloqueada&&!t._agenteEmExecucao);
+    const dia=new Date().toISOString().slice(0,10),intensivo=S.ai.orcamento&&S.ai.orcamento().modoOrcamento==='intensivo';
+    const abertas=tarefasAbertas().filter(t=>{
+      if(!dependenciasOK(t)||t.bloqueada||t._agenteEmExecucao)return false;
+      if(intensivo||t.aguardandoOrcamentoDia!==dia)return true;
+      const atual=estimativaTarefa(e,p,t);if(atual.ok){delete t.aguardandoOrcamentoDia;delete t.motivoEsperaOrcamento;return true;}return false;
+    });
     const compativel=t=>(S.factory.porId(t.kit)||{}).especialidade===p.especialidade;
     const propria=abertas.find(t=>t.para===p.id&&compativel(t)); if(propria)return propria;
     const livres=abertas.filter(t=>!t.para);
+    if(p.liderSetor){
+      const subordinadoLivre=rt.some(x=>x.papel==='func'&&!x.liderSetor&&!x.ocupado&&Number(x.ref.energia)>10&&x.especialidade===p.especialidade);
+      if(subordinadoLivre)return null;
+    }
     return livres.find(compativel)||null;
   }
   function entrarOcio(p, motivo){
@@ -904,9 +963,13 @@
     const base=dados&&dados.baseArquivoId ? (e.arquivos||[]).find(a=>a.id===dados.baseArquivoId) : null;
     if(base && base.kit) return base.kit;
     const explicito=String(dados&&dados.kit||'').trim();
-    if(explicito && explicito!=='autonomo') return explicito;
     const txt=`${dados&&dados.titulo||''} ${dados&&dados.briefing||''}`.toLowerCase();
-    if(/imagem|ilustra[cç][aã]o|capa|banner|logo|logotipo|sprite|thumbnail|miniatura|poster|p[oô]ster|concept art|arte visual/.test(txt)) return 'visual';
+    const pedidoVisual=/\b(?:criar|gerar|produzir|desenhar|ilustrar|pintar|refinar)\b[^.\n]{0,80}\b(?:imagem|ilustra[cç][aã]o|capa|banner|logo|logotipo|sprite|thumbnail|miniatura|poster|p[oô]ster|concept art|arte visual)\b/.test(txt);
+    if(explicito&&S.factory.porId(explicito)){
+      if(explicito==='visual'&&!pedidoVisual&&/plano de neg[oó]cio|planejamento|cronograma|estrutura|documento|relat[oó]rio|briefing|estrat[eé]gia/.test(txt))return 'autonomo';
+      return explicito;
+    }
+    if(pedidoVisual) return 'visual';
     if(/software|javascript|typescript|aplica[cç][aã]o|c[oó]digo|programa[cç][aã]o|backend|api/.test(txt)) return 'codigo';
     if(/html|css|site|p[aá]gina|interface|frontend|web/.test(txt)) return 'pagina';
     if(/or[cç]amento|financeir|custo|caixa|tokens|desperd[ií]cio/.test(txt)) return 'financeiro';
@@ -953,10 +1016,15 @@
     const etapas=historicoPipeline(e,a,a&&a.classe);
     return ['esboco','prototipo','candidato'].every(x=>etapas.includes(x));
   }
+  function chaveSemanticaTarefa(dados,titulo,projetoId,etapa){
+    const ignorar=new Set(['para','como','uma','das','dos','inicial','iniciais','rascunho','produzir','producao','redacao','elaborar','iniciar','necessario','necessaria','obter','avancar','conteudo','principal','primeiro','tres']);
+    const termos=normalizarFrase(`${titulo} ${dados.briefing||''}`).split(' ').filter(x=>x.length>3&&!ignorar.has(x)).map(x=>x.replace(/(?:oes|ais|os|as|s)$/,'')).filter(Boolean);
+    return `${projetoId||'principal'}|${dados.kit||'autonomo'}|${dados.baseArquivoId||'sem-base'}|${etapa}|${[...new Set(termos)].sort().slice(0,30).join('.')}`;
+  }
 
   function novaTarefa(dados) {
     const e = S.state.atual(); if (!e) return null;
-    dados=Object.assign({},dados||{}); dados.kit=inferirKitTarefa(dados,e);
+    dados=Object.assign({},dados||{}); const kitDeclarado=String(dados.kit||'').trim();dados.kit=inferirKitTarefa(dados,e);dados.saidaVisualAutorizada=dados.kit==='visual'&&(kitDeclarado==='visual'||Boolean(dados.baseArquivoId));
     const clienteVisivel=inferirClienteVisivel(dados,e);
     const etapaDestino=etapaTarefa(dados,e,clienteVisivel);
     const titulo = limpo(dados.titulo, 24); if (!titulo || titulo.length < 6) return null;
@@ -967,18 +1035,23 @@
       e.decisoesCriticas=(e.decisoesCriticas||[]).concat(dep);registrarReuniao('Gerência',`Preciso de uma ação externa do proprietário para continuar: ${titulo}. Não registrei a ação como realizada.`,'solicitacao_humana');S.state.registrar(`Dependência humana encaminhada à sala de reuniões: ${titulo}.`,'decisao');S.state.gravar();S.bus.emit('reuniao');return null;
     }
     const baseAlvo = dados.baseArquivoId || null;
-    // Não bloqueie duas tarefas só porque usam o mesmo kit: um produto real pode
-    // ter várias frentes no mesmo setor. A deduplicação forte é título+base+etapa.
-    // Isso também permite que a mesma base atravesse etapas diferentes sem que
-    // um título semelhante faça o pipeline parecer concluído antes da hora.
-    if (e.tarefas.some(t => t.status !== 'feita' && t.titulo.toLowerCase() === titulo.toLowerCase() &&
-        (t.baseArquivoId || null) === baseAlvo && String(t.etapaDestino||'') === etapaDestino)) return null;
     const projeto = e.projetos.find(p => p.id === dados.projectId) || e.projetos.find(p => p.status === 'ativo') || e.projetos[0];
+    const chaveSemantica=chaveSemanticaTarefa(dados,titulo,projeto&&projeto.id,etapaDestino);
+    const equivalente=(e.tarefas||[]).find(t=>{
+      if(t.status==='feita'||t.bloqueada||t.projectId!==(projeto&&projeto.id)||String(t.etapaDestino||'')!==etapaDestino)return false;
+      if((t.baseArquivoId||null)!==baseAlvo||t.kit!==(dados.kit||'autonomo'))return false;
+      if(t.chaveSemantica&&t.chaveSemantica===chaveSemantica)return true;
+      const atual=`${t.titulo||''} ${t.briefing||''}`,novo=`${titulo} ${dados.briefing||''}`;
+      return similaridadeTexto(atual,novo)>=0.58;
+    });
+    if(equivalente){equivalente.ultimaSolicitacaoEquivalente=Date.now();equivalente.repeticoesEvitadas=Number(equivalente.repeticoesEvitadas||0)+1;return null;}
     const t = {
       id: uid('t'), titulo, kit: dados.kit || 'autonomo', briefing: limpo(dados.briefing) || titulo,
+      chaveSemantica,
       rodada: Number(dados.rodada) || 0,
       para:(()=>{const alvo=(e.equipe||[]).find(f=>f.id===dados.para),exigida=(S.factory.porId(dados.kit||'autonomo')||{}).especialidade;return alvo&&alvo.papel==='func'&&alvo.especialidade===exigida?alvo.id:null;})(), status: 'aberta', origem: dados.origem || 'gerente',
       clienteVisivel, escopo: clienteVisivel ? 'produto' : 'interno', etapaDestino,
+      saidaVisualAutorizada:Boolean(dados.saidaVisualAutorizada),
       projectId: projeto ? projeto.id : null,
       acervoBaseIds:Array.isArray(dados.acervoBaseIds)?dados.acervoBaseIds.slice(0,20):(projeto&&Array.isArray(projeto.acervoIds)?projeto.acervoIds.slice(0,20):[]),
       dependsOn: Array.isArray(dados.dependsOn) ? dados.dependsOn : [],
@@ -1014,6 +1087,7 @@
     if(!candidato) {
       t.status='aberta'; S.state.gravar(); return false;
     }
+    if(bloquearTarefaSemOrcamento(e,candidato,t))return false;
     // Claim atômico antes de qualquer await: impede dois ciclos de reservarem
     // a mesma pessoa/tarefa durante a animação de recebimento.
     t.para=candidato.id;t._agenteEmExecucao=candidato.id;candidato.ocupado=true;candidato.tarefa=t.titulo;
@@ -1059,8 +1133,17 @@
     cand.tentativasAvaliacao=Number(cand.tentativasAvaliacao||0)+1;
     g.ocupado=true; g.estado='trabalhando'; g.balao=interno?'revisando material interno':`revisando ${etapa}`;
     try{
+      const visual=['png','jpg','jpeg','webp','gif'].includes(String(cand.tipo||'').toLowerCase())||/^data:image\//i.test(String(cand.conteudo||''));
+      if(visual){
+        const valido=Boolean(cand.validacao&&cand.validacao.pronto)&&/^data:image\//i.test(String(cand.conteudo||''));cand.avaliado=true;
+        if(!valido){cand.revisaoPausada=true;cand.motivoEncerramento='arquivo visual sem bytes ou validação local';registrarReuniao(g.nome,`Retive ${cand.nome}: a validação local encontrou um arquivo visual inválido. Nenhuma IA textual recebeu Base64.`,'alerta');return;}
+        if(interno){cand.aceitoInternamente=true;registrarReuniao(g.nome,`ACEITE INTERNO TÉCNICO: ${cand.nome} foi preservado como ativo visual válido. A revisão não alegou enxergar composição ou legibilidade.`,'decisao');return;}
+        if(prox){const etapas=historicoPipeline(e,cand,prox);cand.classe=prox;cand.avaliado=false;cand.pipeline={versao:1,etapas,etapaAtual:prox,clienteVisivel:true};cand.editadoEm=Date.now();registrarReuniao(g.nome,`${cand.nome} passou de ${etapa} para ${prox} no mesmo artefato após validação técnica dos bytes. Nenhuma nova imagem foi gerada para simular progresso.`,'decisao');}
+        return;
+      }
       const local=cand.validacao ? ((cand.validacao.notas||[]).join(' | ')||'sem bloqueios estruturais') : 'não registrada';
-      const sistema=`Você é ${g.nome}, gerente e autoridade final de ${e.nome}. Revise a entrega REAL abaixo. Ela está na etapa ${etapa.toUpperCase()} e ${interno?'é um artefato INTERNO, que nunca deve ser publicado como produto':'faz parte de um PRODUTO destinado ao cliente'}.
+      const papelRevisor=g.liderSetor?`líder de ${nomeSetor(g.especialidade)}, com autonomia para decisões intermediárias do próprio setor e obrigação de escalar decisões críticas à gerente geral`:`gerente geral e autoridade final`;
+      const sistema=`Você é ${g.nome}, ${papelRevisor} de ${e.nome}. Revise a entrega REAL abaixo. Ela está na etapa ${etapa.toUpperCase()} e ${interno?'é um artefato INTERNO, que nunca deve ser publicado como produto':'faz parte de um PRODUTO destinado ao cliente'}.
 
 ACERVO SOBERANO DO USUÁRIO — SOMENTE LEITURA:
 ${acervoCtx}
@@ -1072,7 +1155,7 @@ OBJETIVO: ${projeto?projeto.objetivo:e.missao}
 ARQUIVO: ${cand.id} ${cand.nome} [${cand.tipo}]
 VALIDAÇÃO LOCAL: ${local}
 CONTEÚDO:
-${conteudoParaAvaliacao(cand.conteudo)}
+${conteudoParaAvaliacao(cand.conteudo,cand.tipo)}
 
 REGRAS:
 - Não pule etapas do produto.
@@ -1090,7 +1173,7 @@ ACAO: <correção ou trabalho da próxima etapa, até 90 palavras>
 PARA: <id de funcionário ou vazio>
 ACERVO_ID: <id exato ou vazio>
 SOLICITACAO_ACERVO: <consideração objetiva ao dono ou vazio>`;
-      const r=await S.ai.perguntar({sistema,pedido:`Inspecione ${cand.nome} e decida o próximo estado sem pular o pipeline.`,tokens:420,reasoning_effort:'low',agente:g.nome,agenteId:g.id,motivo:'revisão de etapa de produção'});
+      const r=await S.ai.perguntar({sistema,pedido:`Inspecione ${cand.nome} e decida o próximo estado sem pular o pipeline.`,nivel:rev.correcoes>=2?'avancado':'padrao',correcoes:rev.correcoes,etapa,tokens:420,reasoning_effort:'low',agente:g.nome,agenteId:g.id,motivo:'revisão de etapa de produção',taskId:cand.taskId||null,projectId:cand.projectId||null,artifactId:cand.id});
       if(!r){logPessoa(g,`a revisão de ${cand.nome} não recebeu resposta; continuará no próximo ciclo.`,'alerta');return;}
       const c=r.campos||{},dec=normalizarFrase(c.decisao).replace(/ /g,'_'),analise=String(c.analise||'').trim(),acao=String(c.acao||'').trim();
       if(c.acervo_id&&c.solicitacao_acervo&&S.acervo)S.acervo.solicitarMudanca(String(c.acervo_id).trim(),projeto&&projeto.id,g.id,String(c.solicitacao_acervo));
@@ -1140,12 +1223,16 @@ SOLICITACAO_ACERVO: <consideração objetiva ao dono ou vazio>`;
     finally{g.ocupado=false;g.balao=null;g.estado='sentado';S.state.gravar();S.bus.emit('arquivos');S.bus.emit('trabalho');S.bus.emit('equipe');}
   }
 
-  async function avaliar(g) {
+  async function avaliar(g,candidatoPreferido) {
     const e = S.state.atual(); if (!e || !g || g.ocupado || (S.ai.orcamentoIndisponivel && S.ai.orcamentoIndisponivel())) return;
     const agora = Date.now();
     limparFilaCandidatos(e);
     const candidatos = e.arquivos.filter(a => ['esboco','prototipo','candidato'].includes(a.classe) && !a.avaliado);
-    const cand = candidatos[0];
+    const cand = candidatoPreferido&&candidatos.includes(candidatoPreferido)?candidatoPreferido:candidatos.find(a=>{
+      if(!g.liderSetor)return true;
+      const esp=(S.factory.porId(a.kit||'autonomo')||{}).especialidade;
+      return esp===g.especialidade&&!(a.classe==='candidato'&&a.clienteVisivel);
+    });
     if (!cand) return;
     if(cand.classe==='candidato'&&cand.clienteVisivel)registrarAprovacaoProprietario(e,cand);
     if (cand.classe === 'esboco' || cand.classe === 'prototipo' || !cand.clienteVisivel || cand.escopo === 'interno') {
@@ -1180,10 +1267,10 @@ DECLARAÇÃO DO AUTOR: ${cand.validacao && cand.validacao.declaradoPronto === fa
 HISTÓRICO DA LINHAGEM: ${rev.avaliacoes} avaliações; ${rev.correcoes} correções solicitadas; repetição=${rev.repeticoes || 0}
 
 CONTEÚDO COMPLETO DA ENTREGA:
-${conteudoParaAvaliacao(cand.conteudo)}
+${conteudoParaAvaliacao(cand.conteudo,cand.tipo)}
 
 ARTEFATOS RELACIONADOS:
-${e.arquivos.filter(a => a.id !== cand.id && (a.projectId === cand.projectId || a.linhagem === cand.linhagem)).map(a => `${a.id} ${a.nome} [${a.classe}]\n${String(a.conteudo||'')}`).join('\n\n') || 'nenhum'}
+${e.arquivos.filter(a => a.id !== cand.id && (a.projectId === cand.projectId || a.linhagem === cand.linhagem)).map(a => `${a.id} ${a.nome} [${a.classe}]\n${conteudoParaAvaliacao(a.conteudo,a.tipo)}`).join('\n\n') || 'nenhum'}
 
 ACERVO SOBERANO DO USUÁRIO — SOMENTE LEITURA:
 ${S.acervo&&S.acervo.contexto?S.acervo.contexto(projeto&&projeto.id,7000):'Nenhuma referência vinculada.'}
@@ -1205,7 +1292,7 @@ ${ultimaChance ? 'MODO ANTI-LOOP: esta linhagem já consumiu o máximo de corre�
       const r = await S.ai.perguntar({
         sistema: contexto + `\n\nRETORNE SOMENTE:\nDECISAO: publicar | corrigir | descartar\nANALISE: <o que você realmente encontrou no conteúdo, até 100 palavras>\nEVIDENCIAS: <até 3 verificações concretas feitas no conteúdo>\nPENDENCIAS: <o que ainda impede o produto; escreva nenhuma se não houver>\nACAO: <próxima ação concreta, até 80 palavras>\nPARA: <id do funcionário ou vazio>\nBASE: <id do artefato base ou vazio>\nPRONTO: sim | nao\nACERVO_ID: <id exato ou vazio>\nSOLICITACAO_ACERVO: <consideração objetiva ao dono ou vazio>`,
         pedido: `Inspecione agora o arquivo ${cand.nome}. Não avalie aparência nem atribua nota. Leia o conteúdo e tome uma decisão executiva que altere o próximo estado do projeto.`,
-        tokens: 520, reasoning_effort: 'low', agente: g.nome, agenteId: g.id, motivo: 'auditoria real de artefato'
+        nivel:rev.correcoes>=2?'avancado':'padrao',correcoes:rev.correcoes,etapa:'candidato',final:true,tokens: 520, reasoning_effort: rev.correcoes>=2?'high':'low', agente: g.nome, agenteId: g.id, motivo: 'auditoria real de artefato',taskId:cand.taskId||null,projectId:cand.projectId||null,artifactId:cand.id
       });
       if (!r) { if (ultimaChance) forcarResolucaoCandidato(e, cand, g, projeto, 'a IA não respondeu após repetidas tentativas'); return; }
       const c = r.campos || {};
@@ -1384,24 +1471,26 @@ ${ultimaChance ? 'MODO ANTI-LOOP: esta linhagem já consumiu o máximo de corre�
     });
     const cargoInformado=limparTexto(f.cargo).slice(0,80);
     const cargoFinal=cargoInformado && !ESPECIALIDADES.some(x=>x.id===cargoInformado.toLowerCase()) ? cargoInformado : esp.cargo;
-    const novo={id:uid('a'),nome:nomeFinal,papel:'func',cargo:cargoFinal,especialidade:esp.id,cor:S.state.PALETA[e.equipe.length%S.state.PALETA.length],energia:85,humor:70,entregas:0,memoria:[],uso:{chamadas:0,tokens:0},ia:{pensamento:S.ai.cfg.pensamento,producao:S.ai.cfg.producao,imagem:S.ai.cfg.imagem,independente:true},personalidade};
+    const primeiroSetor=!(e.equipe||[]).some(x=>x.papel==='func'&&x.especialidade===esp.id);
+    const novo={id:uid('a'),nome:nomeFinal,papel:'func',cargo:cargoFinal,especialidade:esp.id,liderSetor:primeiroSetor,cor:S.state.PALETA[e.equipe.length%S.state.PALETA.length],energia:85,humor:70,entregas:0,memoria:[],uso:{chamadas:0,tokens:0},ia:{leve:S.ai.cfg.leve,padrao:S.ai.cfg.padrao,avancado:S.ai.cfg.avancado,imagem:S.ai.cfg.imagem,independente:true},personalidade};
     e.equipe.push(novo);
-    S.state.registrar(`${novo.nome} entrou na equipe como ${novo.cargo}${origem?` (${origem})`:''}.`,'ok');
+    S.state.registrar(`${rotuloAgente(novo)} entrou na equipe como ${novo.cargo}${origem?` · ${origem}`:''}.`,'ok',novo.id);
     return novo;
   }
   function contratar(nome,especialidade){
     const e=S.state.atual();if(!e)return false;const esp=ESPECIALIDADES.find(x=>x.id===especialidade)||ESPECIALIDADES[1];
-    const novo={id:uid('a'),nome:nome||pick(NOMES),papel:'func',cargo:esp.cargo,especialidade:esp.id,cor:S.state.PALETA[e.equipe.length%S.state.PALETA.length],energia:85,humor:70,entregas:0,memoria:[],uso:{chamadas:0,tokens:0},ia:{pensamento:S.ai.cfg.pensamento,producao:S.ai.cfg.producao,imagem:S.ai.cfg.imagem,independente:true},personalidade:personalidadeInicial(esp.id,nome)};
-    e.equipe.push(novo);S.state.registrar(`${novo.nome} entrou na equipe como ${novo.cargo}.`,'ok');S.state.gravar();montar();return true;
+    const primeiroSetor=!(e.equipe||[]).some(x=>x.papel==='func'&&x.especialidade===esp.id);
+    const novo={id:uid('a'),nome:nome||pick(NOMES),papel:'func',cargo:esp.cargo,especialidade:esp.id,liderSetor:primeiroSetor,cor:S.state.PALETA[e.equipe.length%S.state.PALETA.length],energia:85,humor:70,entregas:0,memoria:[],uso:{chamadas:0,tokens:0},ia:{leve:S.ai.cfg.leve,padrao:S.ai.cfg.padrao,avancado:S.ai.cfg.avancado,imagem:S.ai.cfg.imagem,independente:true},personalidade:personalidadeInicial(esp.id,nome)};
+    e.equipe.push(novo);S.state.registrar(`${rotuloAgente(novo)} entrou na equipe como ${novo.cargo}.`,'ok',novo.id);S.state.gravar();montar();return true;
   }
-  function demitir(id){const e=S.state.atual();if(!e)return false;const f=e.equipe.find(x=>x.id===id);if(!f||f.papel==='gerente')return false;if(f.especialidade==='financeiro'&&e.equipe.filter(x=>x.papel==='func'&&x.especialidade==='financeiro').length<=1){S.state.registrar(`Demissão impedida: ${f.nome} é o último responsável pelo setor financeiro obrigatório.`,'alerta');return false;}e.equipe=e.equipe.filter(x=>x.id!==id);e.tarefas.forEach(t=>{if(t.para===id)t.para=null;});S.state.registrar(`${f.nome} deixou a equipe.`,'alerta');S.state.gravar();montar();return true;}
+  function demitir(id){const e=S.state.atual();if(!e)return false;const f=e.equipe.find(x=>x.id===id);if(!f||f.papel==='gerente')return false;if(f.especialidade==='financeiro'&&e.equipe.filter(x=>x.papel==='func'&&x.especialidade==='financeiro').length<=1){S.state.registrar(`Demissão impedida: ${rotuloAgente(f)} é a última pessoa responsável por Finanças & Eficiência.`,'alerta',f.id);return false;}e.equipe=e.equipe.filter(x=>x.id!==id);e.tarefas.forEach(t=>{if(t.para===id)t.para=null;});garantirLiderancas(e);S.state.registrar(`${rotuloAgente(f)} deixou a equipe; a liderança do setor foi reavaliada.`,'alerta',f.id);S.state.gravar();montar();return true;}
   function fundar(dados){
     dados=dados||{};
     const agora=Date.now(), gerenteNome=String(dados.gerente||pick(NOMES));
     const e=S.state.normalizarEstudio({id:uid('e'),nome:'Nova empresa',ramo:'em definição pela gerente',missao:'Em definição pela gerente',tom:'Em definição pela gerente',publico:String(dados.publico||'a definir'),criadoEm:agora,xp:0,
       fundacao:{versao:2,estado:dados._aguardarJogador?'aguardando_jogador':'criando',perguntas:{ideia:String(dados.ideia||''),objetivo:String(dados.objetivo||''),tipoProduto:String(dados.tipoProduto||''),publico:String(dados.publico||''),restricoes:String(dados.restricoes||'')},identidade:{},planoNegocio:'',primeiroProduto:'',equipePlanejada:[],ultimaTentativa:0,retomarApos:0,concluidaEm:0},
       projetos:[{id:uid('proj'),nome:'Primeiro produto — planejamento inicial',objetivo:String(dados.objetivo||'Definir e planejar o primeiro produto.'),status:'ativo',criadoEm:agora,tarefaIds:[],arquivoIds:[],atividade:[],acervoIds:Array.isArray(dados.acervoIds)?dados.acervoIds.slice(0,30):[],dados:{resumo:String(dados.objetivo||dados.ideia||''),requisitos:String(dados.restricoes||''),publico:String(dados.publico||''),riscos:'',atualizadoEm:agora}}],
-      equipe:[{id:'a0',nome:gerenteNome,papel:'gerente',cargo:'Sócia-gerente',especialidade:'producao',cor:S.state.PALETA[0],energia:88,humor:74,ia:{pensamento:S.ai.cfg.pensamento,producao:S.ai.cfg.producao,imagem:S.ai.cfg.imagem,independente:true},personalidade:personalidadeInicial('producao',gerenteNome)}]});
+      equipe:[{id:'a0',nome:gerenteNome,papel:'gerente',cargo:'Sócia-gerente',especialidade:'producao',cor:S.state.PALETA[0],energia:88,humor:74,ia:{leve:S.ai.cfg.leve,padrao:S.ai.cfg.padrao,avancado:S.ai.cfg.avancado,imagem:S.ai.cfg.imagem,independente:true},personalidade:personalidadeInicial('producao',gerenteNome)}]});
     S.DB.estudios.unshift(e);S.DB.atual=e.id;S.state.gravarJa();S.state.registrar(`Nova empresa criada. ${gerenteNome} foi nomeada gerente${dados._aguardarJogador?' e aguarda o briefing do proprietário.':' e começou a fundação estratégica.'}`,'ok');S.bus.emit('trocou');return e;
   }
   function iniciarFundacao(){
@@ -1478,7 +1567,7 @@ Escreva de forma objetiva: o plano de negócio e o planejamento do produto devem
 O plano deve cobrir problema/oportunidade, cliente ideal, proposta de valor, diferenciais, modelo de negócio, canais, operação, métricas, riscos e roadmap inicial. Não invente faturamento, clientes, validações ou fatos externos: marque hipóteses.
 O primeiro produto deve ter nome, problema, público, escopo, entregáveis, critérios de aceitação e o que fica fora do v1.
 Os critérios de aceitação precisam ser verificáveis dentro das capacidades do estúdio. Não use como gate assinatura real, Asana/Trello/Notion, e-mail, upload, publicação externa, aprovação de terceiros nem outra ação que o runtime não executa. Produtos longos podem ser planejados em partes/capítulos incrementais; não exija que dezenas ou centenas de páginas apareçam em uma única chamada. Jamais invente que houve contato com clientes, leitura/envio de e-mail, telefonema, venda, pagamento, cadastro, upload, publicação, deploy ou qualquer ação humana/externa. Quando necessária, registre-a como solicitação ao proprietário e espere que ele forneça dados reais.
-A empresa opera em SETE setores: criacao (Produto & Criação), desenvolvimento (Desenvolvimento de Software), producao (Produção & Acabamento), operacoes (Operações & Dados), comercial (Crescimento & Comercial), financeiro (Finanças & Eficiência) e laboratorio (Laboratório & Pesquisa). Cada funcionário trabalha somente em sua especialidade. Colaboração entre setores ocorre por handoff; ninguém executa fora da função. Monte uma equipe inicial mínima de 3 a 4 funcionários além da gerente. financeiro e producao são obrigatórios; inclua desenvolvimento quando houver software/site/app e laboratorio quando testes ou pesquisa forem essenciais. Não crie outra gerente geral. Para cada funcionário, gere cargo realmente especializado e ficha individual coerente. O setor financeiro acompanha continuamente custos, caixa, desperdício de tokens e necessidade de contratar ou demitir, enviando recomendações à gerência.
+A empresa opera em SETE setores: criacao (Produto & Criação), desenvolvimento (Desenvolvimento de Software), producao (Produção & Acabamento), operacoes (Operações & Dados), comercial (Crescimento & Comercial), financeiro (Finanças & Eficiência) e laboratorio (Laboratório & Pesquisa). Cada setor começa com um chefe responsável, que também é funcionário: primeiro delega ao próprio setor e produz pessoalmente quando não houver subordinado apto. Cada funcionário trabalha somente em sua especialidade. Colaboração entre setores ocorre por handoff; ninguém executa fora da função. Não crie outra gerente geral. O financeiro dimensiona expansões e reduções do quadro pelo caixa, custo projetado por agente e demanda real, sem teto fixo arbitrário.
 
 ${fundacaoContexto(e)}
 
@@ -1494,7 +1583,7 @@ TOM: <tom de comunicação>
 CORES: <paleta/direção cromática>
 TIPOGRAFIA: <direção tipográfica>
 ESTILO_VISUAL: <direção visual>
-EQUIPE: <3 a 4 setores necessários agora, usando criacao | desenvolvimento | producao | operacoes | comercial | financeiro | laboratorio>
+EQUIPE: criacao, desenvolvimento, producao, operacoes, comercial, financeiro, laboratorio
 FUNCIONARIO: nome=...; setor=...; cargo=...; tracos=...; comunicacao=...; prioridades=...; estilo=...; colaboracao=...; aversoes=...; experiencia=...
 FUNCIONARIO: nome=...; setor=...; cargo=...; tracos=...; comunicacao=...; prioridades=...; estilo=...; colaboracao=...; aversoes=...; experiencia=...
 FUNCIONARIO: nome=...; setor=...; cargo=...; tracos=...; comunicacao=...; prioridades=...; estilo=...; colaboracao=...; aversoes=...; experiencia=...
@@ -1511,10 +1600,10 @@ MANIFESTO
 
     let r=null;
     try{
-      /* Fundação é uma decisão estratégica de alto impacto: usa o modelo de
-         pensamento forte da gerente. O parâmetro de tokens serve apenas à
+      /* Fundação é uma decisão estratégica de alto impacto: usa uma única
+         chamada avançada robusta da gerente. O parâmetro de tokens serve apenas à
          estimativa preventiva de custo; a API não recebe teto de saída. */
-      r=await S.ai.perguntar({sistema:prompt,pedido:modo==='migracao'?'Atualize a empresa existente usando os dados persistentes como fonte primária e conclua a nova fundação.':'Tome as decisões fundadoras agora, com coerência entre identidade, negócio e primeiro produto.',tipo:'pensamento',tokens:3000,reasoning_effort:'medium',agente:gerente?.nome||'gerente',agenteId:gerente?.id,motivo:modo==='migracao'?'migração da fundação':'fundação estratégica'});
+      r=await S.ai.perguntar({sistema:prompt,pedido:modo==='migracao'?'Atualize a empresa existente usando os dados persistentes como fonte primária e conclua a nova fundação.':'Tome as decisões fundadoras agora, com coerência entre identidade, negócio e primeiro produto.',tipo:'pensamento',nivel:'avancado',tokens:3000,reasoning_effort:'medium',agente:gerente?.nome||'gerente',agenteId:gerente?.id,motivo:modo==='migracao'?'migração da fundação':'fundação estratégica'});
     }catch(err){ r=null; e.fundacao.ultimoErro=String(err&&err.message||err).slice(0,400); }
     if(!r||!String(r.texto||'').trim()){
       e.fundacao.estado=modo==='migracao'?'migracao_pendente':'aguardando_IA';
@@ -1549,11 +1638,11 @@ MANIFESTO
       });
       if(funcionarios.length) planejadas=funcionarios.map(x=>x.especialidade);
       planejadas=[...new Set(planejadas)];
-      for(const obrigatoria of ['financeiro','producao'])if(!planejadas.includes(obrigatoria))planejadas.unshift(obrigatoria);
+      for(const obrigatoria of ESPECIALIDADES.map(x=>x.id))if(!planejadas.includes(obrigatoria))planejadas.push(obrigatoria);
       const tipo=String(e.fundacao?.perguntas?.tipoProduto||'').toLowerCase();
       if(/software|app|site|web|saas|programa|jogo/.test(tipo)&&!planejadas.includes('desenvolvimento'))planejadas.unshift('desenvolvimento');
       if(/pesquisa|laborat[oó]rio|experimento|teste|ci[eê]ncia|formula[cç][aã]o/.test(tipo)&&!planejadas.includes('laboratorio'))planejadas.unshift('laboratorio');
-      planejadas=planejadas.slice(0,4);
+      planejadas=planejadas.slice(0,ESPECIALIDADES.length);
       // A gerente nunca fica sozinha por falha de formato: sem ficha válida,
       // preservamos os cargos mínimos e criamos fichas coerentes.
       if(planejadas.length<1){
@@ -1561,7 +1650,7 @@ MANIFESTO
         for(const id of padrao) if(planejadas.length<3&&!planejadas.includes(id)) planejadas.push(id);
       }
       e.fundacao.equipePlanejada=planejadas.map(especialidade=>({especialidade,funcionario:funcionarios.find(f=>f.especialidade===especialidade)||null}));
-      e.fundacao.equipePlanejada.slice(0,4).forEach(item=>contratarPerfil(e,item.funcionario?.nome||'',item.especialidade,item.funcionario||{},'gerência fundadora'));
+      e.fundacao.equipePlanejada.forEach(item=>contratarPerfil(e,item.funcionario?.nome||'',item.especialidade,item.funcionario||{},'gerência fundadora · chefia inicial do setor'));
       montar();
       const pr=e.projetos?.find(x=>x.status==='ativo')||e.projetos?.[0],produtoTit=limparTexto(((e.fundacao.primeiroProduto.match(/(?:^|\n)#{0,3}\s*(?:Nome do produto|Produto|Nome)\s*:?\s*(.+)/i)||[])[1]||'Primeiro produto')).slice(0,180);
       if(!pr)e.projetos=[{id:uid('proj'),nome:produtoTit,objetivo:e.fundacao.perguntas.objetivo||'Executar o planejamento do primeiro produto.',status:'ativo',criadoEm:Date.now(),tarefaIds:[],arquivoIds:[],atividade:[]}];else if(/primeiro produto|principal|planejamento inicial/i.test(pr.nome)){pr.nome=produtoTit||pr.nome;pr.objetivo=e.fundacao.perguntas.objetivo||pr.objetivo;}
@@ -1637,18 +1726,29 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     return f ? rtById(f.id) : rt.find(x => x.id !== p.id && x.papel === 'func' && !x.ocupado && x.estado === 'sentado');
   }
 
+  function capacidadeFinanceiraEquipe(e,calls,funcs){
+    calls=calls||e.iaChamadas||[];funcs=funcs||(e.equipe||[]).filter(f=>f.papel==='func');
+    const hoje=new Date().toISOString().slice(0,10),uteis=calls.filter(c=>{const d=new Date(Number(c.em)||0);return c.ok&&c.nivel!=='imagem'&&!Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===hoje;});
+    const gastoUtil=uteis.reduce((n,c)=>n+Number(c.custo||0),0),media=uteis.length?gastoUtil/uteis.length:0.0008;
+    const custoTurnoPorAgente=Math.max(0.01,media*12),orc=S.ai.orcamento?S.ai.orcamento():null,disponivel=Math.max(0,orc?Number(orc.restanteDiaUSD)||0:Number(e.economia&&e.economia.caixaUSD)||0);
+    const reserva=disponivel*0.25,operacional=Math.max(0,disponivel-reserva),maxFuncionarios=Math.max(1,Math.floor(operacional/custoTurnoPorAgente));
+    return {maxFuncionarios,custoTurnoPorAgente,reservaUSD:reserva,orcamentoOperacionalUSD:operacional,funcionariosAtuais:funcs.length,podeContratar:funcs.length<maxFuncionarios};
+  }
+
   function necessidadeContratacao(e, especialidade){
     const esp=ESPECIALIDADES.find(x=>x.id===especialidade);if(!e||!esp)return{ok:false,motivo:'setor inválido'};
     const funcs=(e.equipe||[]).filter(f=>f.papel==='func');
-    if(funcs.length>=8)return{ok:false,motivo:'quadro já atingiu o teto operacional de 8 funcionários'};
+    const capacidade=capacidadeFinanceiraEquipe(e,null,funcs);
+    if(!capacidade.podeContratar)return{ok:false,motivo:`o financeiro limitou o quadro a ${capacidade.maxFuncionarios} agentes neste turno (custo projetado por agente: US$ ${capacidade.custoTurnoPorAgente.toFixed(4)})`,capacidade};
     if(especialidade==='financeiro'&&!funcs.some(f=>f.especialidade==='financeiro'))return{ok:true,demanda:1,motivo:'setor financeiro obrigatório ainda não coberto'};
+    if(!funcs.some(f=>f.especialidade===especialidade))return{ok:true,demanda:1,motivo:'setor ainda não possui chefe responsável',capacidade};
     e.gerencia=e.gerencia||{}; if(Date.now()-Number(e.gerencia.ultimaContratacao||0)<30*60*1000)return{ok:false,motivo:'contratação recente; observar a capacidade antes de ampliar novamente'};
     const abertas=(e.tarefas||[]).filter(t=>t.status!=='feita'&&!t.bloqueada);
     const noSetor=funcs.filter(f=>f.especialidade===especialidade);
     const compat=t=>(S.factory.porId(t.kit||'autonomo')||{}).especialidade===especialidade;
     const demanda=abertas.filter(compat);
     const sobrecarga=demanda.length>=Math.max(3,(noSetor.length||1)*3);
-    return sobrecarga?{ok:true,demanda:demanda.length}:{ok:false,motivo:`demanda insuficiente (${demanda.length} tarefas compatíveis); redistribuir trabalho antes de contratar`};
+    return sobrecarga?{ok:true,demanda:demanda.length,capacidade}:{ok:false,motivo:`demanda insuficiente (${demanda.length} tarefas compatíveis); redistribuir trabalho antes de contratar`,capacidade};
   }
 
   async function materializarDecisaoAgente(p, d) {
@@ -1660,6 +1760,19 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
       const s=S.acervo&&S.acervo.solicitarMudanca(d.acervoId,projeto.id,p.id,d.solicitacaoAcervo||d.motivo||d.abordagem);
       if(s){registrarReuniao(p.nome,`Encaminhei à gerente uma consideração sobre ${s.acervoNome}; o original permanece intocado.`,'solicitacao_acervo');return true;}
       return false;
+    }
+    if(d.acao==='solicitar_contratacao'&&p.liderSetor){
+      e.gerencia.solicitacoesContratacao=e.gerencia.solicitacoesContratacao||[];
+      if(!e.gerencia.solicitacoesContratacao.some(x=>x.status==='pendente'&&x.especialidade===p.especialidade)){
+        const abertas=(e.tarefas||[]).filter(t=>t.status!=='feita'&&!t.bloqueada&&(S.factory.porId(t.kit||'autonomo')||{}).especialidade===p.especialidade).length;
+        e.gerencia.solicitacoesContratacao.push({id:uid('hire'),em:Date.now(),status:'pendente',liderId:p.id,especialidade:p.especialidade,demanda:abertas,capacidade:(e.equipe||[]).filter(f=>f.papel==='func'&&f.especialidade===p.especialidade).length,motivo:d.motivo||d.abordagem||'Necessidade de capacidade identificada pelo líder.'});
+        registrarReuniao(p.nome,`Solicitei à gerente geral avaliar uma contratação para ${nomeSetor(p.especialidade)}. ${d.motivo||''}`.trim(),'solicitacao_contratacao');S.state.gravar();return true;
+      }
+      return false;
+    }
+    if(d.acao==='escalar_gerencia'&&p.liderSetor){
+      registrarReuniao(p.nome,`Consulta à gerente geral: ${d.motivo||d.abordagem||'Existe uma decisão que ultrapassa a autoridade do setor.'}`,'consulta_gerencia');
+      e.gerencia.alertas=(e.gerencia.alertas||[]).concat({id:uid('lead'),em:Date.now(),liderId:p.id,setor:p.especialidade,texto:d.motivo||d.abordagem||'Consulta de liderança pendente.'}).slice(-40);S.state.gravar();return true;
     }
 
     if (d.acao === 'executar_tarefa' && d.tarefa) {
@@ -1758,7 +1871,8 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     return false;
   }
 
-  /* Executa uma tarefa: pensamento visível, seguido imediatamente pela ação de produção. */
+  /* Executa em uma única chamada útil. O roteador local escolhe o nível sem
+     cobrar uma chamada separada apenas para planejar a chamada seguinte. */
   async function executar(p, tarefa) {
     const e = S.state.atual(); if (!e || !p || !tarefa) return false;
     // Regra de papel inviolável: a gerente coordena, revisa e delega. Mesmo
@@ -1770,33 +1884,22 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     }
     const exigida=(S.factory.porId(tarefa.kit)||{}).especialidade;
     if(p.especialidade!==exigida){tarefa.para=null;tarefa.status='aberta';delete tarefa._agenteEmExecucao;S.state.registrar(`${p.nome} não assumiu ${tarefa.titulo}: a tarefa exige o setor ${exigida}.`,'alerta',p.id);S.state.gravar();return false;}
+    if(bloquearTarefaSemOrcamento(e,p,tarefa)){p.ocupado=false;p.tarefa=null;return false;}
     p.ocupado = true; p.tarefa = tarefa.titulo; p.progresso = 0;
     p.ref.foco = tarefa.titulo; p.ref.pensamento = 'Vou examinar o objetivo, a tarefa e o que já existe antes de alterar o acervo.';
-    tarefa.status = 'fazendo'; tarefa.para = p.id;
+    tarefa.status = 'fazendo'; tarefa.para = p.id;tarefa.iniciadaEm=tarefa.iniciadaEm||Date.now();tarefa.ultimaAtividadeEm=Date.now();
     logPessoa(p, `assumiu “${tarefa.titulo}”. Primeiro vai examinar o trabalho existente e decidir como executá-lo.`, 'trabalho');
     S.state.registrar(`${p.nome} começou a execução de ${tarefa.titulo}.`, 'trabalho', p.id);
     await irPara(p, assento(p)); p.estado = 'trabalhando'; p.balao = 'examinando o trabalho';
     const relogio = setInterval(() => { p.progresso = Math.min(0.96, p.progresso + 0.025); }, 400);
     let sucesso = false;
     try {
-      let pensamento = null;
-      try {
-        pensamento = await S.ai.deliberar({
-          sistema: `Você é ${p.nome}, ${p.cargo} do estúdio ${e.nome}. Você está prestes a executar uma tarefa real. Leia o objetivo do projeto, a tarefa, os artefatos relacionados e sua memória. Decida como transformar isso em uma mudança concreta. Não revele raciocínio privado.`,
-          pedido: `Projeto: ${tarefa.projectId || 'principal'}\nTarefa: ${tarefa.titulo}\nBriefing: ${tarefa.briefing}\nArtefato base: ${tarefa.baseArquivoId || 'nenhum'}\nArtefatos e memória serão enviados pela produção. Dê somente uma síntese operacional curta que a produção possa executar agora.`,
-          tokens: 420, reasoning_effort:'low', agente:p.nome, agenteId:p.id, motivo:'decisão antes da execução'
-          ,taskId:tarefa.id,projectId:tarefa.projectId,baseArquivoId:tarefa.baseArquivoId||null
-        });
-      } catch (_) {}
-      if (pensamento && pensamento.resumo) {
-        p.ref.pensamento = pensamento.resumo.slice(0,500); p.balao = pensamento.resumo.slice(0,70);
-        logPessoa(p, `decidiu como agir: ${pensamento.resumo}`, 'pensamento');
-        lembrar(p, `Decisão de execução: ${pensamento.resumo.slice(0,240)}`, 'decisao', 3, [tarefa.id]);
-      }
+      p.ref.pensamento='Produção direta com o contexto integral e roteamento econômico auditável.';
       p.balao = 'produzindo';
       const revisoes=Number((e.gerencia&&e.gerencia.revisoesPorLinhagem&&tarefa.baseArquivoId&&e.gerencia.revisoesPorLinhagem[(e.arquivos.find(a=>a.id===tarefa.baseArquivoId)||{}).linhagem]||{}).correcoes)||0;
-      const modeloProducao=revisoes>=2?(p.ref.ia&&p.ref.ia.pensamento):undefined;
-      const saida = await S.factory.produzir({ kit:tarefa.kit || 'autonomo', briefing:tarefa.briefing, deliberacao:p.ref.pensamento, agente:p.ref, projectId:tarefa.projectId, taskId:tarefa.id, baseArquivoId:tarefa.baseArquivoId, etapa:tarefa.etapaDestino || (tarefa.clienteVisivel?'esboco':'prototipo'), clienteVisivel:Boolean(tarefa.clienteVisivel), titulo:tarefa.titulo,modeloProducao });
+      const rota=S.ai.rotear({tipo:'conteudo',agenteId:p.id,motivo:'produção de artefato',sistema:tarefa.titulo,pedido:tarefa.briefing,etapa:tarefa.etapaDestino,correcoes:revisoes});
+      tarefa.ultimaRota=rota;tarefa.tentativasIA=Number(tarefa.tentativasIA||0)+1;
+      const saida = await S.factory.produzir({ kit:tarefa.kit || 'autonomo', briefing:tarefa.briefing, deliberacao:p.ref.pensamento, agente:p.ref, projectId:tarefa.projectId, taskId:tarefa.id, baseArquivoId:tarefa.baseArquivoId, etapa:tarefa.etapaDestino || (tarefa.clienteVisivel?'esboco':'prototipo'), clienteVisivel:Boolean(tarefa.clienteVisivel), titulo:tarefa.titulo,nivel:rota.nivel,correcoes:revisoes,saidaVisualAutorizada:Boolean(tarefa.saidaVisualAutorizada) });
       if (!saida) throw new Error('A IA de produção não entregou uma transformação utilizável.');
       if (saida.excluir && saida.excluir.length) {
         saida.excluir.forEach(id => { const a=e.arquivos.find(x=>x.id===id); if(a && a.classe!=='produto'){ e.arquivos=e.arquivos.filter(x=>x.id!==id); e.projetos.forEach(pr=>pr.arquivoIds=pr.arquivoIds.filter(x=>x!==id)); } });
@@ -1875,6 +1978,83 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     return t;
   }
 
+  function avaliarCapacidadeDosLideres(e){
+    e.gerencia=e.gerencia||{};e.gerencia.solicitacoesContratacao=Array.isArray(e.gerencia.solicitacoesContratacao)?e.gerencia.solicitacoesContratacao:[];
+    const agora=Date.now();
+    (e.equipe||[]).filter(f=>f.papel==='func'&&f.liderSetor).forEach(lider=>{
+      const pessoas=(e.equipe||[]).filter(f=>f.papel==='func'&&f.especialidade===lider.especialidade).length;
+      const demanda=(e.tarefas||[]).filter(t=>t.status!=='feita'&&!t.bloqueada&&(S.factory.porId(t.kit||'autonomo')||{}).especialidade===lider.especialidade).length;
+      const recente=e.gerencia.solicitacoesContratacao.slice().reverse().find(x=>x.especialidade===lider.especialidade&&agora-Number(x.em||0)<30*60*1000);
+      if(demanda>=Math.max(3,pessoas*3)&&!recente){
+        const pedido={id:uid('hire'),em:agora,status:'pendente',liderId:lider.id,especialidade:lider.especialidade,demanda,capacidade:pessoas,motivo:`${demanda} tarefas abertas para ${pessoas} agente(s) especializados.`};
+        e.gerencia.solicitacoesContratacao.push(pedido);
+        registrarReuniao(lider.nome,`Solicito à gerente geral avaliar uma contratação para ${nomeSetor(lider.especialidade)}: ${pedido.motivo}`,'solicitacao_contratacao');
+        logPessoa(rtById(lider.id)||{id:lider.id},`avaliou a capacidade do próprio setor e solicitou contratação à gerente geral: ${pedido.motivo}`,'lideranca');
+      }
+      lider.projetoId=((e.tarefas||[]).find(t=>t.status!=='feita'&&(S.factory.porId(t.kit||'autonomo')||{}).especialidade===lider.especialidade)||{}).projectId||lider.projetoId||null;
+    });
+    e.gerencia.solicitacoesContratacao=e.gerencia.solicitacoesContratacao.slice(-80);
+  }
+
+  function processarPedidoDeLider(e,g){
+    const pedido=(e.gerencia&&e.gerencia.solicitacoesContratacao||[]).find(x=>x.status==='pendente');if(!pedido)return false;
+    const necessidade=necessidadeContratacao(e,pedido.especialidade);
+    pedido.decididaEm=Date.now();
+    if(necessidade.ok){
+      const novo=contratarPerfil(e,'',pedido.especialidade,{},`contratação aprovada pela gerente geral após solicitação do líder`);
+      pedido.status='aprovada';pedido.contratadoId=novo&&novo.id;registrarReuniao(g.nome,`Aprovei a solicitação de liderança e contratei ${rotuloAgente(novo)} para a demanda comprovada de ${nomeSetor(pedido.especialidade)}.`,'decisao');
+    }else{pedido.status='recusada';pedido.resposta=necessidade.motivo;registrarReuniao(g.nome,`Não aprovei agora a contratação solicitada para ${nomeSetor(pedido.especialidade)}: ${necessidade.motivo}.`,'decisao');}
+    S.state.gravar();return true;
+  }
+
+  function cobrarAndamento(e,g){
+    const agora=Date.now(),abertas=(e.tarefas||[]).filter(t=>t.status!=='feita'&&!t.bloqueada&&dependenciasOK(t));
+    e.gerencia=e.gerencia||{};e.gerencia.acompanhamento=e.gerencia.acompanhamento||{cobrancas:0};
+    abertas.forEach(t=>{
+      const marco=Number(t.iniciadaEm||t.criadaEm||agora),parada=agora-marco;
+      if(parada<2*60*1000||agora-Number(t.ultimaCobrancaGerencia||0)<2*60*1000)return;
+      const setor=(S.factory.porId(t.kit||'autonomo')||{}).especialidade,leader=liderDoSetor(setor);
+      t.prioridade='alta';t.ultimaCobrancaGerencia=agora;t.cobrancasGerencia=Number(t.cobrancasGerencia||0)+1;
+      if(t.status==='aberta'){
+        const membro=rt.find(p=>p.papel==='func'&&!p.liderSetor&&!p.ocupado&&p.especialidade===setor)||leader;
+        if(membro)t.para=membro.id;
+      }
+      const alvo=leader?rotuloAgente(leader):nomeSetor(setor);
+      registrarReuniao(g&&g.nome||'Gerência',`Cobrança de andamento a ${alvo}: “${t.titulo}” está há ${Math.max(2,Math.round(parada/60000))} min sem concluir esta etapa. Prioridade elevada; preserve a qualidade e informe bloqueios reais.`,'acompanhamento');
+      e.gerencia.acompanhamento.cobrancas++;
+    });
+    e.gerencia.acompanhamento.atualizadoEm=agora;e.gerencia.acompanhamento.tarefasAbertas=abertas.length;e.gerencia.acompanhamento.produtos=(e.arquivos||[]).filter(a=>a.classe==='produto'&&!a.incompleto).length;
+  }
+
+  function resolverRecomendacaoFinanceira(e,g,rec){
+    if(!rec)return false;const ocorrencias=Array.isArray(rec.ocorrencias)?rec.ocorrencias:[];const acoes=[];
+    ocorrencias.forEach(o=>{
+      if(o.codigo==='financeiro_sem_responsavel'){
+        const novo=garantirSetorFinanceiro(e);if(novo)acoes.push(`contratei ${rotuloAgente(novo)}`);
+      }else if(String(o.codigo).startsWith('sem_especialista:')){
+        const esp=o.especialidade||String(o.codigo).split(':')[1];
+        if(!(e.gerencia.solicitacoesContratacao||[]).some(x=>x.status==='pendente'&&x.especialidade===esp))e.gerencia.solicitacoesContratacao.push({id:uid('hire'),em:Date.now(),status:'pendente',liderId:null,especialidade:esp,demanda:Number((e.financeiro.analises||[]).slice(-1)[0]?.demanda?.[esp]||1),capacidade:0,motivo:o.texto,origem:'análise financeira'});
+        acoes.push(`encaminhei a falta de especialista para decisão de contratação`);
+      }else if(String(o.codigo).startsWith('setor_sem_chefe:')){
+        const esp=o.especialidade||String(o.codigo).split(':')[1],necessidade=necessidadeContratacao(e,esp);
+        if(necessidade.ok){const novo=contratarPerfil(e,'',esp,{},'chefia setorial aprovada pelo financeiro e pela gerente geral');if(novo)acoes.push(`contratei ${rotuloAgente(novo)} como chefe de ${nomeSetor(esp)}`);}
+        else acoes.push(`adiei a chefia de ${nomeSetor(esp)}: ${necessidade.motivo}`);
+      }else if(o.codigo==='taxa_falha_alta'){
+        e.gerencia.circuitBreakerRevisaoAte=Math.max(Number(e.gerencia.circuitBreakerRevisaoAte||0),Date.now()+2*60*1000);acoes.push('pausei novas revisões por 2 minutos para evitar repetição contra um provedor instável');
+      }else if(o.codigo==='custo_visual_alto'){
+        e.economia.imagens=e.economia.imagens||{};e.economia.imagens.maximoPorLinhagemEtapa=1;acoes.push('limitei novas gerações visuais automáticas a uma tentativa por linhagem e etapa');
+      }
+    });
+    rec.status='considerada_gerencia';rec.decididaEm=Date.now();rec.resposta=acoes.join('; ')||'registrei a análise sem criar trabalho editorial desconectado';
+    registrarReuniao(g.nome,`Decisão financeira: ${rec.resposta}.`,'decisao_financeira');S.state.gravar();return true;
+  }
+
+  function revisarComClaim(revisor,cand){
+    if(!revisor||!cand||cand._revisorEmExecucao)return Promise.resolve(false);
+    cand._revisorEmExecucao=revisor.id;
+    return Promise.resolve(avaliar(revisor,cand)).finally(()=>{delete cand._revisorEmExecucao;S.state.gravar();});
+  }
+
   function garantirSetorFinanceiro(e){
     if(!e||(e.equipe||[]).some(f=>f.papel==='func'&&f.especialidade==='financeiro'))return null;
     const novo=contratarPerfil(e,'','financeiro',{},'setor obrigatório determinado pela gerência');
@@ -1902,27 +2082,36 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     const e=S.state.atual(); if(!e) return;
     if (e.reuniao && e.reuniao.reuniaoAtiva) return;
     S.bus.emit('relogio');
-    analisarFinancas(e);
     if(S.ai.estado && S.ai.estado.pausado) return;
     if(e.fundacao && e.fundacao.estado && e.fundacao.estado !== 'operacional'){ if(e.fundacao.estado!=='aguardando_jogador')await processarFundacaoAtual(); return; }
-    garantirSetorFinanceiro(e);
+    if(garantirSetorFinanceiro(e))return;
+    garantirLiderancas(e);
+    analisarFinancas(e);
     if(e.fundacao&&!e.fundacao.reuniaoInicialRealizada){const r=await reuniaoInterna('planejamento inicial da empresa, do portfólio e do primeiro produto',{todos:true,inicial:true});if(r){e.fundacao.reuniaoInicialRealizada=Date.now();S.state.gravar();}return;}
     garantirPortfolioParalelo(e);
     garantirSiteInstitucional(e);
     if(S.ai.orcamentoIndisponivel && S.ai.orcamentoIndisponivel()) {
       const orc = S.ai.orcamento ? S.ai.orcamento() : null;
-      rt.forEach(p=>{ if(!p.ocupado && !['dormindo','comendo','assistindo','andando'].includes(p.estado)){ p.estado='dormindo'; p.ref.cuidados=p.ref.cuidados||{}; p.ref.cuidados.rotina='sono'; p.balao='dormindo'; logPessoa(p,orc&&orc.esgotado ? 'está descansando: o orçamento do ciclo chegou ao limite.' : 'está descansando: o limite diário de IA chegou ao limite.','rotina'); irPara(p,ESTACOES.dormitorio); }});
+      const dia=new Date().toISOString().slice(0,10),motivo=orc&&orc.esgotado?'o caixa da empresa chegou ao limite':'o limite diário de IA foi atingido';
+      if(e.gerencia.ultimoLogOrcamentoDia!==dia){e.gerencia.ultimoLogOrcamentoDia=dia;S.state.registrar(`Sistema: ${motivo}. ${rt.length} agentes entraram em rotina Sims-like; o trabalho persistente permanece na fila.`,'orcamento');}
+      rt.forEach(p=>{ if(!p.ocupado && !['dormindo','comendo','assistindo','andando'].includes(p.estado)){ p.estado='dormindo'; p.ref.cuidados=p.ref.cuidados||{}; p.ref.cuidados.rotina='sono'; p.balao='dormindo'; irPara(p,ESTACOES.dormitorio); }});
       S.bus.emit('equipe'); return;
     }
+    e.gerencia.ultimoLogOrcamentoDia='';
     const g=gerente();
+    avaliarCapacidadeDosLideres(e);
+    cobrarAndamento(e,g);
 
     // A gerente primeiro lê entregas reais. Só depois toma uma nova decisão.
     let trabalhoGerencia=Promise.resolve();
     if(g && !g.ocupado && S.ai.disponivel(g.id)) {
       const recomendacaoFinanceira=(e.financeiro?.recomendacoes||[]).find(x=>x.status==='pendente_gerencia');
-      const pendente=e.arquivos.find(a=>['esboco','prototipo','candidato'].includes(a.classe)&&!a.avaliado);
-      if(recomendacaoFinanceira){trabalhoGerencia=(async()=>{const d=await S.agency.decidir(g,true);let executada=false;if(d){S.agency.marcarAcao(g,d);executada=await materializarDecisaoAgente(g,d);}recomendacaoFinanceira.status='considerada_gerencia';recomendacaoFinanceira.decididaEm=Date.now();recomendacaoFinanceira.resposta=d?`${d.acao}: ${d.motivo||d.abordagem||'decisão registrada'}`:'IA indisponível; recomendação preservada no relatório';registrarReuniao(g.nome,`Decisão sobre finanças: ${recomendacaoFinanceira.resposta}${executada?' · ação materializada.':''}`,'decisao_financeira');S.state.gravar();})();}
-      else if(pendente){ trabalhoGerencia=avaliar(g); }
+      const pedidoLider=(e.gerencia.solicitacoesContratacao||[]).find(x=>x.status==='pendente');
+      const pendenteFinal=e.arquivos.find(a=>a.classe==='candidato'&&a.clienteVisivel&&!a.avaliado&&!a._revisorEmExecucao);
+      const pendenteSemLider=e.arquivos.find(a=>['esboco','prototipo'].includes(a.classe)&&!a.avaliado&&!a._revisorEmExecucao&&!liderDoSetor((S.factory.porId(a.kit||'autonomo')||{}).especialidade));
+      if(recomendacaoFinanceira){trabalhoGerencia=Promise.resolve(resolverRecomendacaoFinanceira(e,g,recomendacaoFinanceira));}
+      else if(pedidoLider){trabalhoGerencia=Promise.resolve(processarPedidoDeLider(e,g));}
+      else if(Date.now()>=Number(e.gerencia.circuitBreakerRevisaoAte||0)&&(pendenteFinal||pendenteSemLider)){ trabalhoGerencia=revisarComClaim(g,pendenteFinal||pendenteSemLider); }
       else {
       const abertasGerencia=(e.tarefas||[]).filter(t=>t.status!=='feita'&&!t.bloqueada&&dependenciasOK(t));
       // O estado da fila — não um relógio — dispara a próxima decisão. Enquanto
@@ -1941,13 +2130,18 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     // Funcionários não queimam tokens para inventar trabalho. Primeiro procuram
     // localmente tarefas existentes/sem dono. Sem tarefa útil, entram no modo
     // Sims-like e ficam disponíveis até a gerente ou a fila produzir demanda.
-    const livres=rt.filter(p=>p.papel==='func'&&!p.ocupado&&Number(p.ref.energia)>10);
+    const livres=rt.filter(p=>p.papel==='func'&&!p.ocupado&&Number(p.ref.energia)>10).sort((a,b)=>Number(a.liderSetor)-Number(b.liderSetor));
+    const revisoesLideres=livres.filter(p=>p.liderSetor&&Date.now()>=Number(e.gerencia.circuitBreakerRevisaoAte||0)).map(lider=>{
+      const cand=e.arquivos.find(a=>['esboco','prototipo'].includes(a.classe)&&!a.avaliado&&!a._revisorEmExecucao&&(S.factory.porId(a.kit||'autonomo')||{}).especialidade===lider.especialidade);
+      return cand?revisarComClaim(lider,cand):Promise.resolve(false);
+    });
     const trabalhoEquipe=Promise.allSettled(livres.map(async p=>{
+      if(p.ocupado)return;
       const atribuida=tarefaAdequadaLocal(e,p);
       if(atribuida){ if(p.estado!=='sentado')await acordarParaTrabalho(p); atribuida.para=p.id; await executar(p,atribuida); return; }
       entrarOcio(p,'nenhuma tarefa executável está disponível');
     }));
-    await Promise.allSettled([trabalhoGerencia,trabalhoEquipe]);
+    await Promise.allSettled([trabalhoGerencia,trabalhoEquipe,...revisoesLideres]);
   }
 
   function iniciar(meu) {

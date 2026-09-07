@@ -1,4 +1,4 @@
-# Agents Enterprise — v59
+# Agents Enterprise — v60
 
 Agents Enterprise é um jogo 2D top-down, mobile-first e projetado para jogar com o celular na horizontal. O jogador funda e administra empresas de agentes de IA cujo objetivo é produzir arquivos reais, prontos para vender ou distribuir fora do jogo.
 
@@ -24,14 +24,16 @@ Agents Enterprise é um jogo 2D top-down, mobile-first e projetado para jogar co
 ## Trabalho produtivo
 
 - A gerente gerencia, revisa e delega; uma trava de runtime impede que ela execute produção.
-- Cada funcionário possui uma lane e uma dupla de modelos própria. A reserva de pessoa/tarefa é atômica e várias pessoas podem produzir em paralelo.
+- Cada funcionário possui lane própria e três níveis de modelo: leve, padrão e avançado. Um roteador local auditável escolhe por tarefa; o avançado só entra em resgates complexos ou correções repetidas.
+- A produção substantiva usa uma chamada integral, sem uma chamada paga separada apenas para planejar. Entrada e saída nunca recebem truncamento artificial.
 - Funcionários só executam tarefas compatíveis com seu setor; não existe fallback generalista.
-- Os setores canônicos são Criação, Desenvolvimento de Software, Produção, Operações, Comercial, Financeiro e Laboratório. O setor financeiro é obrigatório; o laboratório executa pesquisa e testes internos baseados em evidência.
+- Os sete setores canônicos possuem um chefe funcionário. Ele tenta delegar primeiro ao próprio time e produz pessoalmente quando não há subordinado apto. A expansão do quadro não usa teto fixo: o financeiro calcula capacidade por caixa, custo projetado e demanda.
+- A gerente acompanha a fila localmente, cobra chefes, eleva prioridade e redistribui etapas paradas sem gastar chamadas de IA e sem pular os gates de qualidade.
 - A fundação abre vários projetos de produto compatíveis com a equipe. O site institucional espera o primeiro produto real antes de consumir a fila.
 - Tarefas órfãs, atribuídas a IDs removidos ou salvas em estados legados voltam à fila.
 - A fila vazia exige uma decisão gerencial e, se necessário, abre uma nova frente de produto real.
 - Conversas ociosas são locais e não consomem tokens. IA é usada em decisões, revisão e produção com consequência persistente.
-- Logs registram atribuição, início, entrega, falha, revisão, release, custo, tokens e latência e podem ser copiados ou exportados em JSON.
+- Logs registram atribuição, início, entrega, falha, revisão, release, custo, tokens, nível escolhido, justificativa da rota e latência. O botão de exportação salva JSON no dispositivo; copiar permanece uma ação separada.
 - Durante esboço, protótipo e candidato, a equipe evolui o mesmo artefato. Cada revisão anterior permanece auditável; somente um produto publicado inicia uma nova versão imutável.
 
 ## Artefatos e site institucional

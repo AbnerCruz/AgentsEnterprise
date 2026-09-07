@@ -166,9 +166,10 @@
     // O tipo da tarefa é a autoridade de roteamento. Palavras como "capa"
     // dentro de um plano textual não podem converter o trabalho inteiro em imagem.
     if (kit==='visual' || baseVisual) {
+      if(op.saidaVisualAutorizada!==true)throw new Error('A geração visual exige uma tarefa explicitamente classificada como visual. Menções a capa, layout ou ilustração dentro de documentos continuam sendo texto.');
       const identidade=(e.fundacao&&e.fundacao.identidade)||{};
       const promptImagem=`${baseVisual?`Crie a próxima versão visual de ${base.nome}, preservando sua função, identidade e conceito aprovados.`:`Crie um ativo visual utilizável para ${e.nome}.`} Tarefa: ${briefing}. Projeto: ${projeto?projeto.nome:'principal'}. Identidade visual: cores=${identidade.cores||'livre'}; estilo=${identidade.estiloVisual||'coerente com a marca'}; tom=${e.tom}. Etapa: ${etapa}. Referências soberanas imutáveis do usuário: ${acervoSoberano}. Não contradiga essas referências. Evite texto ilegível; só inclua palavras quando forem essenciais ao briefing.`;
-      const img=await S.ai.gerarImagem({prompt:promptImagem,agente:agente.nome,agenteId:agente.id,motivo:'produção visual',taskId:op.taskId||null,projectId:op.projectId||null,baseArquivoId:op.baseArquivoId||null});
+      const img=await S.ai.gerarImagem({prompt:promptImagem,agente:agente.nome,agenteId:agente.id,motivo:'produção visual',saidaVisualAutorizada:true,taskId:op.taskId||null,projectId:op.projectId||null,baseArquivoId:op.baseArquivoId||null});
       const bruto=`data:${img.mediaType};base64,${img.b64}`,compacta=await compactarImagemLocal(bruto);
       const nome=baseVisual?limparNome(base.nome,compacta.ext):limparNome((op&&op.titulo)||'imagem',compacta.ext);
       const conteudo=compacta.dataUrl;
@@ -227,7 +228,7 @@
       tokens: (op && op.tokens) || 3000,
       agente: agente.nome,
       agenteId: agente.id,
-      modelo: op&&op.modeloProducao,
+      nivel:op&&op.nivel,correcoes:op&&op.correcoes,etapa,
       motivo: 'produção de artefato',
       taskId:op.taskId||null,projectId:op.projectId||null,baseArquivoId:op.baseArquivoId||null
     });

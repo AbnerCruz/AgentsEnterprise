@@ -4,6 +4,161 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v60 — líderes setoriais, produção idempotente e controle real de desperdício
+
+## Roteamento adaptativo e turno produtivo
+
+- A antiga dupla “pensamento/produção” foi migrada para três níveis por funcionário: leve (`GPT-OSS 20B`), padrão (`GPT-OSS 120B`) e avançado (`DeepSeek V3.2`).
+- Um roteador local determinístico escolhe o nível pela operação, etapa, tamanho do contexto e número de correções. O roteador não gasta tokens e cada chamada registra nível, justificativa, pontuação e tentativa.
+- A produção deixou de fazer uma chamada de deliberação antes de cada chamada de conteúdo. Trabalho substantivo recebe o contexto integral em uma única chamada; após duas correções, uma chamada avançada robusta tenta resolver a linhagem de uma vez.
+- Cada empresa pode definir o período real do orçamento em dias. O painel mostra orçamento diário, turno-alvo de seis horas, projeção de duração e capacidade financeira calculada do quadro.
+- Não existe mais teto fixo de oito funcionários. Finanças calcula a capacidade pelo saldo diário, reserva operacional, custo observado por chamada e demanda antes de autorizar expansão.
+- Os sete setores começam com um chefe funcionário. O chefe delega primeiro a subordinados aptos do próprio setor e só produz quando não há a quem delegar.
+- A gerente acompanha a fila sem IA adicional: cobra etapas paradas, aciona o chefe correto, eleva prioridade e redistribui trabalho sem pular gates de qualidade.
+
+## Imagens e arquivos de diagnóstico
+
+- O modelo de imagem só pode ser chamado por funcionário de Produto & Criação, em tarefa explicitamente visual. Plano, cronograma, relatório ou estratégia continuam textuais mesmo quando mencionam capa, layout ou ilustração.
+- Imagens receberam teto adicional de 10% do orçamento diário, além do limite por geração e da avaliação obrigatória da imagem anterior.
+- Logs e telemetria agora possuem ação explícita “Salvar JSON no dispositivo”, usando o seletor nativo de arquivo quando disponível e download real como fallback; copiar continua separado.
+- A telemetria fornecida confirmou 166 chamadas, 1.188.218 tokens e US$ 0,258956: quatro imagens consumiram US$ 0,157709 (60,9% do total), justificando o novo gate visual.
+
+## Estrutura de liderança
+
+- Cada setor representado passa a ter exatamente um líder operacional real, identificado em painéis e eventos como `Nome (Setor · líder)`. Não existem mais falas atribuídas abstratamente a “Setor X”.
+- Líderes revisam etapas intermediárias do próprio setor, acompanham sua frente de projeto, priorizam handoffs, tomam decisões reversíveis da área e consultam a gerente geral quando a decisão envolve outro setor, caixa, quadro, candidato final, acervo ou atuação humana.
+- Líderes podem encaminhar solicitações de contratação fundamentadas na fila e capacidade do setor. A gerente geral continua sendo a única autoridade que aprova contratação ou demissão.
+- A sala de reuniões ganhou identificação completa dos agentes e um painel específico para solicitações dos líderes.
+
+## Correções orientadas pelos logs reais
+
+- Recomendações financeiras agora possuem códigos estáveis e janela idempotente. Uma oscilação de `17,1%` para `16,7%` atualiza a mesma ocorrência em vez de abrir outra decisão e outra tarefa.
+- A gerente deixou de usar deliberação organizacional genérica para alertas financeiros. Falhas, custo visual e ausência de especialista produzem ações financeiras locais; nunca mais uma taxa de falha cria tarefas editoriais.
+- A análise financeira reconhece `produção visual` e modelos de imagem. Na última telemetria, esse custo correspondia a 60,9% do total e antes passava despercebido.
+- Tarefas equivalentes agora são comparadas por projeto, kit, artefato-base, etapa e assinatura semântica. Variações como “redação dos três contos” e “rascunho inicial dos 3 contos” não abrem trabalhos paralelos.
+- O orçamento estimado da produção é verificado antes da chamada de pensamento. Se a etapa não cabe no caixa ou no limite diário, ela permanece na fila sem gastar tokens repetindo deliberações.
+- O limite diário tornou-se uma fotografia do caixa no início do dia; débitos feitos durante o expediente não diminuem o mesmo limite uma segunda vez.
+
+## Revisão, imagens, rede e observabilidade
+
+- Base64 de imagens não é mais enviado a modelos de texto. Ativos visuais passam por validação técnica local e o sistema declara explicitamente que essa validação não equivale a enxergar composição ou legibilidade.
+- A passagem visual entre esboço, protótipo e candidato reutiliza o mesmo artefato e não gera imagens idênticas apenas para representar progresso.
+- Produções visuais do mesmo projeto possuem intervalo econômico mínimo de cinco minutos para que a entrega anterior seja avaliada antes de novo gasto.
+- Toda revisão de IA recebe `taskId`, `projectId` e `artifactId`. Chamadas de texto têm timeout de 90 segundos; imagens, 120 segundos.
+- Uma taxa de falha elevada ativa um circuit breaker temporário para revisões, evitando ataques repetidos a um provedor instável.
+- Logs repetidos são consolidados com contador e intervalo temporal. O fim do orçamento gera um único evento agregado, impedindo que 2.000 mensagens de descanso apaguem o histórico produtivo.
+- O teste de fluxo ganhou regressões para liderança única, compactação de logs, custo visual, recomendação financeira idempotente, deduplicação semântica, pré-verificação de orçamento e timeouts.
+
+# v59 — constituição imutável, fundação resiliente e setores especializados
+
+## Fundação e continuidade
+
+- Os princípios máximos do projeto passaram a existir como uma constituição congelada no runtime: produto real, custo mínimo com qualidade máxima, caixa lastreado, ferramentas para modelos econômicos, especialização estrita, integridade de saída, soberania do acervo e proibição de simular ações humanas.
+- Fundar empresa agora nomeia a gerente antes da entrevista. Após o briefing, ela cria identidade e estratégia, contrata uma equipe de três a quatro especialistas e convoca uma reunião inicial com toda a equipe.
+- Corrigida a regressão observada nos logs: uma falha `Failed to fetch` não marca mais a fundação como tentada pelo resto da sessão. O estado persiste, usa backoff de 15 segundos a 5 minutos, retoma automaticamente e oferece “Tentar agora”.
+- O jogo solicita Screen Wake Lock enquanto permanece visível e reassume o bloqueio ao retornar, evitando que o celular apague a tela durante a execução quando o navegador oferece essa API.
+
+## Setores, realidade e decisões
+
+- Criados os setores separados de Desenvolvimento de Software, Finanças & Eficiência e Laboratório & Pesquisa, ao lado de Criação, Produção, Operações e Comercial.
+- Cada funcionário executa somente o kit do próprio setor. Finanças é obrigatório e seu último responsável não pode ser demitido; o laboratório trabalha apenas com testes e dados reais.
+- O setor financeiro analisa sem custo de IA caixa, chamadas, tokens, falhas, interrupções, imagens, backlog e capacidade e encaminha recomendações persistentes à gerência.
+- Tarefas que exigem contato, e-mail, venda, pagamento, cadastro, upload, deploy ou publicação externa são desviadas para a caixa de decisões do proprietário. O trabalho só retoma após o jogador fornecer os dados reais.
+- A sala de reuniões ganhou uma caixa executiva claramente separada do chat para decisões do proprietário, aprovações de artefatos e relatórios financeiros.
+
+## Caixa, ferramentas e imagens
+
+- O caixa dedicado pode ser definido por valor ou porcentagem do saldo real; ambas as modalidades são ressincronizadas automaticamente e não podem exceder o lastro do OpenRouter.
+- Modelos recebem contexto de ferramentas locais determinísticas para projeto, artefatos, acervo, finanças e validação antes de gastar novas chamadas.
+- A geração de imagem ganhou política configurável de custo máximo por imagem e percentual máximo do caixa, com bloqueio preventivo sem consumo.
+
+# v58 — agentes independentes, produção paralela e integridade total
+
+## IA, concorrência e setores
+
+- Cada gerente e funcionário agora possui modelos próprios persistentes e uma lane independente. O padrão foi invertido para GPT-OSS 120B em pensamento/revisão e GPT-OSS 20B em produção, com escalada ao modelo forte após reprovações repetidas.
+- Corrigida a janela de corrida que permitia reservar a mesma pessoa/tarefa mais de uma vez. A gerente revisa em paralelo com funcionários, sem bloquear todas as lanes.
+- Removido o fallback generalista: funcionário só recebe e executa kits do seu setor. A geração de imagem agora depende do kit visual, não de palavras acidentais no briefing.
+- A fundação abre frentes complementares de portfólio para os setores disponíveis; o site institucional só entra na fila depois do primeiro produto real não-site.
+
+## Integridade, custo e aprovação
+
+- Removido `max_completion_tokens` das chamadas. Nenhum artefato, referência ou base selecionada é cortado no prompt.
+- `finish_reason=length`, `max_tokens`, filtro ou interrupção visual geram artefato INCOMPLETO isolado, com custo/tokens atribuídos e release proibido.
+- Limite de caixa/cota não consome tentativa de qualidade nem bloqueia tarefa. O modo intensivo passou a ser configuração por empresa e ignora apenas o limite diário, nunca o caixa real.
+- A sala de reuniões ganhou fila de entregas com prévia, aprovação e recusa. A gerente continua autorizada a decidir trabalho comum; somente o proprietário altera o acervo soberano.
+
+## Diagnóstico com telemetria real
+
+- A correção foi validada contra 634 logs e 185 chamadas: 18 respostas truncadas antes aceitas, três falhas de imagem disparadas por roteamento textual incorreto e tarefas bloqueadas por reservas duplicadas ou falta de orçamento.
+
+# v57 — central lateral, artefatos auditáveis e site institucional
+
+## Interface e mapa
+
+- O mapa agora ocupa toda a viewport. O HUD foi convertido em uma central lateral recolhível com painéis independentes de gerente, produção, artefatos, estado, atividade e IA/custos.
+- Adicionados arraste por toque/mouse e zoom por pinça, mantendo câmera e zoom presos aos limites do tilemap útil.
+- Tocar a sala de reuniões abre uma visão em tela cheia com todos os funcionários, estados, decisões críticas e registro copiável.
+- O painel de estado reúne barras de progresso de funcionários e tarefas, caixa, gastos, tokens, projetos, artefatos, referências, eventos e falhas.
+
+## Artefatos, custos e continuidade
+
+- Artefatos em produção agora evoluem no mesmo registro durante esboço, protótipo e candidato. O conteúdo anterior fica em um histórico de revisões; produtos publicados continuam imutáveis e originam uma nova versão.
+- A lista de artefatos deixou de truncar resultados e passou a incluir material interno, em produção e finalizado.
+- Cada ficha mostra prévia, fonte, download, edição, solicitação de edição, projeto, tarefa, linhagem, validação e histórico.
+- Chamadas de IA passam a persistir ID, tarefa, projeto, artefato, funcionário, modelo, provedor, tokens de entrada/saída, custo, latência, motivo e detalhamento de uso.
+- Custos de bundles são rateados proporcionalmente ao tamanho dos arquivos e a soma permanece igual ao custo real da chamada.
+- Logs e telemetria podem ser copiados ou exportados em JSON; retenção local foi ampliada para 2.000 eventos/chamadas e 500 eventos por funcionário.
+
+## Site institucional e autonomia
+
+- Toda empresa ganha um projeto obrigatório de site institucional, separado do runtime do jogo.
+- A equipe produz um pacote estático multi-arquivo com `index.html` na raiz. O jogo oferece prévia isolada e ZIP pronto para hospedagem estática/GitHub Pages.
+- A gerente toma decisões operacionais normais sem bloquear o fluxo aguardando o jogador. Solicitações especiais ficam reservadas a decisões soberanas, como alteração de acervo ou autorização de branch.
+
+## Verificação
+
+- O teste de fluxo valida o projeto institucional obrigatório, a edição no mesmo ID, o histórico de revisões, o novo HUD e os fluxos de prévia/exportação.
+
+# v56 — jogo único, mundo em tiles e fila produtiva
+
+## Correção crítica de trabalho
+
+- Corrigido o caminho que permitia à gerente executar tarefas de produção. A gerente agora somente decide, revisa, cria tarefas e as delega a funcionários; uma trava adicional no executor impede regressões mesmo diante de uma saída inesperada do modelo.
+- Saídas gerenciais `executar_tarefa`, `criar_tarefa`, `revisar`, `estudar` e `planejar` agora são materializadas em estado persistente. Ao criar trabalho, a gerente tenta despachá-lo imediatamente para um funcionário disponível.
+- Funcionários procuram trabalho próprio, livre compatível e livre geral. Tarefas atribuídas à gerente, a funcionários removidos ou a IDs antigos são desalocadas e voltam à fila.
+- Estados legados `pendente`, `nova`, `todo`, `aguardando` e `fila` migram para `aberta`; execuções interrompidas continuam sendo recuperadas na carga.
+- O primeiro ciclo roda logo após montar a empresa, sem aguardar o primeiro intervalo do motor.
+- Conversas de tempo livre deixaram de chamar IA. A vida social ociosa continua visível, mas tokens ficam reservados a decisões, revisões e produção.
+
+## Jogo único e interface
+
+- Removidos `classico.html`, `app.css` e `ui.js`. Não existe mais interface de site ou alternância de modos: `index.html` é exclusivamente o jogo.
+- Adicionado menu principal com continuar, nova empresa, seleção/exclusão de empresas, identidade, acervos, construção, economia e configuração global de IA.
+- O HUD foi reduzido a identidade, métricas essenciais, menu e zoom. Informações detalhadas permanecem nas gavetas e janelas abertas sob demanda.
+- Eliminada a dependência de “site central” do modelo, das reuniões, dos metadados de artefato e do release. HTML e páginas continuam possíveis apenas quando forem o produto escolhido pelo jogador.
+
+## Mundo, câmera e animação
+
+- O mapa passou a ter 1600×800 unidades, grid de tiles e um prédio completo com pisos de madeira, tapetes, fachada, janelas e porta dupla.
+- A área externa ganhou grama em tiles, caminhos, árvores, lago, canteiro, flores e bancos. Agentes usam jardim, banco e praça durante o tempo livre.
+- Adicionadas colisões com limites, paredes externas, abertura da porta, árvores, lago e objetos construídos, com busca de caminho em grid e avanço por todos os waypoints.
+- Adicionado zoom de 75% a 225%, câmera centralizada e conversão correta de toque para coordenadas do mundo.
+- O canvas deixou de limitar o desenho a aproximadamente 12,5 FPS e agora anima em cada `requestAnimationFrame`, mantendo a simulação independente do desenho.
+
+## Acervos por empresa
+
+- Cada empresa agora mantém um acervo exclusivo do proprietário.
+- Itens da empresa alimentam automaticamente o acervo global por meio de espelhos sincronizados; editar ou apagar o original da empresa atualiza ou remove o espelho.
+- O acervo global também aceita referências independentes antes da primeira fundação e pode fornecer bases a projetos de qualquer empresa.
+- A interface separa claramente acervo exclusivo, global agregado, dados do projeto e produtos finais disponíveis para promoção.
+- Apagar uma empresa remove seus espelhos do agregado global e limpa vínculos correspondentes sem afetar referências globais independentes.
+
+## Verificação e cache
+
+- O teste de fluxo foi ampliado para validar o modelo empresa/global, a remoção do legado, o menu/zoom, a trava da gerente e a ausência de chamadas de IA por ociosidade.
+- Cache do service worker atualizado para `estudio-v56-game-world` e reduzido aos arquivos do jogo.
+
 # v55 — fluxo produtivo contínuo, IA global e escritório vivo
 
 ## Acervo soberano e projetos independentes

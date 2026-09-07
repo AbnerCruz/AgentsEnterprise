@@ -164,7 +164,7 @@ window.S = window.S || {};
     e.economia.gastoIAUSD = Math.max(0, Number(e.economia.gastoIAUSD)||0);
     e.economia.receitaNaoIdentificadaUSD = Math.max(0, Number(e.economia.receitaNaoIdentificadaUSD)||0);
     e.economia.cicloInicio = Number(e.economia.cicloInicio)||Date.now();
-    e.economia.cicloDias = 30;
+    e.economia.cicloDias = Math.max(1,Math.min(365,Number(e.economia.cicloDias)||30));
     e.economia.modoTrabalho = e.economia.modoTrabalho === 'intensivo' ? 'intensivo' : 'normal';
     e.economia.alocacao=e.economia.alocacao&&typeof e.economia.alocacao==='object'?e.economia.alocacao:{};
     e.economia.alocacao.tipo=e.economia.alocacao.tipo==='percentual'?'percentual':'valor';
@@ -172,7 +172,7 @@ window.S = window.S || {};
     e.economia.alocacao.valorUSD=Math.max(0,Number(e.economia.alocacao.valorUSD)||e.economia.caixaUSD||0);
     e.economia.imagens=e.economia.imagens&&typeof e.economia.imagens==='object'?e.economia.imagens:{};
     e.economia.imagens.limitePorImagemUSD=Math.max(0.001,Number(e.economia.imagens.limitePorImagemUSD)||0.05);
-    e.economia.imagens.percentualMaxCaixa=Math.max(1,Math.min(100,Number(e.economia.imagens.percentualMaxCaixa)||15));
+    e.economia.imagens.percentualMaxCaixa=Math.max(1,Math.min(10,Number(e.economia.imagens.percentualMaxCaixa)||10));
     e.economia.dia = e.economia.dia && typeof e.economia.dia==='object' ? e.economia.dia : {chave:'',gastoUSD:0};
     e.economia.historico = Array.isArray(e.economia.historico) ? e.economia.historico.slice(-2000) : [];
     e.economia.vendas = Array.isArray(e.economia.vendas) ? e.economia.vendas.slice(-120) : [];
@@ -193,6 +193,7 @@ window.S = window.S || {};
     e.gerencia.ultimaAvaliacao = Number(e.gerencia.ultimaAvaliacao) || 0;
     e.gerencia.recomendacao = String(e.gerencia.recomendacao || 'A gerente está observando a carga, qualidade e dependências da equipe.');
     e.gerencia.alertas = Array.isArray(e.gerencia.alertas) ? e.gerencia.alertas.slice(-20) : [];
+    e.gerencia.solicitacoesContratacao = Array.isArray(e.gerencia.solicitacoesContratacao) ? e.gerencia.solicitacoesContratacao.slice(-80) : [];
     e.gerencia.revisoesPorLinhagem = e.gerencia.revisoesPorLinhagem && typeof e.gerencia.revisoesPorLinhagem === 'object' ? e.gerencia.revisoesPorLinhagem : {};
     e.tarefas = Array.isArray(e.tarefas) ? e.tarefas : [];
     e.equipe = Array.isArray(e.equipe) ? e.equipe : [];
@@ -211,6 +212,7 @@ window.S = window.S || {};
       f.memoriaResumo = String(f.memoriaResumo || '').slice(0,2600);
       f.pensamento = String(f.pensamento || 'Observando o que posso fazer para contribuir com o produto final e com a equipe.').slice(0, 240);
       f.foco = String(f.foco || '').slice(0, 180);
+      f.liderSetor = f.papel === 'func' && Boolean(f.liderSetor);
       // Ficha persistente: a personalidade orienta comportamento, comunicação e colaboração.
       f.personalidade = f.personalidade && typeof f.personalidade === 'object' ? f.personalidade : {};
       f.personalidade.tracos = Array.isArray(f.personalidade.tracos) && f.personalidade.tracos.length
@@ -222,13 +224,15 @@ window.S = window.S || {};
       f.personalidade.aversoes = String(f.personalidade.aversoes || 'retrabalho sem motivo e tarefas desconectadas do produto').slice(0,160);
       f.personalidade.experiencia = String(f.personalidade.experiencia || (f.cargo === 'Sócia-gerente' ? 'gestão de projetos e qualidade' : f.cargo.toLowerCase())).slice(0,140);
       f.uso = f.uso || { chamadas: 0, tokens: 0 };
-      // Cada pessoa mantém sua própria dupla de modelos. Estes valores são
-      // cópias persistentes, não ponteiros para uma fila/modelo global.
+      // Cada pessoa mantém três níveis próprios. Migra automaticamente as
+      // antigas chaves pensamento/produção sem perder a configuração.
       f.ia = f.ia && typeof f.ia === 'object' ? f.ia : {};
-      f.ia.pensamento = String(f.ia.pensamento || 'openai/gpt-oss-120b');
-      f.ia.producao = String(f.ia.producao || 'openai/gpt-oss-20b');
+      f.ia.leve = String(f.ia.leve || f.ia.producao || 'openai/gpt-oss-20b');
+      f.ia.padrao = String(f.ia.padrao || f.ia.pensamento || 'openai/gpt-oss-120b');
+      f.ia.avancado = String(f.ia.avancado || 'deepseek/deepseek-v3.2');
       f.ia.imagem = String(f.ia.imagem || 'google/gemini-2.5-flash-image');
       f.ia.independente = true;
+      delete f.ia.pensamento; delete f.ia.producao;
       // Salário é uma economia interna de carreira, deliberadamente desacoplada de dinheiro real.
       f.salario = f.salario && typeof f.salario==='object' ? f.salario : {};
       f.salario.mensalCreditos = Math.max(100, Number(f.salario.mensalCreditos)|| (f.papel==='gerente'?1500:900));
@@ -246,6 +250,14 @@ window.S = window.S || {};
       f.ambiente = f.ambiente && typeof f.ambiente === 'object' ? f.ambiente : {};
       f.ambiente.preferencias = Array.isArray(f.ambiente.preferencias) ? f.ambiente.preferencias.slice(0,8) : [];
       f.ambiente.ultimaAcao = Number(f.ambiente.ultimaAcao) || 0;
+    });
+    // Cada setor representado possui exatamente um líder operacional. Em bases
+    // antigas, o primeiro especialista assume a liderança sem criar outra pessoa.
+    const porSetor = {};
+    e.equipe.filter(f=>f.papel==='func').forEach(f=>(porSetor[f.especialidade]=porSetor[f.especialidade]||[]).push(f));
+    Object.values(porSetor).forEach(grupo=>{
+      const atual=grupo.find(f=>f.liderSetor)||grupo[0];
+      grupo.forEach(f=>f.liderSetor=f===atual);
     });
     e.projetos = Array.isArray(e.projetos) ? e.projetos : [];
     if (!e.projetos.length) {
@@ -388,7 +400,7 @@ window.S = window.S || {};
     e.financeiro=e.financeiro&&typeof e.financeiro==='object'?e.financeiro:{};
     e.financeiro.analises=Array.isArray(e.financeiro.analises)?e.financeiro.analises.slice(-300):[];
     e.financeiro.recomendacoes=Array.isArray(e.financeiro.recomendacoes)?e.financeiro.recomendacoes.slice(-120):[];
-    e.log = Array.isArray(e.log) ? e.log.slice(-2000) : [];
+    e.log = Array.isArray(e.log) ? e.log.slice(-5000) : [];
     // Nenhuma execução assíncrona sobrevive a um fechamento da página. Estados
     // transitórios persistidos precisam voltar à fila; caso contrário uma tarefa
     // "fazendo" ou uma reunião interrompida congelam a empresa para sempre.
@@ -488,8 +500,20 @@ window.S = window.S || {};
 
   function registrar(texto, tag, agenteId) {
     const e = atual(); if (!e) return;
-    e.log.push({ t: Date.now(), texto: String(texto), tag: tag || 'info', agente: agenteId || null });
-    if (e.log.length > 2000) e.log.splice(0, e.log.length - 2000);
+    const agora=Date.now(), mensagem=String(texto), categoria=tag||'info', autor=agenteId||null;
+    const ultima=e.log.slice(-80).reverse().find(x=>x.texto===mensagem&&x.tag===categoria&&x.agente===autor);
+    // Estados repetitivos são consolidados. Assim uma hora de rotina não apaga
+    // decisões, custos, falhas e entregas do histórico operacional.
+    if(ultima&&agora-Number(ultima.ultimaOcorrencia||ultima.t||0)<15*60*1000){
+      ultima.quantidade=Number(ultima.quantidade||1)+1;ultima.ultimaOcorrencia=agora;
+    }else e.log.push({ t: agora, texto: mensagem, tag: categoria, agente: autor, quantidade:1, ultimaOcorrencia:agora });
+    if (e.log.length > 5000) {
+      let excesso=e.log.length-5000;
+      for(let i=0;i<e.log.length&&excesso>0;){
+        if(e.log[i].tag==='rotina'){e.log.splice(i,1);excesso--;}else i++;
+      }
+      if(excesso>0)e.log.splice(0,excesso);
+    }
     S.bus.emit('log');
     gravar();
   }
@@ -500,7 +524,9 @@ window.S = window.S || {};
     f.log = Array.isArray(f.log) ? f.log : [];
     f.log.push({ t: Date.now(), texto: String(texto), tag: tag || 'info' });
     if (f.log.length > 500) f.log.splice(0, f.log.length - 500);
-    registrar(`${f.nome}: ${texto}`, tag || 'info', agenteId);
+    const setores={criacao:'Produto & Criação',desenvolvimento:'Desenvolvimento de Software',producao:'Produção & Entrega',operacoes:'Operações & Dados',comercial:'Crescimento & Comercial',financeiro:'Finanças & Eficiência',laboratorio:'Laboratório & Pesquisa'};
+    const funcao=f.papel==='gerente'?'Gerência Geral':setores[f.especialidade]||f.cargo;
+    registrar(`${f.nome} (${funcao}${f.liderSetor?' · líder':''}): ${texto}`, tag || 'info', agenteId);
     gravar();
     S.bus.emit('pessoa-log', agenteId);
   }
@@ -663,11 +689,12 @@ window.S = window.S || {};
     const e=atual(); if(!e)return null; garantirDiaEconomia(e); processarFolhaInterna(e);
     return {caixaUSD:caixaDisponivel(e),receitaUSD:Number(e.economia.receitaUSD)||0,gastoIAUSD:Number(e.economia.gastoIAUSD)||0,
       gastoHojeUSD:Number(e.economia.dia.gastoUSD)||0,receitaNaoIdentificadaUSD:Number(e.economia.receitaNaoIdentificadaUSD)||0,
-      modoTrabalho:e.economia.modoTrabalho||'normal',alocacao:Object.assign({},e.economia.alocacao||{}),imagens:Object.assign({},e.economia.imagens||{}),vendas:(e.economia.vendas||[]).slice(),historico:(e.economia.historico||[]).slice(),provedor:Object.assign({},e.economia.provedor||{})};
+      modoTrabalho:e.economia.modoTrabalho||'normal',cicloDias:Number(e.economia.cicloDias)||30,cicloInicio:Number(e.economia.cicloInicio)||Date.now(),alocacao:Object.assign({},e.economia.alocacao||{}),imagens:Object.assign({},e.economia.imagens||{}),vendas:(e.economia.vendas||[]).slice(),historico:(e.economia.historico||[]).slice(),provedor:Object.assign({},e.economia.provedor||{})};
   }
   function definirModoTrabalho(modo){const e=atual();if(!e)throw new Error('Nenhuma empresa selecionada.');e.economia.modoTrabalho=modo==='intensivo'?'intensivo':'normal';registrar(`Ritmo de IA alterado para ${e.economia.modoTrabalho}.`,'economia');gravarJa();S.bus.emit('economia');S.bus.emit('ia');return e.economia.modoTrabalho;}
-  function definirPoliticaImagem(limitePorImagemUSD,percentualMaxCaixa){const e=atual();if(!e)throw new Error('Nenhuma empresa selecionada.');e.economia.imagens={limitePorImagemUSD:Math.max(0.001,Math.min(10,Number(limitePorImagemUSD)||0.05)),percentualMaxCaixa:Math.max(1,Math.min(100,Number(percentualMaxCaixa)||15))};registrar(`Política econômica de imagens: até US$ ${e.economia.imagens.limitePorImagemUSD.toFixed(4)} e ${e.economia.imagens.percentualMaxCaixa}% do caixa por geração.`,'economia');gravarJa();S.bus.emit('economia');return Object.assign({},e.economia.imagens);}
-  S.economia={resumo:resumoEconomia,caixa:()=>{const e=atual();return caixaDisponivel(e);},debitarIA,definirCaixa,definirCaixaPorPercentual,sincronizarAlocacoes,definirModoTrabalho,definirPoliticaImagem,distribuirIgualmente,reconciliarLastroGlobal,totalCaixas,saldoNaoAlocado,reconciliarFornecedor,registrarVenda,processarFolhaInterna};
+  function definirPeriodoDias(dias){const e=atual();if(!e)throw new Error('Nenhuma empresa selecionada.');e.economia.cicloDias=Math.max(1,Math.min(365,Math.round(Number(dias)||30)));e.economia.cicloInicio=Date.now();e.economia.turno=null;e.economia.dia={chave:'',gastoUSD:0};registrar(`Período do orçamento definido em ${e.economia.cicloDias} dia(s).`,'economia');gravarJa();S.bus.emit('economia');S.bus.emit('ia');return e.economia.cicloDias;}
+  function definirPoliticaImagem(limitePorImagemUSD,percentualMaxCaixa){const e=atual();if(!e)throw new Error('Nenhuma empresa selecionada.');e.economia.imagens={limitePorImagemUSD:Math.max(0.001,Math.min(10,Number(limitePorImagemUSD)||0.05)),percentualMaxCaixa:Math.max(1,Math.min(10,Number(percentualMaxCaixa)||10))};registrar(`Política econômica de imagens: até US$ ${e.economia.imagens.limitePorImagemUSD.toFixed(4)} e ${e.economia.imagens.percentualMaxCaixa}% do caixa por geração.`,'economia');gravarJa();S.bus.emit('economia');return Object.assign({},e.economia.imagens);}
+  S.economia={resumo:resumoEconomia,caixa:()=>{const e=atual();return caixaDisponivel(e);},debitarIA,definirCaixa,definirCaixaPorPercentual,sincronizarAlocacoes,definirModoTrabalho,definirPeriodoDias,definirPoliticaImagem,distribuirIgualmente,reconciliarLastroGlobal,totalCaixas,saldoNaoAlocado,reconciliarFornecedor,registrarVenda,processarFolhaInterna};
 
   /* ---------- acervos soberanos do usuário ----------
      Cada empresa possui seu próprio acervo. O global agrega espelhos desses
@@ -836,7 +863,13 @@ window.S = window.S || {};
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 3000);
   }
+  async function salvarNoDispositivo(blob,nome){
+    if(typeof window.showSaveFilePicker==='function'){
+      try{const h=await window.showSaveFilePicker({suggestedName:nome});const w=await h.createWritable();await w.write(blob);await w.close();return true;}catch(err){if(err&&err.name==='AbortError')return false;}
+    }
+    baixarBlob(blob,nome);return true;
+  }
   function dataUrlBlob(v){const m=String(v||'').match(/^data:([^;]+);base64,(.+)$/s);if(!m)return new Blob([String(v||'')],{type:'application/octet-stream'});const bin=atob(m[2]),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return new Blob([u],{type:m[1]});}
-  S.arquivo = { zip, baixarBlob, crc32, dataUrlBlob };
+  S.arquivo = { zip, baixarBlob, salvarNoDispositivo, crc32, dataUrlBlob };
 
 })(window.S);
