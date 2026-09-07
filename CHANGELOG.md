@@ -4,6 +4,17 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v63 — fundação da migração para servidor
+
+- Registrada a arquitetura em que API, PostgreSQL, armazenamento de objetos, workers, gateway de ferramentas, deploy e comércio substituem gradualmente a autoridade do navegador sem interromper o jogo atual.
+- Criado o primeiro schema PostgreSQL para usuários, empresas, chefias, projetos, tarefas, dependências, acervos soberanos, artefatos, chamadas de IA, ledger financeiro, reuniões, jobs, ferramentas, deploys, produtos, preços, pedidos, eventos de pagamento e auditoria.
+- A constituição fundamental é semeada com hash SHA-256 e protegida contra atualização ou exclusão. Auditoria também é append-only.
+- Jobs possuem idempotência, lease e índices próprios para claim concorrente; dinheiro é persistido em unidades inteiras, nunca ponto flutuante.
+- Documentado o caminho seguro para sites, Checkout hospedado, webhook assinado, reconciliação e payout do processador para a conta bancária configurada pelo proprietário.
+- Adicionado PostgreSQL de desenvolvimento via Docker Compose. Esta etapa prepara o backend e ainda não desativa o motor local nem expõe chaves no servidor.
+
+---
+
 # v62 — integridade dos produtos e trabalho setorial
 
 ## Correções orientadas pela execução real

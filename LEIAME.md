@@ -1,4 +1,6 @@
-# Agents Enterprise — v60
+# Agents Enterprise — v62
+
+> Migração para servidor em andamento: consulte [docs/ARQUITETURA_SERVIDOR.md](docs/ARQUITETURA_SERVIDOR.md) e o contrato inicial em [server/openapi.yaml](server/openapi.yaml). O jogo publicado continua usando o motor local até a importação e o worker durável estarem validados.
 
 Agents Enterprise é um jogo 2D top-down, mobile-first e projetado para jogar com o celular na horizontal. O jogador funda e administra empresas de agentes de IA cujo objetivo é produzir arquivos reais, prontos para vender ou distribuir fora do jogo.
 

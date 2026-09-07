@@ -1,0 +1,228 @@
+openapi: 3.1.0
+info:
+  title: AgentsEnterprise Control API
+  version: 0.1.0
+  description: API autoritativa para estado, trabalho durável, artefatos, deploy e comércio.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      security: []
+      operationId: health
+      responses:
+        '200':
+          description: API e banco disponíveis
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, database, version]
+                properties:
+                  ok: { type: boolean }
+                  database: { type: string, enum: [up] }
+                  version: { type: string }
+  /migration/local-snapshot:
+    post:
+      operationId: importLocalSnapshot
+      description: Importação única e idempotente do estado local; não substitui empresa migrada sem correspondência de versão.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [snapshot, clientVersion]
+              properties:
+                clientVersion: { type: string }
+                snapshot: { type: object, additionalProperties: true }
+      responses:
+        '202': { description: Importação validada e enfileirada }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /companies/{companyId}/snapshot:
+    get:
+      operationId: companySnapshot
+      parameters:
+        - $ref: '#/components/parameters/CompanyId'
+        - in: header
+          name: If-None-Match
+          schema: { type: string }
+      responses:
+        '200':
+          description: Estado consistente da empresa
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanySnapshot' }
+        '304': { description: Sem alteração }
+  /companies/{companyId}/events:
+    get:
+      operationId: companyEvents
+      description: Stream SSE para o jogo observar trabalho sem executar o motor.
+      parameters:
+        - $ref: '#/components/parameters/CompanyId'
+        - in: header
+          name: Last-Event-ID
+          schema: { type: string }
+      responses:
+        '200':
+          description: Fluxo append-only de eventos autorizados
+          content:
+            text/event-stream:
+              schema: { type: string }
+  /companies/{companyId}/commands:
+    post:
+      operationId: submitCompanyCommand
+      parameters:
+        - $ref: '#/components/parameters/CompanyId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, payload, expectedVersion]
+              properties:
+                type: { type: string, enum: [wake, owner_message, approve_decision, reject_decision, allocate_budget, pause, resume] }
+                payload: { type: object, additionalProperties: true }
+                expectedVersion: { type: integer, minimum: 1 }
+      responses:
+        '202': { description: Comando persistido }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /artifacts/{artifactId}/download:
+    post:
+      operationId: createArtifactDownload
+      parameters:
+        - in: path
+          name: artifactId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: URL curta e assinada para o objeto imutável
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, expiresAt, sha256]
+                properties:
+                  url: { type: string, format: uri }
+                  expiresAt: { type: string, format: date-time }
+                  sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+  /projects/{projectId}/deployments:
+    post:
+      operationId: requestDeployment
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [artifactId, environment]
+              properties:
+                artifactId: { type: string, format: uuid }
+                environment: { type: string, enum: [preview, production] }
+                ownerApprovalId: { type: [string, 'null'], format: uuid }
+      responses:
+        '202': { description: Deploy verificável enfileirado }
+        '422': { description: Bundle, autorização ou gate inválido }
+  /products/{productId}/checkout:
+    post:
+      operationId: createCheckout
+      security: []
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [priceId, successUrl, cancelUrl]
+              properties:
+                priceId: { type: string, format: uuid }
+                successUrl: { type: string, format: uri }
+                cancelUrl: { type: string, format: uri }
+      responses:
+        '200':
+          description: Sessão hospedada criada para preço aprovado
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [checkoutUrl]
+                properties:
+                  checkoutUrl: { type: string, format: uri }
+  /webhooks/stripe:
+    post:
+      operationId: stripeWebhook
+      security: []
+      description: Usa corpo bruto e assinatura Stripe; o ID do evento é a chave idempotente.
+      responses:
+        '200': { description: Evento persistido ou já processado }
+        '400': { description: Assinatura ou payload inválido }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    CompanyId:
+      in: path
+      name: companyId
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: true
+      schema: { type: string, minLength: 16, maxLength: 200 }
+  responses:
+    Conflict:
+      description: Versão ou idempotência conflitante
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        correlationId: { type: string }
+    CompanySnapshot:
+      type: object
+      required: [company, agents, projects, tasks, artifacts, meetings, budget, stateVersion]
+      properties:
+        stateVersion: { type: integer, minimum: 1 }
+        company: { type: object, additionalProperties: true }
+        agents: { type: array, items: { type: object, additionalProperties: true } }
+        projects: { type: array, items: { type: object, additionalProperties: true } }
+        tasks: { type: array, items: { type: object, additionalProperties: true } }
+        artifacts: { type: array, items: { type: object, additionalProperties: true } }
+        meetings: { type: array, items: { type: object, additionalProperties: true } }
+        budget:
+          type: object
+          required: [allocatedMicrousd, spentMicrousd, remainingMicrousd]
+          properties:
+            allocatedMicrousd: { type: integer }
+            spentMicrousd: { type: integer }
+            remainingMicrousd: { type: integer }
