@@ -142,7 +142,10 @@
       if(!motivos.length)motivos.push(nivel==='leve'?'operação curta e estruturada':'produção substantiva normal');
     } else motivos.push('nível solicitado pelo fluxo');
     const modelos=modelosDaPessoa(op.agenteId||op.idAgente||op.agente);
-    return {nivel,modelo:modelos[nivel],score,motivo:motivos.join('; '),entrada,tentativa:tentativas};
+    const heuristica={nivel,modelo:modelos[nivel],score,motivo:motivos.join('; '),entrada,tentativa:tentativas};
+    const aprendida=S.operacao&&S.operacao.escolherModelo?S.operacao.escolherModelo(op,modelos,heuristica):heuristica;
+    if(aprendida&&aprendida.aprendeu){heuristica.modelo=aprendida.modelo;heuristica.motivo=aprendida.motivo;heuristica.aprendeu=true;}
+    return heuristica;
   }
   function economiaAtual(){ return S.economia && S.economia.resumo ? S.economia.resumo() : null; }
   function modoIntensivo(){const eco=economiaAtual();return Boolean(eco&&eco.modoTrabalho==='intensivo');}
@@ -434,6 +437,7 @@
 
   function registrarChamada(reg) {
     reg=Object.assign({id:'call_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8),em:Date.now(),ok:false,entrada:0,saida:0,tokens:0,custo:0,ms:0},reg||{});
+    const trace=reg.trace;delete reg.trace;
     estado.chamadas.unshift(reg);
     if (estado.chamadas.length > 500) estado.chamadas.length=500;
     const empresa=S.state&&S.state.atual&&S.state.atual();
@@ -442,6 +446,8 @@
     if(S.state&&S.state.atual&&S.state.atual()&&S.state.registrar){
       S.state.registrar(`IA ${reg.ok?'concluiu':'falhou'} · ${reg.quem||'agente'} · ${reg.motivo||'chamada'} · ${reg.modelo||'modelo'} · ${Number(reg.tokens||0)} tokens (${Number(reg.entrada||0)} entrada/${Number(reg.saida||0)} saída) · US$ ${Number(reg.custo||0).toFixed(5)} · ${S.fmt.dur(reg.ms||0)}${reg.erro?' · '+String(reg.erro).slice(0,180):''}`,reg.ok?'ia':'erro');
     }
+    if(S.operacao&&S.operacao.registrarChamada)S.operacao.registrarChamada(reg);
+    if(trace&&S.replay)void S.replay.gravar(Object.assign({},reg,trace));
     S.bus.emit('ia');
   }
 
@@ -506,6 +512,7 @@
     // orçamento em dólar checado logo abaixo, não o tamanho do texto.
     const mensagens = [{ role:'user', content: String(sistema||'') + '\n\n' + String(pedido||'') }];
     const custoEstimado = estimarCusto(provedorUsado, modelo, Math.ceil((String(sistema||'').length + String(pedido||'').length)/4), estimativaSaida);
+    if(S.operacao&&S.operacao.autorizarChamada)S.operacao.autorizarChamada(op,Math.ceil((String(sistema||'').length+String(pedido||'').length)/4)+estimativaSaida);
     if (provedorUsado === 'openrouter' && orStatus.temLimiteChave === true && Number.isFinite(Number(orStatus.limiteRestante)) && Number(orStatus.limiteRestante) < custoEstimado) {
       const er=new Error(`Saldo/limite real do OpenRouter insuficiente para esta chamada (restante ~US$ ${Number(orStatus.limiteRestante).toFixed(4)}).`); er.cota=true; throw er;
     }
@@ -618,7 +625,7 @@
       const custoChamada=numeroOpcional((dados.usage||{}).cost)||estimarCusto(provedorUsado,modelo,(dados.usage||{}).prompt_tokens,(dados.usage||{}).completion_tokens);
       registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,...metaRota,modelo,provedor:provedorUsado,ms,ok:true,
         entrada:Number((dados.usage||{}).prompt_tokens||0),saida:Number((dados.usage||{}).completion_tokens||0),
-        tokens:Number((dados.usage||{}).total_tokens||0),custo:custoChamada,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados.usage||{},finishReason:escolha.finish_reason||null});
+        tokens:Number((dados.usage||{}).total_tokens||0),custo:custoChamada,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados.usage||{},finishReason:escolha.finish_reason||null,tipo,etapa:op.etapa||null,trace:{entrada:{sistema:String(sistema||''),pedido:String(pedido||'')},saida:texto}});
       situar('pronta','IA pronta',`última resposta em ${(ms/1000).toFixed(1)}s`);
       return {texto,usage:dados.usage||{},ms,modelo,provedor:provedorUsado,custo:custoChamada};
     }catch(err){

@@ -33,6 +33,11 @@
       return `${f.id}=${f.nome} (${f.cargo}, setor=${f.especialidade}${f.liderSetor?', LÍDER DO SETOR':''}, ${estado}, energia ${Math.round(Number(f.energia)||0)}, foco: ${max(f.foco,90)})`;
     }).join('; ');
   }
+  function assinaturaOperacional(e,p){
+    const pr=projetoAtual(e,p),msgs=(e.reuniao&&e.reuniao.mensagens||[]).filter(m=>!m.para||m.para===p.id||m.para===p.nome).slice(-8);
+    return S.operacao?S.operacao.hash({projeto:pr&&pr.id,tarefas:(e.tarefas||[]).filter(t=>t.status!=='feita').map(t=>[t.id,t.status,t.para,t.baseArquivoId,t.etapaDestino,t.ultimaAtividadeEm]),arquivos:(e.arquivos||[]).map(a=>[a.id,a.classe,a.versaoEdicao,a.avaliado,a.liberadoPublicacao,a.validacao&&a.validacao.pronto]),mensagens:msgs.map(m=>[m.id,m.t,m.tipo]),caixa:[e.economia&&e.economia.caixaUSD,e.economia&&e.economia.gastoIAUSD],diretrizes:(e.diretrizesDono||[]).slice(-5).map(x=>[x.texto,x.status])}):String(Date.now());
+  }
+  function acaoExecutavel(e,d){if(!d)return false;if(d.acao==='executar_tarefa')return(e.tarefas||[]).some(t=>t.id===d.tarefa&&t.status==='aberta'&&!t.bloqueada);if(['esperar','colaborar','reuniao'].includes(d.acao))return false;return true;}
   function memoriasRelevantes(p, termos){
     const mem=Array.isArray(p.ref&&p.ref.memoria)?p.ref.memoria:[];
     const toks=String(termos||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9]+/).filter(x=>x.length>3);
@@ -48,6 +53,7 @@
     const toksOrg=termos.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9]+/).filter(x=>x.length>3);
     const memOrg=(e.memoriaOrganizacional||[]).slice().sort((a,b)=>{const sc=m=>{const t=String(m.texto||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');return Number(m.peso||2)*2+toksOrg.slice(0,35).reduce((n,k)=>n+(t.includes(k)?1:0),0)};return sc(b)-sc(a)}).slice(0,10);
     const decisoes = (e.decisoes || []).slice(0, 8).map(d => String(d.texto||'')).join(' | ');
+    const calls=(e.iaChamadas||[]).filter(c=>c.agenteId===p.id||c.quem===p.nome),entregas=(e.arquivos||[]).filter(a=>a.autorId===p.id),aprovadas=entregas.filter(a=>a.classe==='produto'||a.liberadoPublicacao||a.avaliado&&a.validacao&&a.validacao.pronto).length;
     const dadosProjeto=pr&&pr.dados||{};
     const acervoSoberano=S.acervo&&pr?S.acervo.contexto(pr.id,6000):'Nenhuma referência soberana vinculada a este projeto.';
     return {
@@ -63,6 +69,7 @@
         `PRINCÍPIOS FUNDAMENTAIS IMUTÁVEIS:\n${S.principiosTexto ? S.principiosTexto() : 'Produzir produtos reais com o menor custo real e a maior qualidade possível.'}`,
         `FERRAMENTAS LOCAIS GRATUITAS DISPONÍVEIS: ${((S.ferramentas&&S.ferramentas.catalogo)||[]).map(x=>`${x.id} (${x.descricao})`).join('; ') || 'nenhuma'}`,
         `ÚLTIMA ANÁLISE FINANCEIRA: ${JSON.stringify((e.financeiro?.analises||[]).slice(-1)[0]||{estado:'ainda não emitida'})}`,
+        `DESEMPENHO PRÓPRIO: custo acumulado US$ ${calls.reduce((n,c)=>n+Number(c.custo||0),0).toFixed(6)} | ${aprovadas}/${entregas.length} entregas aprovadas (${entregas.length?Math.round(aprovadas/entregas.length*100):0}%) | ${calls.reduce((n,c)=>n+Number(c.tokens||0),0)} tokens.`,
         `RECOMENDAÇÕES FINANCEIRAS PENDENTES À GERÊNCIA: ${(e.financeiro?.recomendacoes||[]).filter(x=>x.status==='pendente_gerencia').map(x=>x.texto).join(' | ')||'nenhuma'}`,
         `ARTEFATOS EXISTENTES: ${arqs.length ? arqs.map(a => `${a.id}:${a.nome}[${a.classe}, kit=${a.kit||'?'}, v${a.versao||1}]`).join('; ') : 'nenhum'}`,
         `TRABALHO ABERTO: ${tarefas.length ? tarefas.map(t => `${t.id}:${t.titulo}[${t.status}, responsável=${t.para||'livre'}, base=${t.baseArquivoId||'nenhuma'}]`).join('; ') : 'nenhum'}`,
@@ -112,19 +119,22 @@
   async function decidir(p, forcar) {
     const e = S.state.atual();
     if (!e || !p || !p.ref) return null;
-    p._agencia = p._agencia || { ultima: 0, ultimaAcao: null };
-    if (!forcar && agora() - p._agencia.ultima < DECISAO_MIN_MS) return p._agencia.ultimaAcao;
+    p._agencia = p._agencia || { ultima: 0, ultimaAcao: null, hashContexto:null, sinal:true };
+    const assinatura=assinaturaOperacional(e,p);
+    if(!forcar&&!p._agencia.sinal&&assinatura===p._agencia.hashContexto&&acaoExecutavel(e,p._agencia.ultimaAcao))return p._agencia.ultimaAcao;
     if (!S.ai.disponivel(p.id)) return null;
 
     const ctx = contexto(e, p);
     ctx.executivo = p.papel === 'gerente';
     ctx.lider = p.papel!=='gerente'&&Boolean(p.ref.liderSetor);
     p._agencia.ultima = agora();
+    p._agencia.hashContexto=assinatura;p._agencia.sinal=false;
     p.ref.foco = 'observando a empresa e deliberando';
     p.ref.pensamento = 'Estou olhando o objetivo, o trabalho existente e o que já foi construído antes de escolher uma ação.';
     S.bus.emit('equipe');
 
-    const sistema = `Você é ${p.nome}, ${p.cargo}, integrante da empresa ${e.nome}. Você não existe para preencher uma fila nem para manter atividade artificial. Você é um agente responsável por contribuir para uma organização real.
+    const prefixo=`CONSTITUIÇÃO ESTÁVEL DO AGENTE:\n${S.principiosTexto?S.principiosTexto():''}\nA gerente coordena e nunca produz. Saídas incompletas nunca viram produto. Use ferramentas determinísticas antes de outra chamada.\n`;
+    const sistema = `${prefixo}\nVocê é ${p.nome}, ${p.cargo}, integrante da empresa ${e.nome}. Você não existe para preencher uma fila nem para manter atividade artificial. Você é um agente responsável por contribuir para uma organização real.
 
 ${ctx.texto}
 
@@ -191,6 +201,7 @@ SOLICITACAO_ACERVO: <consideração objetiva, somente se sugerir_acervo; senão 
       });
       const d = normalizar(S.ai.campos(r && r.texto || ''), ctx);
       p._agencia.ultimaAcao = d;
+      if(S.operacao)S.operacao.evento('agente.decidiu',{agenteId:p.id,acao:d.acao,taskId:d.tarefa||null,contextHash:assinatura});
       p.ref.pensamento = `${d.acao}: ${d.motivo || d.abordagem || 'decisão tomada'}`.slice(0, 500);
       p.ref.foco = d.titulo || d.abordagem || d.acao || 'próxima ação';
       p.balao = (d.motivo || d.abordagem || d.acao || '').slice(0, 70);
@@ -219,5 +230,11 @@ SOLICITACAO_ACERVO: <consideração objetiva, somente se sugerir_acervo; senão 
     S.bus.emit('equipe');
   }
 
-  S.agency = { decidir, contexto, marcarAcao, DECISAO_MIN_MS };
+  function notificar(agenteId,tipo,dados){
+    const pessoas=S.studio&&S.studio.pessoas?S.studio.pessoas():[];
+    pessoas.filter(p=>!agenteId||p.id===agenteId).forEach(p=>{p._agencia=p._agencia||{ultima:0,ultimaAcao:null};p._agencia.sinal=true;p._agencia.ultimoSinal={tipo,dados,em:agora()};});
+  }
+  ['trabalho','arquivos','reuniao','economia','acervo'].forEach(evt=>S.bus.on(evt,d=>notificar(null,evt,d)));
+
+  S.agency = { decidir, contexto, marcarAcao, notificar, DECISAO_MIN_MS };
 })(window.S);

@@ -4,6 +4,27 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v66 — motor orientado a eventos, custo por produto e persistência robusta
+
+- A deliberação deixou de depender apenas do relógio: cada agente mantém uma assinatura do contexto operacional e só volta a chamar IA quando tarefa, artefato, reunião, economia ou acervo emitem um sinal relevante. Contexto idêntico com ação ainda executável reutiliza a decisão anterior sem custo.
+- Prompts de decisão e produção ganharam um prefixo constitucional estável antes do estado volátil, permitindo reaproveitamento de cache de prompt do provedor sem retirar contexto.
+- Cada tarefa nasce com contrato de aceitação determinístico e orçamento próprio de tokens/chamadas. Ao atingir o orçamento, a tarefa passa para `aguardando_decisao` e exige mudança explícita de abordagem, responsável ou orçamento; a saída da API continua sem teto artificial e jamais é truncada de propósito.
+- Correções direcionadas podem retornar somente patch `BUSCAR/SUBSTITUIR`, aplicado e validado localmente sobre o artefato base. Crescimentos continuam incrementais e transformações amplas continuam aceitando arquivo integral.
+- Hash e diff percentual detectam versões sem progresso material antes de salvar ou disparar revisão paga. Três não-progressos consecutivos escalam a tarefa à gerência em vez de bloquear silenciosamente a linhagem.
+- O roteador mantém evidência por modelo × tipo de tarefa e passa a escolher o modelo mais barato que tenha amostra mínima e pelo menos 72% de aprovação; sem evidência suficiente, preserva a heurística leve/padrão/avançado existente.
+- O contexto de cada agente agora informa custo acumulado, tokens usados e taxa real de aprovação das próprias entregas.
+- Finanças passou a medir produtos liberados, custo por produto, tokens/custo incorporados em releases e percentual dos tokens que chegou a produto final. Esses dois indicadores aparecem no painel de estado.
+- Adicionada camada append-only de eventos com projeção reexecutável de tarefas, custos, tokens e produtos. Criação/escalada de tarefa, chamadas de IA, decisões e releases recebem sequência auditável.
+- Adicionado harness de replay: traces completos de entrada, saída, modelo, custo e resultado são persistidos no IndexedDB e podem alimentar um provedor simulado offline sem gastar crédito.
+- Estado completo passa a ser salvo no IndexedDB. O `localStorage` guarda somente uma projeção de inicialização, removendo conteúdos grandes e limitando históricos quentes; a hidratação assíncrona recupera o snapshot integral. Escritas permanecem debounced.
+- Catálogo determinístico ampliado com patch, diff, lint/parse, busca por trecho no acervo, métricas/hash de artefato e verificador de empacotamento vendável.
+- Release ganhou gate de distribuição: pacote vazio, placeholders/metatexto, site sem `index.html` e pacote multi-arquivo sem README não podem ser chamados de vendáveis.
+- A fundação agora é uma conversa: a gerente nasce, recebe uma única ideia detalhada, formula de duas a quatro perguntas de alinhamento e usa as respostas reais para decidir identidade, negócio, equipe e primeiro produto. O formulário fixo de objetivo/tipo/público/restrições foi removido.
+- Restauradas no runtime as garantias testadas da v65: líderes em revisão não produzem no mesmo ciclo e a gerente não abre nova linhagem enquanto existe produto em desenvolvimento no projeto.
+- O service worker inclui a nova camada operacional no shell offline e invalida o cache anterior.
+
+---
+
 # v65 — recuperação da produção e correção da coordenação gerencial
 
 - Corrigida a causa recorrente de “OpenRouter respondeu sem um corpo JSON utilizável”: o limite de transporte de produção passou de 90 para 240 segundos, enquanto chamadas curtas continuam limitadas a 90 segundos.

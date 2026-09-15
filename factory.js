@@ -235,9 +235,11 @@
     // substituir a versão completa; o antigo atalho contaminava planos com
     // especificações, capítulos e instruções acumuladas de outras etapas.
     const incremental = Boolean(base && pedeCrescimento(briefing));
+    const modoPatch=Boolean(S.toolkit&&base&&!incremental&&(/\b(corrig|ajust|revis|refin|alter|substitu|consert|fix)\w*/i.test(briefing)||Number(op&&op.correcoes||0)>0));
     const basePrompt = base ? trechoBaseParaPrompt(base, incremental) : '';
 
     const sistema = [
+      `CONSTITUIÇÃO ESTÁVEL DE PRODUÇÃO — prefixo cacheável:\n${S.principiosTexto?S.principiosTexto():''}\nUse ferramentas determinísticas antes de pedir cálculo ao modelo. Nunca trunque uma entrega.`,
       `Você é ${agente.nome || 'um integrante'}, ${agente.cargo || 'da equipe'} da empresa ${e.nome}.`,
       `Sua tarefa agora é PRODUZIR um arquivo real e completo, pronto para uso, não descrever o que faria.`,
       ``,
@@ -267,7 +269,7 @@
       `- Você só pode produzir/editar arquivos dentro deste simulador. Não prometa enviar e-mail, criar tarefa no Asana, obter assinatura, fazer upload externo ou executar qualquer ação em serviço externo.`,
       `- Se o briefing pedir uma ação externa impossível, converta-a em algo interno e verificável (ex.: checklist ou minuta) sem fingir que a ação aconteceu. Se esta for a etapa CANDIDATO FINAL, essa dependência deve ficar fora do conteúdo destinado ao cliente.`,
       clienteVisivel && etapa === 'candidato' ? `- PRODUTO FINAL: o corpo do arquivo não pode conter notas internas, status de aprovação, checklist editorial, instruções para a equipe, nomes placeholder, comentários de revisão ou qualquer metatexto de produção.` : '',
-      incremental ? `- Em OPERACAO: anexar, não repita o conteúdo base; produza apenas continuação substantiva e coerente.` : `- Se estiver evoluindo o artefato base, entregue a versão nova completa, não um diff.`,
+      incremental ? `- Em OPERACAO: anexar, não repita o conteúdo base; produza apenas continuação substantiva e coerente.` : modoPatch ? `- CORREÇÃO ECONÔMICA: depois de --- devolva somente um patch BUSCAR/SUBSTITUIR exato para a seção alterada. BUSCAR deve copiar literalmente um trecho único da base. Não repita o restante do arquivo.` : `- Se estiver evoluindo o artefato base, entregue a versão nova completa.`,
       ``,
       `RETORNE EXATAMENTE NESTE FORMATO:`,
       `ARQUIVO: <nome do arquivo com extensão; para projeto multi-arquivo use projeto.zip>`,
@@ -278,19 +280,19 @@
       `ACERVO_ID: <id exato da referência que merece consideração ou vazio>`,
       `SOLICITACAO_ACERVO: <sugestão objetiva para o dono ou vazio; nunca altere a referência>`,
       `---`,
-      pareceProjetoCompleto(briefing) && !base ? `Se a tarefa exigir vários arquivos, depois de --- use blocos <<<ARQUIVO: caminho/nome.ext>>> seguidos do conteúdo de cada arquivo. Gere até 10 arquivos coerentes e realmente integrados; não inclua binários.` : `<conteúdo integral do arquivo a partir daqui>`
+      pareceProjetoCompleto(briefing) && !base ? `Se a tarefa exigir vários arquivos, depois de --- use blocos <<<ARQUIVO: caminho/nome.ext>>> seguidos do conteúdo de cada arquivo. Gere até 10 arquivos coerentes e realmente integrados; não inclua binários.` : modoPatch ? `BUSCAR:\n<trecho literal único da base>\nSUBSTITUIR:\n<novo trecho>` : `<conteúdo integral do arquivo a partir daqui>`
     ].filter(Boolean).join('\n');
 
     const r = await S.ai.chamar({
       sistema,
-      pedido: incremental ? 'Evolua o arquivo agora. Se a tarefa for de crescimento, prefira OPERACAO: anexar e entregue depois de --- apenas o novo trecho que será unido ao arquivo persistente.' : 'Produza agora o arquivo completo, no formato pedido. O conteúdo depois de --- é o arquivo, exatamente como será salvo.',
+      pedido: incremental ? 'Evolua o arquivo agora. Se a tarefa for de crescimento, prefira OPERACAO: anexar e entregue depois de --- apenas o novo trecho que será unido ao arquivo persistente.' : modoPatch ? 'Corrija o arquivo aplicando a menor transformação suficiente. Depois de --- devolva somente BUSCAR/SUBSTITUIR; o runtime aplicará e validará localmente.' : 'Produza agora o arquivo completo, no formato pedido. O conteúdo depois de --- é o arquivo, exatamente como será salvo.',
       tipo: 'conteudo',
       tokens: (op && op.tokens) || 3000,
       agente: agente.nome,
       agenteId: agente.id,
       nivel:op&&op.nivel,correcoes:op&&op.correcoes,etapa,
       motivo: 'produção de artefato',
-      taskId:op.taskId||null,projectId:op.projectId||null,baseArquivoId:op.baseArquivoId||null
+      taskId:op.taskId||null,projectId:op.projectId||null,baseArquivoId:op.baseArquivoId||null,etapa
     });
 
     const texto = String((r && r.texto) || '');
@@ -302,6 +304,9 @@
     }
     conteudo = conteudo.replace(/^```[a-z]*\n?|```$/gi, '').trim();
     if (conteudo.length < 80) throw new Error('A IA de produção não devolveu conteúdo utilizável.');
+    if(modoPatch){
+      try{conteudo=S.toolkit.aplicarPatch(base.conteudo,conteudo);}catch(err){throw new Error(`Patch local rejeitado: ${err.message}`);}
+    }
     const operacao = incremental && String(campos.operacao || '').toLowerCase().trim() === 'anexar' ? 'anexar' : 'substituir';
     if (base && operacao === 'anexar') {
       const anterior=String(base.conteudo||'').trimEnd();
@@ -314,6 +319,7 @@
       }
       conteudo = anterior + '\n\n' + novo;
     }
+    if(base&&S.operacao){const progresso=S.operacao.diff(base.conteudo,conteudo);if(progresso.mudanca<0.008){const er=new Error(`Não-progresso detectado: a nova versão alterou somente ${(progresso.mudanca*100).toFixed(2)}% do conteúdo.`);er.naoProgresso=true;throw er;}}
 
     // Projetos multi-arquivo não são espremidos em um Markdown com nome .zip.
     // Cada bloco vira um arquivo persistente do mesmo projeto; a UI consegue
@@ -343,6 +349,7 @@
       ? validarPacote(conteudo, tipo, disponiveis,briefing)
       : aplicarRequisitosDeterministicos(validar(conteudo, tipo),conteudo,tipo,briefing);
     if(kit==='laboratorio')validacao=conferirAlegacoesDaBase(validacao,conteudo,metricasBase);
+    if(op&&op.contrato&&S.operacao){const cv=S.operacao.validarContrato(op.contrato,[{nome,tipo,conteudo}]);validacao.notas=(validacao.notas||[]).concat(cv.notas||[]).slice(0,12);validacao.pronto=validacao.pronto&&cv.pronto;validacao.contrato=cv;}
     validacao.prontoEstrutural = validacao.pronto;
     validacao.declaradoPronto = String(campos.pronto || '').toLowerCase() === 'sim' || campos.pronto === true;
     if (String(campos.pronto || '').toLowerCase() === 'nao' || campos.pronto === false) {

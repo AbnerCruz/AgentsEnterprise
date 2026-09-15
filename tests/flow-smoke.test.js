@@ -13,7 +13,7 @@ global.localStorage = {
 global.document = { querySelector:()=>null, querySelectorAll:()=>[], visibilityState:'visible', createElement:()=>({click(){},remove(){},style:{}}), body:{appendChild(){}} };
 global.URL = Object.assign(URL,{createObjectURL:()=> 'blob:test',revokeObjectURL(){}});
 
-for (const file of ['core.js','ai.js','factory.js','studio.js']) {
+for (const file of ['core.js','optimization.js','ai.js','factory.js','studio.js']) {
   vm.runInThisContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),{filename:file});
 }
 
@@ -70,6 +70,13 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.equal(S.factory.validarFinal(contaminado,'md').pronto,false,'checklist e comandos internos não podem chegar ao cliente');
   assert.equal(S.factory.validarFinal('CAPÍTULO 2\n\nTexto completo.\n\nCAPÍTULO 3\n\nOutro texto completo.','txt').pronto,false,'uma coleção numerada sem o primeiro item deve permanecer incompleta');
   assert.equal(S.factory.contarPalavras('Um conto com palavras reais.'),5);
+  assert.equal(S.toolkit.aplicarPatch('antes\nalvo\ndepois','BUSCAR:\nalvo\nSUBSTITUIR:\nnovo'),'antes\nnovo\ndepois');
+  assert.equal(S.toolkit.lint({tipo:'json',conteudo:'{"ok":true}'}).valido,true);
+  assert.equal(S.toolkit.lint({tipo:'json',conteudo:'{"ok":'}).valido,false);
+  assert.ok(S.operacao.diff('a\nb','a\nc').mudanca>0);
+  assert.equal(S.operacao.vendavel([{nome:'index.html',conteudo:'<!doctype html><title>ok</title>'}]).vendavel,true);
+  const projEventos=S.operacao.projetar([{seq:1,tipo:'tarefa.criada',dados:{taskId:'tx'}},{seq:2,tipo:'ia.chamada_concluida',dados:{custo:0.1,tokens:10}},{seq:3,tipo:'produto.liberado',dados:{produtoId:'px'}}]);
+  assert.equal(projEventos.tarefas.tx.status,'aberta');assert.equal(projEventos.tokens,10);assert.ok(projEventos.produtos.px);
   assert.deepEqual(S.factory.limitesPalavras('Extensão entre 5 000 e 7 110 palavras.'),{minimo:5000,maximo:7110});
   const curto=S.factory.validarFinal('palavra '.repeat(120),'md','Extensão entre 5 000 e 7 110 palavras.');
   assert.equal(curto.pronto,false);assert.match(curto.notas.join(' '),/120 palavras/,'extensão declarada precisa ser conferida deterministicamente');

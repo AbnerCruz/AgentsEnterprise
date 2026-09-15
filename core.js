@@ -400,6 +400,9 @@ window.S = window.S || {};
     e.financeiro=e.financeiro&&typeof e.financeiro==='object'?e.financeiro:{};
     e.financeiro.analises=Array.isArray(e.financeiro.analises)?e.financeiro.analises.slice(-300):[];
     e.financeiro.recomendacoes=Array.isArray(e.financeiro.recomendacoes)?e.financeiro.recomendacoes.slice(-120):[];
+    e.eventos=Array.isArray(e.eventos)?e.eventos.slice(-12000):[];
+    e.eventSeq=Math.max(Number(e.eventSeq)||0,e.eventos.reduce((n,x)=>Math.max(n,Number(x.seq)||0),0));
+    e.roteamentoEvidencia=e.roteamentoEvidencia&&typeof e.roteamentoEvidencia==='object'?e.roteamentoEvidencia:{};
     e.log = Array.isArray(e.log) ? e.log.slice(-5000) : [];
     // Nenhuma execução assíncrona sobrevive a um fechamento da página. Estados
     // transitórios persistidos precisam voltar à fila; caso contrário uma tarefa
@@ -420,6 +423,7 @@ window.S = window.S || {};
       DB.estudios = bruto.estudios.map(normalizarEstudio).filter(Boolean);
       DB.atual = bruto.atual || (DB.estudios[0] && DB.estudios[0].id) || null;
       DB.acervoUsuario=Array.isArray(bruto.acervoUsuario)?bruto.acervoUsuario.map(normalizarItemAcervo).filter(Boolean):[];
+      DB.persistidoEm=Number(bruto.persistidoEm)||0;DB.compactado=Boolean(bruto.compactado);
     } else {
       migrarV1();
     }
@@ -440,6 +444,9 @@ window.S = window.S || {};
     });
     if (DB.estudios.some(e => e.fundacao && e.fundacao.estado === 'migracao_pendente')) gravar();
     DB.estudios.forEach(processarFolhaInterna);
+    // A projeção compacta permite inicialização síncrona; o snapshot completo
+    // do IndexedDB hidrata conteúdo frio sem bloquear o primeiro desenho.
+    if(S.persistencia&&S.persistencia.hidratar)void S.persistencia.hidratar(DB).catch(()=>S.bus.emit('storage-falhou'));
     return DB;
   }
 
@@ -491,7 +498,11 @@ window.S = window.S || {};
     timerGravacao = setTimeout(() => { timerGravacao = null; gravarJa(); }, 700);
   }
   function gravarJa() {
-    const ok = gravarLocal(CHAVE, { versao: 4, atual: DB.atual, estudios: DB.estudios, acervoUsuario:DB.acervoUsuario });
+    DB.persistidoEm=Date.now();DB.compactado=false;
+    const completo={ versao: 5, persistidoEm:DB.persistidoEm, compactado:false, atual: DB.atual, estudios: DB.estudios, acervoUsuario:DB.acervoUsuario };
+    if(S.persistencia&&S.persistencia.gravar)void S.persistencia.gravar(completo).catch(()=>S.bus.emit('storage-falhou'));
+    const projeção=S.persistencia&&S.persistencia.projecaoLocal?S.persistencia.projecaoLocal(completo):completo;
+    const ok = gravarLocal(CHAVE, projeção);
     if (!ok) S.bus.emit('storage-falhou');
     return ok;
   }
@@ -508,7 +519,10 @@ window.S = window.S || {};
     if(ultima&&agora-Number(ultima.ultimaOcorrencia||ultima.t||0)<15*60*1000){
       ultima.quantidade=Number(ultima.quantidade||1)+1;ultima.ultimaOcorrencia=agora;
       if(rotina){ultima.amostras=Array.isArray(ultima.amostras)?ultima.amostras:[];if(!ultima.amostras.includes(mensagem))ultima.amostras.push(mensagem);ultima.amostras=ultima.amostras.slice(-8);ultima.texto=mensagem;}
-    }else e.log.push({ t: agora, texto: mensagem, tag: categoria, agente: autor, quantidade:1, ultimaOcorrencia:agora });
+    }else {
+      e.log.push({ t: agora, texto: mensagem, tag: categoria, agente: autor, quantidade:1, ultimaOcorrencia:agora });
+      if(S.operacao&&S.operacao.evento)S.operacao.evento('log.registrado',{texto:mensagem,tag:categoria,agenteId:autor},e);
+    }
     if (e.log.length > 5000) {
       let excesso=e.log.length-5000;
       for(let i=0;i<e.log.length&&excesso>0;){
@@ -767,7 +781,13 @@ window.S = window.S || {};
     {id:'ler_artefato',descricao:'Conteúdo integral e metadados de um artefato.'},
     {id:'consultar_acervo',descricao:'Referências soberanas integrais vinculadas ao projeto.'},
     {id:'consultar_financas',descricao:'Caixa, gasto, tokens, falhas, modelos e custo de imagens.'},
-    {id:'validar_artefato',descricao:'Validação estrutural/final determinística sem nova chamada de IA.'}
+    {id:'validar_artefato',descricao:'Validação estrutural/final determinística sem nova chamada de IA.'},
+    {id:'aplicar_patch',descricao:'Aplica busca/substituição ou diff unificado validado sem reescrever o arquivo inteiro.'},
+    {id:'comparar_versoes',descricao:'Mede a mudança real entre duas versões e detecta não-progresso.'},
+    {id:'lint_parse',descricao:'Valida JSON/JSONL, HTML e delimitadores de código localmente.'},
+    {id:'buscar_no_acervo',descricao:'Busca um trecho no acervo e retorna referências correspondentes.'},
+    {id:'metricas_artefato',descricao:'Conta caracteres, palavras, linhas e calcula hash do artefato.'},
+    {id:'verificar_vendavel',descricao:'Confere empacotamento, README, prévia e ausência de metatexto interno.'}
   ]);
   function executarFerramenta(id,args){
     const e=atual();args=args||{};if(!e)return null;
@@ -776,6 +796,12 @@ window.S = window.S || {};
     if(id==='consultar_acervo')return contextoAcervo(args.projectId);
     if(id==='consultar_financas'){const calls=e.iaChamadas||[];return{economia:resumoEconomia(),chamadas:calls.length,tokens:calls.reduce((n,c)=>n+Number(c.tokens||0),0),custoUSD:calls.reduce((n,c)=>n+Number(c.custo||0),0),falhas:calls.filter(c=>!c.ok).length,incompletas:calls.filter(c=>c.incompleta).length,custoImagensUSD:calls.filter(c=>c.motivo==='produção visual').reduce((n,c)=>n+Number(c.custo||0),0),porModelo:calls.reduce((o,c)=>{const k=c.modelo||'desconhecido';o[k]=(o[k]||0)+Number(c.custo||0);return o;},{})};}
     if(id==='validar_artefato'){const a=(e.arquivos||[]).find(x=>x.id===args.artefatoId);if(!a||!S.factory)return null;return args.final&&S.factory.validarFinal?S.factory.validarFinal(a.conteudo,a.tipo):S.factory.validar(a.conteudo,a.tipo);}
+    if(id==='aplicar_patch'){const a=(e.arquivos||[]).find(x=>x.id===args.artefatoId);if(!a||!S.toolkit)return null;return{conteudo:S.toolkit.aplicarPatch(a.conteudo,args.patch),baseHash:S.operacao.hash(a.conteudo)};}
+    if(id==='comparar_versoes'){return S.toolkit?S.toolkit.diff(args.anterior,args.novo):null;}
+    if(id==='lint_parse'){const a=(e.arquivos||[]).find(x=>x.id===args.artefatoId);return a&&S.toolkit?S.toolkit.lint(a):null;}
+    if(id==='buscar_no_acervo')return S.toolkit?S.toolkit.buscar([...(e.acervoUsuario||[]),...(DB.acervoUsuario||[])],args.termo):[];
+    if(id==='metricas_artefato'){const a=(e.arquivos||[]).find(x=>x.id===args.artefatoId);return a&&S.toolkit?S.toolkit.metricas(a):null;}
+    if(id==='verificar_vendavel'){const files=(e.arquivos||[]).filter(a=>a.projectId===args.projectId&&a.classe==='candidato');return S.toolkit?S.toolkit.vendavel(files):null;}
     return null;
   }
   function contextoFerramentas(projectId,baseArquivoId){const pacote={catalogo:CATALOGO_FERRAMENTAS,projeto:executarFerramenta('consultar_projeto',{projectId}),financas:executarFerramenta('consultar_financas',{}),acervo:executarFerramenta('consultar_acervo',{projectId})};if(baseArquivoId)pacote.artefatoBase=executarFerramenta('ler_artefato',{artefatoId:baseArquivoId});return pacote;}
