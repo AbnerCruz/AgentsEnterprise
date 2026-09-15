@@ -4,6 +4,11 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v66.1 — correção de inicialização
+
+- Corrige a publicação corrompida de `studio.js` que interrompia o carregamento do mundo.
+- Invalida o cache do service worker e versiona a URL do motor para recuperar clientes que armazenaram o arquivo inválido.
+
 # v66 — motor orientado a eventos, custo por produto e persistência robusta
 
 - A deliberação deixou de depender apenas do relógio: cada agente mantém uma assinatura do contexto operacional e só volta a chamar IA quando tarefa, artefato, reunião, economia ou acervo emitem um sinal relevante. Contexto idêntico com ação ainda executável reutiliza a decisão anterior sem custo.
