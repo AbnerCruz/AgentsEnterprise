@@ -87,6 +87,19 @@
       projeto: pr
     };
   }
+  function contextoPrioritario(e,p){
+    const cheio=contexto(e,p),pr=cheio.projeto,tarefas=cheio.tarefas||[],arqs=cheio.arquivos||[],limite=9000,blocos=[
+      {prio:1,max:2000,texto:`TAREFAS EXECUTÁVEIS: ${tarefas.map(t=>`${t.id} ${t.titulo} [${t.status}; destino=${t.clienteVisivel?'cliente':'interno'}; base=${t.baseArquivoId||'nenhuma'}]`).join(' | ')||'nenhuma'}`},
+      {prio:1,max:1600,texto:`PLANO DE OBRA CONGELADO: ${e.fundacao&&e.fundacao.planoObraTexto||e.fundacao&&e.fundacao.primeiroProduto||'não registrado'}`},
+      {prio:2,max:650,texto:`PROJETO: ${pr?pr.nome:'nenhum'} | objetivo=${pr?pr.objetivo:e.missao} | forma=${e.fundacao&&e.fundacao.forma||pr&&pr.forma||'iterada'}`},
+      {prio:2,max:2000,texto:`ACERVO SOBERANO: ${S.acervo&&pr?S.acervo.contexto(pr.id,8000):'nenhum'}`},
+      {prio:2,max:650,texto:`ARTEFATOS: ${arqs.map(a=>`${a.id}:${a.nome}[${a.classe},${a.validacao&&a.validacao.pronto?'válido':'pendente'}]`).join('; ')||'nenhum'}`},
+      {prio:3,max:500,texto:`MEMÓRIA RELEVANTE: ${memoriasRelevantes(p,`${pr&&pr.nome||''} ${tarefas.map(t=>t.titulo).join(' ')}`).join(' | ')||'nenhuma'}`},
+      {prio:4,max:300,texto:`EQUIPE: ${(e.equipe||[]).map(f=>`${f.id}=${f.nome}/${f.especialidade}`).join('; ')}`},
+      {prio:5,max:200,texto:`FINANÇAS: caixa=${Number(e.economia&&e.economia.caixaUSD||0).toFixed(4)}; gasto=${Number(e.economia&&e.economia.gastoIAUSD||0).toFixed(4)}`}
+    ];let restante=limite,partes=[];blocos.sort((a,b)=>a.prio-b.prio).forEach(b=>{const maxTokens=Math.min(b.max,restante);if(maxTokens<=0)return;const s=String(b.texto).slice(0,maxTokens*4);partes.push(s);restante-=Math.ceil(s.length/4);});
+    return Object.assign({},cheio,{texto:partes.join('\n')});
+  }
 
   function normalizar(c, ctx) {
     const acaoRaw = String(c.acao || '').trim().toLowerCase();
@@ -124,7 +137,7 @@
     if(!forcar&&!p._agencia.sinal&&assinatura===p._agencia.hashContexto&&acaoExecutavel(e,p._agencia.ultimaAcao))return p._agencia.ultimaAcao;
     if (!S.ai.disponivel(p.id)) return null;
 
-    const ctx = contexto(e, p);
+    const ctx = contextoPrioritario(e, p);
     ctx.executivo = p.papel === 'gerente';
     ctx.lider = p.papel!=='gerente'&&Boolean(p.ref.liderSetor);
     p._agencia.ultima = agora();
@@ -193,11 +206,14 @@ ACERVO_ID: <id exato da referência, somente se sugerir_acervo; senão vazio>
 SOLICITACAO_ACERVO: <consideração objetiva, somente se sugerir_acervo; senão vazio>`;
 
     try {
+      const cabecalhoDinamico=`${prefixo}\nVocê é ${p.nome}, ${p.cargo}, integrante da empresa ${e.nome}. Você não existe para preencher uma fila nem para manter atividade artificial. Você é um agente responsável por contribuir para uma organização real.\n\n${ctx.texto}\n\n`;
+      const regrasEstaveis=sistema.startsWith(cabecalhoDinamico)?sistema.slice(cabecalhoDinamico.length):sistema;
       const r = await S.ai.chamar({
-        sistema,
-        pedido: 'Decida agora o próximo passo mais útil para a empresa. Não tente parecer produtivo: seja útil, coerente e capaz de explicar a decisão de forma curta. Retorne SOMENTE os campos solicitados.',
+        sistemaEstavel:`${prefixo}\n${regrasEstaveis}`,
+        sistemaEmpresa:`EMPRESA: ${e.nome} | missão=${e.missao} | forma=${e.fundacao&&e.fundacao.forma||'iterada'} | plano=${e.fundacao&&e.fundacao.planoObraTexto||''}`,
+        pedido: `${ctx.texto}\n\nDecida agora o próximo passo mais útil para a empresa. Não tente parecer produtivo: seja útil, coerente e capaz de explicar a decisão de forma curta. Retorne SOMENTE os campos solicitados.`,
         tipo: 'pensamento', tokens: 420, reasoning_effort: 'low', agente: p.nome, agenteId: p.id,
-        motivo: 'deliberação autônoma organizacional'
+        motivo: 'deliberação autônoma organizacional',kit:'deliberacao'
       });
       const d = normalizar(S.ai.campos(r && r.texto || ''), ctx);
       p._agencia.ultimaAcao = d;

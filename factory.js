@@ -188,9 +188,24 @@
   function pedeCrescimento(briefing) {
     return /\b(expandir|expans[aã]o|estender|extens[aã]o|acrescentar (?:cap[ií]tulos?|se[cç][oõ]es?)|mais cap[ií]tulos?|\d+\s*p[aá]ginas?|continuar (?:o |a )?(?:livro|texto|romance|conto|cap[ií]tulo)|aprofundar narrativa)\b/i.test(String(briefing||''));
   }
-  function trechoBaseParaPrompt(base, incremental) {
-    void incremental;
-    return String(base&&base.conteudo||'');
+  function limitarBlocos(blocos,tetoTokens){
+    let restante=Math.max(0,Number(tetoTokens)||9000),texto=[];
+    blocos.slice().sort((a,b)=>a.prio-b.prio).forEach(b=>{if(restante<=0||!b.texto)return;const max=Math.min(Number(b.max)||restante,restante),c=String(b.texto).slice(0,max*4);if(c){texto.push(c);restante-=Math.ceil(c.length/4);}});
+    return texto.join('\n\n');
+  }
+  function indiceSecoes(conteudo){return String(conteudo||'').split(/\r?\n/).map((l,i)=>/^\s*(?:#{1,6}\s+|(?:cap[ií]tulo|aula|epis[oó]dio|se[cç][aã]o)\s+\d+)/i.test(l)?`${i+1}: ${l.trim()}`:'').filter(Boolean).slice(0,120).join('\n');}
+  function palavrasChave(v){return String(v||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9]+/).filter(x=>x.length>4).slice(0,30);}
+  function intervaloAlvo(conteudo,briefing){const linhas=String(conteudo||'').split(/\r?\n/),keys=palavrasChave(briefing);let alvo=-1,pontos=0;linhas.forEach((l,i)=>{const n=l.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''),p=keys.reduce((s,k)=>s+(n.includes(k)?1:0),0)+( /^\s*#{1,6}/.test(l)?1:0);if(p>pontos){pontos=p;alvo=i;}});if(alvo<0)alvo=Math.max(0,linhas.length-40);let ini=alvo,fim=Math.min(linhas.length-1,alvo+35);while(ini>0&&!/^\s*#{1,6}/.test(linhas[ini]))ini--;for(let i=alvo+1;i<Math.min(linhas.length,alvo+100);i++){if(/^\s*#{1,6}/.test(linhas[i])){fim=i-1;break;}}return{de:ini+1,ate:fim+1,texto:linhas.slice(ini,fim+1).map((l,i)=>`${ini+i+1}: ${l}`).join('\n')};}
+  function bibliaProjeto(e,projeto){const a=(e.arquivos||[]).find(x=>x.projectId===(projeto&&projeto.id)&&!x.clienteVisivel&&/(b[ií]blia|guia de marca|gdd|tratamento|ementa|c[aâ]none)/i.test(`${x.nome} ${x.briefing||''}`));return a?String(a.conteudo||'').slice(0,6000):String(projeto&&projeto.bibliaResumo||projeto&&projeto.dados&&`${projeto.dados.resumo||''}\n${projeto.dados.requisitos||''}`||'');}
+  function trechoBaseParaPrompt(base,modo,e,projeto,briefing) {
+    const conteudo=String(base&&base.conteudo||'');
+    if(conteudo.length<6000)return{modo:'integral',texto:conteudo,intervalo:null};
+    if(modo==='crescimento'){
+      const secoes=conteudo.split(/(?=^\s*#{1,6}\s+)/m).filter(Boolean),ultimas=secoes.slice(-2).join('\n').slice(-5000);
+      return{modo:'crescimento',texto:`BÍBLIA/GUIA DO PROJETO:\n${bibliaProjeto(e,projeto)}\n\nRESUMO DAS DUAS ÚLTIMAS SEÇÕES:\n${ultimas}`,intervalo:null};
+    }
+    const faixa=intervaloAlvo(conteudo,briefing);
+    return{modo:'intervalo',texto:`ÍNDICE DE SEÇÕES:\n${indiceSecoes(conteudo)||'sem cabeçalhos'}\n\nTRECHO ALVO COM NÚMEROS DE LINHA (${faixa.de}-${faixa.ate}):\n${faixa.texto}`,intervalo:faixa};
   }
 
   /* Produz um artefato real a partir da decisão já tomada pelo agente. */
@@ -231,34 +246,14 @@
       const conteudo=compacta.dataUrl;
       return {arquivos:[{nome,tipo:compacta.ext,conteudo}],resumo:baseVisual?'Nova versão do ativo visual gerada pelo modelo de imagem.':'Ativo visual gerado por modelo de imagem.',validacao:(etapa==='candidato'&&clienteVisivel?validarFinal(conteudo,compacta.ext):validar(conteudo,compacta.ext)),classe:etapa,kit,viaIA:true,linhagem:baseVisual?base.linhagem:null,baseArquivoId:baseVisual?base.id:null,operacao:'substituir',imagem:true};
     }
-    // Tamanho nunca implica anexar. Correções de arquivos longos precisam
-    // substituir a versão completa; o antigo atalho contaminava planos com
-    // especificações, capítulos e instruções acumuladas de outras etapas.
     const incremental = Boolean(base && pedeCrescimento(briefing));
-    const modoPatch=Boolean(S.toolkit&&base&&!incremental&&(/\b(corrig|ajust|revis|refin|alter|substitu|consert|fix)\w*/i.test(briefing)||Number(op&&op.correcoes||0)>0));
-    const basePrompt = base ? trechoBaseParaPrompt(base, incremental) : '';
-
-    const sistema = [
-      `CONSTITUIÇÃO ESTÁVEL DE PRODUÇÃO — prefixo cacheável:\n${S.principiosTexto?S.principiosTexto():''}\nUse ferramentas determinísticas antes de pedir cálculo ao modelo. Nunca trunque uma entrega.`,
-      `Você é ${agente.nome || 'um integrante'}, ${agente.cargo || 'da equipe'} da empresa ${e.nome}.`,
-      `Sua tarefa agora é PRODUZIR um arquivo real e completo, pronto para uso, não descrever o que faria.`,
-      ``,
-      `EMPRESA: ${e.nome} | ramo: ${e.ramo} | público: ${e.publico} | tom: ${e.tom}`,
-      `MISSÃO: ${e.missao}`,
-      `IDENTIDADE: ${(e.fundacao && e.fundacao.identidade && e.fundacao.identidade.posicionamento) || 'n/d'}`,
-      `PROJETO: ${projeto ? projeto.nome : 'principal'} | objetivo: ${projeto ? projeto.objetivo : e.missao}`,
-      `DADOS DO PROJETO: ${projeto&&projeto.dados?`resumo=${projeto.dados.resumo||''}; requisitos=${projeto.dados.requisitos||''}; público=${projeto.dados.publico||''}; riscos=${projeto.dados.riscos||''}`:'não registrados'}`,
-      `PRINCÍPIOS IMUTÁVEIS:\n${S.principiosTexto?S.principiosTexto():''}`,
-      `FERRAMENTAS DETERMINÍSTICAS JÁ EXECUTADAS (use estes fatos; não os recalcule nem os contradiga):\n${ferramentas?JSON.stringify(ferramentas):'indisponíveis'}`,
-      `MÉTRICAS DETERMINÍSTICAS DO ARTEFATO BASE: ${metricasBase?JSON.stringify(metricasBase):'não há base textual'}. Qualquer relatório de inspeção deve usar estes valores exatos, nunca estimativas inventadas.`,
-      `ACERVO SOBERANO DO USUÁRIO — SOMENTE LEITURA:\n${acervoSoberano}`,
-      `BRIEFING DA TAREFA: ${briefing}`,
-      `DESTINO: ${clienteVisivel ? 'produto que poderá chegar diretamente ao cliente' : 'artefato interno de trabalho'}`,
-      regraEtapa,
-      (op && op.deliberacao) ? `ABORDAGEM JÁ DECIDIDA POR VOCÊ: ${String(op.deliberacao)}` : '',
-      base ? `ARTEFATO BASE QUE DEVE SER EVOLUÍDO (preserve o que funciona, não recomece do zero):\n${base.nome} [${base.tipo}]\n${basePrompt}` : '',
-      `ACERVO RELACIONADO (para continuidade, não copie):\n${contextoAcervo(e, base, projeto && projeto.id)}`,
-      ``,
+    const querPatch=Boolean(S.toolkit&&base&&!incremental&&(/\b(corrig|ajust|revis|refin|alter|substitu|consert|fix)\w*/i.test(briefing)||Number(op&&op.correcoes||0)>0));
+    const basePrompt = base ? trechoBaseParaPrompt(base,incremental?'crescimento':'correcao',e,projeto,briefing) : {modo:'nenhum',texto:'',intervalo:null};
+    const modoPatch=Boolean(querPatch&&basePrompt.modo==='intervalo');
+    const sistemaEstavel = [
+      `CONSTITUIÇÃO ESTÁVEL DE PRODUÇÃO — PREFIXO CACHEÁVEL:\n${S.principiosTexto?S.principiosTexto():''}`,
+      `SETORES CANÔNICOS: criacao cria conteúdo e design; desenvolvimento produz software; producao integra e dá acabamento; operacoes organiza dados e QA; comercial prepara distribuição; financeiro controla eficiência; laboratorio testa com dados reais. Cada agente atua somente na própria especialidade.`,
+      `Sua tarefa é PRODUZIR um arquivo real e utilizável, nunca apenas descrever o que faria. Use ferramentas determinísticas antes de pedir cálculo ao modelo. Nunca trunque de propósito, nunca invente fatos externos e nunca inclua raciocínio privado.`,
       `REGRAS DE PRODUÇÃO:`,
       `- Entregue o conteúdo integral do arquivo, sem resumo, sem comentários sobre o processo e sem pedir aprovação.`,
       `- Nada de texto de exemplo, lorem ipsum, TODO, colchetes para preencher ou dados inventados sobre o mundo real.`,
@@ -268,9 +263,6 @@
       `- Se uma mudança no acervo parecer necessária, não a aplique silenciosamente: preserve o original e descreva a consideração fora do produto para a gerente encaminhar ao dono.`,
       `- Você só pode produzir/editar arquivos dentro deste simulador. Não prometa enviar e-mail, criar tarefa no Asana, obter assinatura, fazer upload externo ou executar qualquer ação em serviço externo.`,
       `- Se o briefing pedir uma ação externa impossível, converta-a em algo interno e verificável (ex.: checklist ou minuta) sem fingir que a ação aconteceu. Se esta for a etapa CANDIDATO FINAL, essa dependência deve ficar fora do conteúdo destinado ao cliente.`,
-      clienteVisivel && etapa === 'candidato' ? `- PRODUTO FINAL: o corpo do arquivo não pode conter notas internas, status de aprovação, checklist editorial, instruções para a equipe, nomes placeholder, comentários de revisão ou qualquer metatexto de produção.` : '',
-      incremental ? `- Em OPERACAO: anexar, não repita o conteúdo base; produza apenas continuação substantiva e coerente.` : modoPatch ? `- CORREÇÃO ECONÔMICA: depois de --- devolva somente um patch BUSCAR/SUBSTITUIR exato para a seção alterada. BUSCAR deve copiar literalmente um trecho único da base. Não repita o restante do arquivo.` : `- Se estiver evoluindo o artefato base, entregue a versão nova completa.`,
-      ``,
       `RETORNE EXATAMENTE NESTE FORMATO:`,
       `ARQUIVO: <nome do arquivo com extensão; para projeto multi-arquivo use projeto.zip>`,
       `TIPO: <md | html | txt | csv | tsv | json | jsonl | js | ts | tsx | jsx | css | scss | xml | yaml | yml | svg | py | sql | sh | webmanifest | bundle>`,
@@ -280,19 +272,28 @@
       `ACERVO_ID: <id exato da referência que merece consideração ou vazio>`,
       `SOLICITACAO_ACERVO: <sugestão objetiva para o dono ou vazio; nunca altere a referência>`,
       `---`,
-      pareceProjetoCompleto(briefing) && !base ? `Se a tarefa exigir vários arquivos, depois de --- use blocos <<<ARQUIVO: caminho/nome.ext>>> seguidos do conteúdo de cada arquivo. Gere até 10 arquivos coerentes e realmente integrados; não inclua binários.` : modoPatch ? `BUSCAR:\n<trecho literal único da base>\nSUBSTITUIR:\n<novo trecho>` : `<conteúdo integral do arquivo a partir daqui>`
+      `Para projeto multi-arquivo use blocos <<<ARQUIVO: caminho/nome.ext>>> e <<<FIM_ARQUIVO>>>. Para correção por intervalo use SUBSTITUIR_LINHAS: início-fim, uma linha ---, e apenas o novo conteúdo. Não copie o trecho antigo.`
     ].filter(Boolean).join('\n');
+    const sistemaEmpresa=[`EMPRESA: ${e.nome} | ramo: ${e.ramo} | público: ${e.publico} | tom: ${e.tom}`,`MISSÃO: ${e.missao}`,`IDENTIDADE: ${(e.fundacao&&e.fundacao.identidade&&e.fundacao.identidade.posicionamento)||'n/d'}`,`FORMA DA OBRA: ${e.fundacao&&e.fundacao.forma||projeto&&projeto.forma||'iterada'}`,`PLANO DE OBRA CONGELADO: ${(e.fundacao&&e.fundacao.planoObraTexto)||'não registrado'}`,`AGENTE: ${agente.nome||'integrante'} | cargo=${agente.cargo||''} | personalidade=${JSON.stringify(agente.personalidade||{})}`].join('\n');
+    const pedidoVolatil=limitarBlocos([
+      {id:'tarefa',prio:1,max:2000,texto:`BRIEFING: ${briefing}\nDESTINO: ${clienteVisivel?'cliente':'interno'}\n${regraEtapa}\n${op&&op.deliberacao?`ABORDAGEM: ${op.deliberacao}`:''}`},
+      {id:'base',prio:1,max:3000,texto:base?`BASE ${base.nome} [${base.tipo}] modo=${basePrompt.modo}:\n${basePrompt.texto}`:''},
+      {id:'projeto',prio:2,max:600,texto:`PROJETO: ${projeto?projeto.nome:'principal'} | objetivo=${projeto?projeto.objetivo:e.missao}\nDADOS: ${projeto&&projeto.dados?JSON.stringify(projeto.dados):'n/d'}`},
+      {id:'acervo',prio:2,max:2000,texto:`ACERVO SOBERANO:\n${acervoSoberano}`},
+      {id:'contrato',prio:2,max:400,texto:`CONTRATO DE ACEITAÇÃO: ${JSON.stringify(op&&op.contrato||{})}`},
+      {id:'memoria',prio:3,max:500,texto:`BÍBLIA/CONTINUIDADE: ${bibliaProjeto(e,projeto)}\nACERVO RELACIONADO: ${contextoAcervo(e,base,projeto&&projeto.id).slice(0,1600)}`},
+      {id:'fatos',prio:3,max:350,texto:`FERRAMENTAS/MÉTRICAS: ${ferramentas?JSON.stringify(ferramentas):'indisponíveis'} | base=${metricasBase?JSON.stringify(metricasBase):'n/d'}`}
+    ],Number(op&&op.contextoMax)||9000)+`\n\nINSTRUÇÃO DE SAÍDA: ${incremental?'Anexe somente a nova unidade, sem repetir a base.':modoPatch&&basePrompt.intervalo?`Substitua somente as linhas ${basePrompt.intervalo.de}-${basePrompt.intervalo.ate} usando SUBSTITUIR_LINHAS e escreva apenas o trecho novo.`:'Entregue a versão integral.'}`;
 
     const r = await S.ai.chamar({
-      sistema,
-      pedido: incremental ? 'Evolua o arquivo agora. Se a tarefa for de crescimento, prefira OPERACAO: anexar e entregue depois de --- apenas o novo trecho que será unido ao arquivo persistente.' : modoPatch ? 'Corrija o arquivo aplicando a menor transformação suficiente. Depois de --- devolva somente BUSCAR/SUBSTITUIR; o runtime aplicará e validará localmente.' : 'Produza agora o arquivo completo, no formato pedido. O conteúdo depois de --- é o arquivo, exatamente como será salvo.',
+      sistemaEstavel,sistemaEmpresa,pedido:pedidoVolatil,
       tipo: 'conteudo',
       tokens: (op && op.tokens) || 3000,
       agente: agente.nome,
       agenteId: agente.id,
       nivel:op&&op.nivel,correcoes:op&&op.correcoes,etapa,
       motivo: 'produção de artefato',
-      taskId:op.taskId||null,projectId:op.projectId||null,baseArquivoId:op.baseArquivoId||null,etapa
+      taskId:op.taskId||null,projectId:op.projectId||null,baseArquivoId:op.baseArquivoId||null,etapa,kit,contextoMax:Number(op&&op.contextoMax)||9000
     });
 
     const texto = String((r && r.texto) || '');
@@ -329,11 +330,15 @@
       if (bundle.length >= 2) {
         const disponiveis=(e.arquivos||[]).filter(a=>a.projectId===(projeto&&projeto.id)).concat(bundle);
         const validacoes = bundle.map(f => (clienteVisivel && etapa === 'candidato') ? validarPacote(f.conteudo, f.tipo, disponiveis) : validar(f.conteudo, f.tipo));
-        const notas = validacoes.flatMap(v => v.notas || []).slice(0, 8);
+        const forma=S.operacao&&S.operacao.validarForma&&etapa==='candidato'?S.operacao.validarForma(e.fundacao&&e.fundacao.forma||projeto&&projeto.forma,disponiveis):{pronto:true,notas:[],adiado:true};
+        const realidade=S.operacao&&S.operacao.validarRealidade?S.operacao.validarRealidade(bundle.map(x=>x.conteudo).join('\n'),e):{pronto:true,notas:[]};
+        const notas = validacoes.flatMap(v => v.notas || []).concat(forma.notas||[],realidade.notas||[]).slice(0, 12);
+        const pronto=validacoes.every(v=>v.pronto)&&forma.pronto&&realidade.pronto;
+        if(S.operacao&&S.operacao.registrarEvidenciaDeterministica)S.operacao.registrarEvidenciaDeterministica(op.taskId,r.modelo,{contrato:validacoes.every(v=>v.pronto),forma:forma.pronto,realidade:realidade.pronto});
         return {
           arquivos: bundle,
           resumo: String(campos.resumo || `Projeto multi-arquivo com ${bundle.length} arquivos.`).slice(0, 300),
-          validacao: { pronto: validacoes.every(v => v.pronto), prontoEstrutural: validacoes.every(v => v.pronto), declaradoPronto: String(campos.pronto || '').toLowerCase() === 'sim', notas, verificadoEm: Date.now(), tipo:'bundle', arquivos:bundle.length },
+          validacao: { pronto, prontoEstrutural:pronto, declaradoPronto: String(campos.pronto || '').toLowerCase() === 'sim', notas, verificadoEm: Date.now(), tipo:'bundle', arquivos:bundle.length,forma,realidade },
           classe:etapa, kit, viaIA:true, linhagem:null, baseArquivoId:null, operacao:'substituir', bundle:true,
           acervoId:String(campos.acervo_id||'').trim(),solicitacaoAcervo:String(campos.solicitacao_acervo||'').trim().slice(0,1200)
         };
@@ -350,6 +355,15 @@
       : aplicarRequisitosDeterministicos(validar(conteudo, tipo),conteudo,tipo,briefing);
     if(kit==='laboratorio')validacao=conferirAlegacoesDaBase(validacao,conteudo,metricasBase);
     if(op&&op.contrato&&S.operacao){const cv=S.operacao.validarContrato(op.contrato,[{nome,tipo,conteudo}]);validacao.notas=(validacao.notas||[]).concat(cv.notas||[]).slice(0,12);validacao.pronto=validacao.pronto&&cv.pronto;validacao.contrato=cv;}
+    if(S.operacao){
+      const forma=etapa==='candidato'?S.operacao.validarForma(e.fundacao&&e.fundacao.forma||projeto&&projeto.forma,disponiveis,{anterior:base&&base.conteudo}):{pronto:true,notas:[],adiado:true};
+      const realidade=S.operacao.validarRealidade(conteudo,e);
+      const refs=(projeto&&projeto.acervoIds||[]).map(id=>S.acervo&&S.acervo.item&&S.acervo.item(id)).filter(Boolean);
+      const ancoragem=clienteVisivel&&refs.length?S.operacao.validarAncoragem(conteudo,refs):{pronto:true,notas:[]};
+      validacao.notas=(validacao.notas||[]).concat(forma.notas||[],realidade.notas||[],ancoragem.notas||[]).slice(0,12);
+      validacao.pronto=validacao.pronto&&forma.pronto&&realidade.pronto&&ancoragem.pronto;validacao.forma=forma;validacao.realidade=realidade;validacao.ancoragem=ancoragem;
+      if(S.operacao.registrarEvidenciaDeterministica)S.operacao.registrarEvidenciaDeterministica(op&&op.taskId,r&&r.modelo,{lint:S.toolkit?S.toolkit.lint({tipo,conteudo}).valido:true,contrato:!validacao.contrato||validacao.contrato.pronto,forma:forma.pronto,realidade:realidade.pronto,ancoragem:ancoragem.pronto,progresso:!base||S.operacao.diff(base.conteudo,conteudo).mudanca>=0.008});
+    }
     validacao.prontoEstrutural = validacao.pronto;
     validacao.declaradoPronto = String(campos.pronto || '').toLowerCase() === 'sim' || campos.pronto === true;
     if (String(campos.pronto || '').toLowerCase() === 'nao' || campos.pronto === false) {

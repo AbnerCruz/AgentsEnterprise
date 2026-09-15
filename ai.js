@@ -117,6 +117,11 @@
     const base=(Number(promptTokens)||0)/1e6*p.entrada + (Number(completionTokens)||0)/1e6*p.saida;
     return base;
   }
+  function tetoSaidaModelo(modelo){
+    if(/deepseek/i.test(String(modelo||'')))return 65536;
+    if(/120b/i.test(String(modelo||'')))return 32768;
+    return 16384;
+  }
   const NIVEL_PADRAO={leve:'openai/gpt-oss-20b',padrao:'openai/gpt-oss-120b',avancado:'deepseek/deepseek-v3.2'};
   function modelosDaPessoa(agenteId){
     const pessoa=((S.state&&S.state.atual&&S.state.atual())||{}).equipe||[];
@@ -479,8 +484,8 @@
     const solicitado=op.modelo||rota.modelo;
     const modelo=MODELOS_OPENROUTER.some(m=>m.id===solicitado)?solicitado:rota.modelo;
     const metaRota={nivel:rota.nivel,rotaMotivo:rota.motivo,rotaScore:rota.score,tentativa:rota.tentativa};
-    // Apenas uma estimativa preventiva de caixa; este valor nunca é enviado
-    // como max_tokens e portanto jamais corta a resposta do provedor.
+    // A estimativa define um teto explícito de saída. Se o provedor atingir o
+    // teto, fazemos no máximo uma continuação e validamos o resultado unido.
     const estimativaSaida = Math.max(120,Number(op.tokens)||(tipo==='conteudo'?3000:700));
     const provedorUsado = 'openrouter';
     const provInfo = PROVEDORES.openrouter;
@@ -500,19 +505,23 @@
     if (Date.now() < l.bloqueadaAte && !op.forcar) {
       const er=new Error(`IA de ${agente || agenteId} em recuperação após uma falha temporária.`);er.transitoria=true;er.codigo='lane_em_recuperacao';throw er;
     }
-    if (l.emVoo > 0 && !op.forcar && !op._recuperacao && !op._failover) {
+    if (l.emVoo > 0 && !op.forcar && !op._recuperacao && !op._failover && !op._continuacao) {
       const er=new Error(`A IA própria de ${agente || agenteId} já está trabalhando.`);er.transitoria=true;er.codigo='lane_ocupada';throw er;
     }
 
     const q = usoHoje();
     renovarPeriodoSeNecessario();
-    // O prompt vai inteiro, sem nenhum corte de caracteres. Um truncamento
-    // aqui já cortou instruções que ficavam no fim do prompt e travou
-    // agentes em loop (ver CHANGELOG.md) — o teto real de custo é o
-    // orçamento em dólar checado logo abaixo, não o tamanho do texto.
-    const mensagens = [{ role:'user', content: String(sistema||'') + '\n\n' + String(pedido||'') }];
-    const custoEstimado = estimarCusto(provedorUsado, modelo, Math.ceil((String(sistema||'').length + String(pedido||'').length)/4), estimativaSaida);
-    if(S.operacao&&S.operacao.autorizarChamada)S.operacao.autorizarChamada(op,Math.ceil((String(sistema||'').length+String(pedido||'').length)/4)+estimativaSaida);
+    const sistemaEstavel=String(op.sistemaEstavel||sistema||'');
+    const sistemaEmpresa=String(op.sistemaEmpresa||'');
+    const mensagens=[{role:'system',content:sistemaEstavel}];
+    if(sistemaEmpresa)mensagens.push({role:'system',content:sistemaEmpresa});
+    mensagens.push({role:'user',content:String(pedido||'')});
+    const entradaEstimada=Math.ceil((sistemaEstavel.length+sistemaEmpresa.length+String(pedido||'').length)/4);
+    let maxTokens=Math.min(tetoSaidaModelo(modelo),Math.ceil(estimativaSaida*1.6)+512);
+    const tarefaOrcada=op.taskId&&((S.state&&S.state.atual&&S.state.atual())||{}).tarefas?.find(t=>t.id===op.taskId),orcamentoTarefa=tarefaOrcada&&tarefaOrcada.orcamentoTokens;
+    if(orcamentoTarefa&&Number.isFinite(Number(orcamentoTarefa.saidaMax)))maxTokens=Math.min(maxTokens,Math.max(120,Number(orcamentoTarefa.saidaMax)-Number(orcamentoTarefa.saidaUsada||0)));
+    const custoEstimado = estimarCusto(provedorUsado, modelo, entradaEstimada, maxTokens);
+    if(S.operacao&&S.operacao.autorizarChamada)S.operacao.autorizarChamada(op,{entrada:entradaEstimada,saida:maxTokens});
     if (provedorUsado === 'openrouter' && orStatus.temLimiteChave === true && Number.isFinite(Number(orStatus.limiteRestante)) && Number(orStatus.limiteRestante) < custoEstimado) {
       const er=new Error(`Saldo/limite real do OpenRouter insuficiente para esta chamada (restante ~US$ ${Number(orStatus.limiteRestante).toFixed(4)}).`); er.cota=true; throw er;
     }
@@ -544,11 +553,11 @@
         method:'POST',
         headers:{'Content-Type':'application/json',Authorization:'Bearer '+chaveUsada},
         body:JSON.stringify({
-          model:modelo,messages:mensagens,
+          model:modelo,messages:mensagens,max_tokens:maxTokens,
           temperature:tipo==='conteudo'?0.55:0.2,stream:false,
           ...(provedorUsado==='openrouter'
-            ? {reasoning:{effort:op.reasoning_effort || (tipo==='conteudo'?'medium':'low'),exclude:true}}
-            : {reasoning_effort:op.reasoning_effort || (tipo==='conteudo'?'medium':'low')})
+            ? {reasoning:{effort:op.reasoning_effort || 'low',exclude:true}}
+            : {reasoning_effort:op.reasoning_effort || 'low'})
         }),signal:typeof AbortSignal!=='undefined'&&AbortSignal.timeout?AbortSignal.timeout(tipo==='conteudo'?240000:90000):undefined
       });
       let corpoResposta='';
@@ -610,6 +619,12 @@
       const texto=String(conteudoMensagem||escolha.text||'').trim();
 
       const fim=String(escolha.finish_reason||'').toLowerCase();
+      if(['length','max_tokens'].includes(fim)&&!op._continuacao&&texto.length>200){
+        const custoParcial=numeroOpcional((dados.usage||{}).cost)||estimarCusto(provedorUsado,modelo,(dados.usage||{}).prompt_tokens,(dados.usage||{}).completion_tokens);
+        registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,...metaRota,modelo,provedor:provedorUsado,ms,ok:true,continuacaoNecessaria:true,entrada:Number((dados.usage||{}).prompt_tokens||0),saida:Number((dados.usage||{}).completion_tokens||0),tokens:Number((dados.usage||{}).total_tokens||0),custo:custoParcial,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados.usage||{},finishReason:fim,tipo,etapa:op.etapa||null,kit:op.kit||null});
+        const cont=await chamar(Object.assign({},op,{_continuacao:true,_skipSync:true,tokens:Math.max(700,estimativaSaida),pedido:`Continue EXATAMENTE de onde parou, sem repetir nada e sem reintroduzir o cabeçalho. Última parte entregue:\n${texto.slice(-600)}`}));
+        return Object.assign({},cont,{texto:texto+cont.texto,continuado:true});
+      }
       if(['length','max_tokens','content_filter'].includes(fim)){
         const custoIncompleto=numeroOpcional((dados.usage||{}).cost)||estimarCusto(provedorUsado,modelo,(dados.usage||{}).prompt_tokens,(dados.usage||{}).completion_tokens);
         registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,...metaRota,modelo,provedor:provedorUsado,ms,ok:false,incompleta:true,erro:`finish_reason=${fim}`,entrada:Number((dados.usage||{}).prompt_tokens||0),saida:Number((dados.usage||{}).completion_tokens||0),tokens:Number((dados.usage||{}).total_tokens||0),custo:custoIncompleto,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados.usage||{},finishReason:fim});
@@ -625,7 +640,7 @@
       const custoChamada=numeroOpcional((dados.usage||{}).cost)||estimarCusto(provedorUsado,modelo,(dados.usage||{}).prompt_tokens,(dados.usage||{}).completion_tokens);
       registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,...metaRota,modelo,provedor:provedorUsado,ms,ok:true,
         entrada:Number((dados.usage||{}).prompt_tokens||0),saida:Number((dados.usage||{}).completion_tokens||0),
-        tokens:Number((dados.usage||{}).total_tokens||0),custo:custoChamada,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados.usage||{},finishReason:escolha.finish_reason||null,tipo,etapa:op.etapa||null,trace:{entrada:{sistema:String(sistema||''),pedido:String(pedido||'')},saida:texto}});
+        tokens:Number((dados.usage||{}).total_tokens||0),custo:custoChamada,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados.usage||{},finishReason:escolha.finish_reason||null,tipo,etapa:op.etapa||null,kit:op.kit||null,trace:{entrada:{sistemaEstavel,sistemaEmpresa,pedido:String(pedido||'')},saida:texto}});
       situar('pronta','IA pronta',`última resposta em ${(ms/1000).toFixed(1)}s`);
       return {texto,usage:dados.usage||{},ms,modelo,provedor:provedorUsado,custo:custoChamada};
     }catch(err){

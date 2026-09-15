@@ -71,10 +71,20 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.equal(S.factory.validarFinal('CAPÍTULO 2\n\nTexto completo.\n\nCAPÍTULO 3\n\nOutro texto completo.','txt').pronto,false,'uma coleção numerada sem o primeiro item deve permanecer incompleta');
   assert.equal(S.factory.contarPalavras('Um conto com palavras reais.'),5);
   assert.equal(S.toolkit.aplicarPatch('antes\nalvo\ndepois','BUSCAR:\nalvo\nSUBSTITUIR:\nnovo'),'antes\nnovo\ndepois');
+  assert.equal(S.toolkit.aplicarPatch('um\ndois\ntres\nquatro','SUBSTITUIR_LINHAS: 2-3\n---\nDOIS\nTRÊS'),'um\nDOIS\nTRÊS\nquatro');
   assert.equal(S.toolkit.lint({tipo:'json',conteudo:'{"ok":true}'}).valido,true);
   assert.equal(S.toolkit.lint({tipo:'json',conteudo:'{"ok":'}).valido,false);
+  assert.equal(S.toolkit.lint({tipo:'js',conteudo:'const = 1'}).valido,false);
+  assert.equal(S.toolkit.referencias([{nome:'index.html',conteudo:'<link href="styles.css">'},{nome:'styles.css',conteudo:'body{}'}]).valido,true);
+  assert.equal(S.toolkit.referencias([{nome:'index.html',conteudo:'<script src="ausente.js"></script>'}]).valido,false);
   assert.ok(S.operacao.diff('a\nb','a\nc').mudanca>0);
   assert.equal(S.operacao.vendavel([{nome:'index.html',conteudo:'<!doctype html><title>ok</title>'}]).vendavel,true);
+  assert.equal(S.operacao.validarForma('serial',[{nome:'livro.md',conteudo:'Capítulo 1\nTexto\nCapítulo 2\nTexto'}]).pronto,true);
+  const tarefaOrcada={id:'orcada',titulo:'Entrega orçada',kit:'texto',clienteVisivel:true,status:'aberta',projectId:'pr1',orcamentoTokens:S.operacao.orcamentoPadrao({kit:'texto',clienteVisivel:true})};e.tarefas.push(tarefaOrcada);
+  assert.equal(S.operacao.autorizarChamada({taskId:'orcada'},{entrada:8500,saida:1000}),true);assert.equal(tarefaOrcada.orcamentoTokens.saidaUsada,0,'tokens de contexto não podem consumir o teto de saída');
+  S.operacao.registrarChamada({id:'orcada-call',taskId:'orcada',entrada:8500,saida:800,tokens:9300,ok:true,modelo:'modelo-teste',tipo:'conteudo',kit:'texto'});assert.equal(tarefaOrcada.orcamentoTokens.entradaUsada,8500);assert.equal(tarefaOrcada.orcamentoTokens.saidaUsada,800);
+  assert.throws(()=>S.operacao.autorizarChamada({taskId:'orcada'},{entrada:9001,saida:1}),err=>err&&err.contextoExcedido);
+  const replay=await S.replay.executar([{texto:'primeira',custo:0.01},{texto:'segunda',custo:0.02}],async p=>(await p.chamar()).texto);assert.equal(replay.resultado,'primeira');assert.equal(replay.restantes,1);assert.equal(replay.custoUSD,0.01);
   const projEventos=S.operacao.projetar([{seq:1,tipo:'tarefa.criada',dados:{taskId:'tx'}},{seq:2,tipo:'ia.chamada_concluida',dados:{custo:0.1,tokens:10}},{seq:3,tipo:'produto.liberado',dados:{produtoId:'px'}}]);
   assert.equal(projEventos.tarefas.tx.status,'aberta');assert.equal(projEventos.tokens,10);assert.ok(projEventos.produtos.px);
   assert.deepEqual(S.factory.limitesPalavras('Extensão entre 5 000 e 7 110 palavras.'),{minimo:5000,maximo:7110});
@@ -134,7 +144,8 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.equal(S.studio.editarArquivo(ruim.id,texto+'Conteúdo corrigido e utilizável.','../../entrega-final'),true);
   assert.equal(ruim.liberadoPublicacao,false);assert.equal(ruim.avaliado,false);
   assert.equal(ruim.nome,'entrega-final.md');
-  const planoComVisual=S.studio.novaTarefa({titulo:'Plano de negócio com identidade visual',briefing:'Escrever o plano textual e mencionar capa e layout futuros.',kit:'autonomo',projectId:'pr1',clienteVisivel:false});
+  const paiPlano=S.studio.novaTarefa({titulo:'Produto de apoio para plano institucional',briefing:'Criar produto de apoio ao planejamento institucional.',kit:'autonomo',projectId:'pr1',clienteVisivel:true});
+  const planoComVisual=S.studio.novaTarefa({titulo:'Plano de negócio com identidade visual',briefing:'Escrever o plano textual e mencionar capa e layout futuros.',kit:'autonomo',projectId:'pr1',clienteVisivel:false,parentTaskId:paiPlano.id});
   assert.equal(planoComVisual.kit,'autonomo','menções visuais dentro de plano textual não podem acionar modelo de imagem');assert.equal(planoComVisual.saidaVisualAutorizada,false);
 
   const bundle=S.studio.salvarArquivos([
@@ -183,7 +194,7 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   selecionar(e);const tarefasAntesHumano=e.tarefas.length;
   assert.equal(S.studio.novaTarefa({titulo:'Contatar cliente por email',briefing:'Enviar email ao cliente para confirmar os dados.',projectId:'pr1'}),null);
   const pedidoHumano=e.decisoesCriticas.find(d=>d.status==='pendente'&&d.tipo==='acao_humana');assert.ok(pedidoHumano,'ação humana deve ir à caixa executiva, não ser simulada');assert.equal(e.tarefas.length,tarefasAntesHumano);
-  assert.equal(S.studio.responderDecisaoCritica(pedidoHumano.id,'Cliente confirmou pessoalmente os requisitos A e B.'),true);assert.ok(e.tarefas.length>tarefasAntesHumano,'dados reais do dono retomam o trabalho interno');
+  assert.equal(S.studio.responderDecisaoCritica(pedidoHumano.id,'Cliente confirmou pessoalmente os requisitos A e B.'),true);assert.ok(e.tarefas.length>tarefasAntesHumano||e.tarefas.some(t=>/Cliente confirmou pessoalmente/.test(t.briefing||'')),'dados reais do dono retomam ou alimentam a única frente interna permitida');
   const analise=S.studio.analisarFinancas(e,true);assert.equal(typeof analise.custoUSD,'number');assert.ok(analise.quadro);
   const recAntes=e.financeiro.recomendacoes.length;
   e.iaChamadas.push({id:'visual-financeiro',ok:true,motivo:'produção visual',modelo:'google/gemini-2.5-flash-image',tokens:0,custo:1});
@@ -231,7 +242,7 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.match(studioSource,/abrirHandoffParaCandidato/);assert.match(studioSource,/handoff criação→laboratório/);assert.match(studioSource,/abrirFrentesPosRelease/);
   assert.match(studioSource,/lideresEmRevisao\.has\(p\.id\)/,'um chefe não pode revisar e produzir simultaneamente');assert.match(studioSource,/linhagemEmProducao/,'gerente não pode abrir produto paralelo enquanto o pipeline atual está incompleto');
   const aiSource=fs.readFileSync(path.join(__dirname,'..','ai.js'),'utf8');
-  assert.doesNotMatch(aiSource,/max_completion_tokens\s*:/,'nenhuma resposta pode receber teto de saída');assert.match(aiSource,/finish_reason=.*Nenhuma entrega parcial/);
+  assert.match(aiSource,/max_tokens:maxTokens/,'cada chamada textual precisa de teto explícito de saída');assert.match(aiSource,/_continuacao:true/);assert.match(aiSource,/finish_reason=.*Nenhuma entrega parcial/);
   assert.match(aiSource,/AbortSignal\.timeout\(tipo==='conteudo'\?240000:90000\)/);assert.match(aiSource,/podeChamarEstimado/);assert.match(aiSource,/limiteDiarioBase/);assert.match(aiSource,/function rotear\(op\)/);assert.match(aiSource,/alvoHoras=6/);
   assert.match(aiSource,/choices_ausente/);assert.match(aiSource,/resposta_json_vazia/);assert.match(studioSource,/falhasTransitorias/);assert.match(studioSource,/retomarAposIA/);
   assert.equal(e.equipe[0].ia.independente,true);assert.equal(e.equipe[0].ia.leve,'openai/gpt-oss-20b');assert.equal(e.equipe[0].ia.padrao,'openai/gpt-oss-120b');assert.equal(e.equipe[0].ia.avancado,'deepseek/deepseek-v3.2');

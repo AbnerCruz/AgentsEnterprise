@@ -4,6 +4,22 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v67 — plano de obra, fundação jogável e orçamento por resultado
+
+- A fundação deixa de prender o usuário no modal: a gerente entra no escritório imediatamente, trabalha em cena e os sete chefes chegam visualmente enquanto identidade e plano são materializados.
+- A gerente cria e congela uma única vez um plano de obra de 10 a 15 peças, com forma do produto, setores, dependências, limites e contratos de aceitação. Empresa e primeiro produto passam a ter nomes independentes.
+- O motor preserva uma frente executável voltada ao cliente, limita meta-trabalho a uma tarefa interna por tarefa de produto e deixa de abrir portfólios paralelos ou chamar a gerente só porque a fila ficou vazia.
+- Orçamentos por tarefa agora separam entrada/contexto de saída gerada. A primeira escalada recebe uma renovação gerencial; reincidências vão ao proprietário para aumentar, dividir ou cancelar.
+- Todas as chamadas textuais recebem `max_tokens` proporcional à tarefa. Uma saída truncada pode fazer uma continuação única, anexada localmente, sem aceitar fragmentos como entrega.
+- Prompts foram separados em constituição estável, contexto da empresa e delta volátil; cada camada tem teto e prioridade. Arquivos grandes entram por bíblia, índice, seções recentes ou intervalo numerado de correção.
+- Correções grandes usam patch por faixa de linhas, validado localmente. Permanecem disponíveis patch por busca/substituição, diff, lint, métricas, busca, verificação de referências e checklist vendável.
+- Reuniões reais exigem pauta decisória e usam uma única chamada para registrar contribuições e a decisão da gerente, em vez de uma chamada por participante.
+- Gates determinísticos de contrato, forma, realidade, ancoragem no acervo e não-progresso rodam antes da revisão semântica e evitam pagar IA por falhas objetivas.
+- O roteamento aprende apenas com aprovações reais por modelo × tipo × kit; sucesso técnico isolado não promove um modelo barato.
+- O ciclo operacional ganhou backoff adaptativo de 6 a 60 segundos quando nada muda. Estado integral, eventos e traces continuam no IndexedDB, e o harness de replay agora executa cenários offline com contagem e custo.
+- Finanças mede custo por release, tokens voltados ao cliente, tokens incorporados em release, tempo até o primeiro artefato, tarefas internas por produto e aproveitamento de cache.
+- O cache do aplicativo foi invalidado e todos os motores receberam URL v67, corrigindo também clientes presos na tela “Carregando o mundo…”.
+
 # v66.1 — correção de inicialização
 
 - Corrige a publicação corrompida de `studio.js` que interrompia o carregamento do mundo.

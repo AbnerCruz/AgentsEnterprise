@@ -23,6 +23,8 @@
   let rt = [];              // pessoas vivas em memória
   let token = 0;            // invalida ciclos de estúdios anteriores
   let motorTimer = null;
+  let motorDelay = 6000;
+  let ultimaAssinaturaMotor = '';
   let vitaisTimer = null;
   let socialTimer = null;
   let selecionado = null;
@@ -305,6 +307,10 @@
     const calls=e.iaChamadas||[],abertas=(e.tarefas||[]).filter(t=>t.status!=='feita'&&!t.bloqueada),funcs=(e.equipe||[]).filter(f=>f.papel==='func');
     const custo=calls.reduce((n,c)=>n+Number(c.custo||0),0),tokens=calls.reduce((n,c)=>n+Number(c.tokens||0),0),falhas=calls.filter(c=>!c.ok&&!c.incompleta).length,incompletas=calls.filter(c=>c.incompleta).length;
     const releases=(e.arquivos||[]).filter(a=>a.classe==='produto'&&!a.incompleto),tokensRelease=releases.reduce((n,a)=>n+Number(a.tokensProducao||a.metricasIA&&a.metricasIA.tokens||0),0),custoRelease=releases.reduce((n,a)=>n+Number(a.custoProducaoUSD||a.metricasIA&&a.metricasIA.custoUSD||0),0),custoPorProduto=releases.length?custo/releases.length:0,pctTokensRelease=tokens?Math.min(100,tokensRelease/tokens*100):0;
+    const tarefasCliente=new Set((e.tarefas||[]).filter(t=>t.clienteVisivel).map(t=>t.id)),tokensCliente=calls.filter(c=>tarefasCliente.has(c.taskId)).reduce((n,c)=>n+Number(c.tokens||0),0),percentualTokensCliente=tokens?Math.min(100,tokensCliente/tokens*100):0;
+    const primeiroArtefato=(e.arquivos||[]).filter(a=>a.clienteVisivel).sort((a,b)=>Number(a.criadoEm||0)-Number(b.criadoEm||0))[0],tempoPrimeiroArtefatoMs=primeiroArtefato?Math.max(0,Number(primeiroArtefato.criadoEm||0)-Number(e.criadoEm||primeiroArtefato.criadoEm||0)):0;
+    const internasAbertas=(e.tarefas||[]).filter(t=>!t.clienteVisivel&&t.status!=='feita').length,produtosAtivos=Math.max(1,(e.projetos||[]).filter(p=>p.status==='ativo'&&p.tipo!=='site_institucional').length),tarefasInternasPorProduto=internasAbertas/produtosAtivos;
+    const tokensCache=calls.reduce((n,c)=>n+Number(c.detalhesUso?.prompt_tokens_details?.cached_tokens||c.detalhesUso?.cached_tokens||0),0),tokensEntrada=calls.reduce((n,c)=>n+Number(c.entrada||c.detalhesUso?.prompt_tokens||0),0),aproveitamentoCache=tokensEntrada?Math.min(100,tokensCache/tokensEntrada*100):0;
     const imagens=calls.filter(c=>/(imagem|visual)/i.test(String(c.motivo||''))||/image/i.test(String(c.modelo||''))),custoImagem=imagens.reduce((n,c)=>n+Number(c.custo||0),0);
     const demanda={};abertas.forEach(t=>{const esp=(S.factory.porId(t.kit||'autonomo')||{}).especialidade||'producao';demanda[esp]=(demanda[esp]||0)+1;});
     const quadro={};funcs.forEach(f=>quadro[f.especialidade]=(quadro[f.especialidade]||0)+1);
@@ -321,7 +327,7 @@
     if(custo>0&&custoImagem/custo>0.25)ocorrencias.push({codigo:'custo_visual_alto',texto:`Produção visual representa ${(custoImagem/custo*100).toFixed(1)}% do custo de IA (US$ ${custoImagem.toFixed(5)}).`,nivel:'alto',percentual:custoImagem/custo});
     if(funcs.length>capacidade.maxFuncionarios)ocorrencias.push({codigo:'equipe_acima_capacidade',texto:`A equipe tem ${funcs.length} agentes, acima da capacidade financeira projetada de ${capacidade.maxFuncionarios} para este turno.`,nivel:'alto',capacidade});
     const alertas=ocorrencias.map(x=>x.texto),eco=e.economia||{},recomendacao=alertas[0]||'Custos sob controle; manter modelos leves na produção, ferramentas locais e revisão forte antes de repetir chamadas.';
-    const analise={id:uid('fin'),em:Date.now(),assinatura,caixaUSD:Number(eco.caixaUSD||0),gastoUSD:custo,custoUSD:custo,tokens,chamadas:calls.length,falhas,incompletas,custoImagemUSD:custoImagem,produtosLiberados:releases.length,custoPorProdutoUSD:custoPorProduto,tokensEmRelease:tokensRelease,custoEmReleaseUSD:custoRelease,percentualTokensEmRelease:pctTokensRelease,demanda,quadro,capacidadeEquipe:capacidade,recomendacao,alertas,ocorrencias};
+    const analise={id:uid('fin'),em:Date.now(),assinatura,caixaUSD:Number(eco.caixaUSD||0),gastoUSD:custo,custoUSD:custo,tokens,chamadas:calls.length,falhas,incompletas,custoImagemUSD:custoImagem,produtosLiberados:releases.length,custoPorProdutoUSD:custoPorProduto,tokensEmRelease:tokensRelease,custoEmReleaseUSD:custoRelease,percentualTokensEmRelease:pctTokensRelease,tokensCliente,percentualTokensCliente,tempoPrimeiroArtefatoMs,tarefasInternasPorProduto,aproveitamentoCache,demanda,quadro,capacidadeEquipe:capacidade,recomendacao,alertas,ocorrencias};
     e.financeiro.analises=(e.financeiro.analises||[]).concat(analise).slice(-300);
     if(alertas.length){
       const chave=ocorrencias.map(x=>x.codigo).sort().join('|'),agora=Date.now();
@@ -339,7 +345,7 @@
     S.state.gravar();S.bus.emit('financeiro');return analise;
   }
 
-  async function reuniaoInterna(motivo,opcoes){
+  async function reuniaoInternaLegada(motivo,opcoes){
     const e=S.state.atual();if(!e||!S.ai.pronta()||(S.ai.orcamentoIndisponivel&&S.ai.orcamentoIndisponivel()))return null;
     e.reuniao=e.reuniao||{mensagens:[],relatorios:[],reunioes:[]};if(e.reuniao.reuniaoAtiva)return null;
     const g=gerente();const elegiveis=rt.filter(p=>p.ref.energia>30&&!p.ocupado&&p.estado==='sentado');const participantes=(opcoes&&opcoes.todos?elegiveis:elegiveis.slice(0,3));
@@ -373,6 +379,35 @@
     e.reuniao.reunioes.unshift({id:uid('reu'),t:Date.now(),motivo,participantes:participantes.map(p=>p.nome),falas:falas.slice(-10),decisao:decisao&&decisao.texto||''});e.reuniao.reunioes=e.reuniao.reunioes.slice(0,30);delete e.reuniao.reuniaoAtiva;
     participantes.forEach(p=>{p.ocupado=false;p.balao=null;p.estado='andando';p.ref.foco='';});await Promise.all(participantes.map(p=>irPara(p,assento(p))));
     S.state.gravar();S.bus.emit('reuniao');S.bus.emit('equipe');S.bus.emit('trabalho');return{participantes,falas,decisao};
+  }
+
+  function pautaReuniao(e,motivo,opcoes){
+    if(opcoes&&opcoes.forcar)return true;
+    const m=normalizarFrase(motivo);
+    return /dono|proprietario|decisao|impasse|risco|orcamento|aprovar|reprovar/.test(m)||
+      (e.decisoesCriticas||[]).some(x=>x.status==='pendente')||
+      (e.arquivos||[]).some(a=>a.clienteVisivel&&a.classe==='candidato'&&!a.avaliado)||
+      !(e.tarefas||[]).some(t=>t.status==='aberta'&&!t.bloqueada&&dependenciasOK(t));
+  }
+  async function reuniaoInterna(motivo,opcoes){
+    const e=S.state.atual();if(!e||!S.ai.pronta()||(S.ai.orcamentoIndisponivel&&S.ai.orcamentoIndisponivel())||!pautaReuniao(e,motivo,opcoes))return null;
+    e.reuniao=e.reuniao||{mensagens:[],relatorios:[],reunioes:[]};if(e.reuniao.reuniaoAtiva)return null;
+    const g=gerente(),elegiveis=rt.filter(p=>p.ref.energia>30&&!p.ocupado&&p.estado==='sentado'),participantes=(opcoes&&opcoes.todos?elegiveis:elegiveis.slice(0,4));
+    if(g&&!participantes.includes(g))participantes.push(g);if(!g||participantes.length<2)return null;
+    e.reuniao.reuniaoAtiva={inicio:Date.now(),motivo,participantes:participantes.map(p=>p.id)};registrarReuniao('Sistema',`Reunião com pauta decisória: ${motivo}`,'reuniao-inicio');
+    const mesa=ESTACOES.reuniao;participantes.forEach((p,i)=>{p.ocupado=true;p.estado='andando';});await Promise.all(participantes.map((p,i)=>irPara(p,{x:mesa.x+(i-1)*26,y:mesa.y})));participantes.forEach(p=>{p.estado='falando';p.balao='reunião em curso';});
+    const projeto=e.projetos.find(x=>x.status==='ativo')||e.projetos[0],fin=(e.financeiro?.analises||[]).slice(-1)[0];
+    const perfis=participantes.map(p=>`${p.id}: ${p.nome}, ${p.cargo}, setor=${p.especialidade}, foco=${p.ref.foco||'livre'}`).join('\n');
+    const estado=`MISSÃO=${e.missao}\nPROJETO=${projeto?.nome||'principal'}\nOBJETIVO=${projeto?.objetivo||e.missao}\nTAREFAS=${e.tarefas.filter(t=>t.status!=='feita').slice(0,10).map(t=>t.id+' '+t.titulo).join(' | ')||'nenhuma'}\nARTEFATOS=${e.arquivos.slice(0,10).map(a=>a.id+' '+a.nome+' ['+a.classe+']').join(' | ')||'nenhum'}\nFINANÇAS=${fin?`caixa US$ ${Number(fin.caixaUSD||0).toFixed(4)}, gasto US$ ${Number(fin.gastoUSD||0).toFixed(5)}`:'sem tendência ainda'}\nPAUTA=${motivo}`;
+    let resposta=null,falas=[],decisao=null;
+    try{resposta=await S.ai.perguntar({sistemaEstavel:`Simule uma reunião operacional curta em UMA ÚNICA resposta. Cada participante fala de sua especialidade, troca informação concreta e a gerente fecha uma decisão. Não invente fatos externos. Produto para cliente sempre segue esboço → protótipo → candidato → produto. Retorne linhas FALA e depois os campos da decisão.`,sistemaEmpresa:`EMPRESA=${e.nome}\n${perfis}`,pedido:`${estado}\n\nFORMATO:\nFALA: id=<id>; texto=<até 55 palavras>\n(repita para participantes relevantes)\nDECISAO: criar_tarefa | corrigir | continuar | descartar | nenhuma\nTAREFA: <ação concreta>\nKIT: autonomo | texto | visual | pagina | codigo | dados | comercial | financeiro | laboratorio\nPARA: <id ou vazio>\nBASE: <id ou vazio>\nDESTINO: cliente | interno`,tokens:700,contextoMax:4500,kit:'reuniao',agente:g.nome,agenteId:g.id,motivo:'reunião consolidada'});
+      String(resposta&&resposta.texto||'').split(/\n+/).forEach(l=>{const m=l.match(/^FALA:\s*id=([^;]+);\s*texto=(.+)$/i);if(m){const p=participantes.find(x=>x.id===m[1].trim());if(p)falas.push({id:p.id,nome:p.nome,texto:m[2].trim().slice(0,500)});}});
+      const c=resposta&&resposta.campos||{};decisao={acao:String(c.decisao||'nenhuma').toLowerCase().trim(),texto:String(c.tarefa||'').trim(),kit:String(c.kit||'autonomo').trim(),para:String(c.para||'').trim(),base:String(c.base||'').trim(),destino:String(c.destino||'cliente').trim()};
+    }catch(err){registrarReuniao('Sistema',`A reunião foi encerrada sem nova chamada: ${String(err.message||err).slice(0,180)}.`,'alerta');}
+    falas.forEach(f=>{const p=rtById(f.id);registrarReuniao(f.nome,f.texto,'reuniao');if(p){logPessoa(p,`contribuiu: ${f.texto}`,'reuniao');p.ref.pensamento=f.texto.slice(0,220);}});
+    if(decisao&&['criar_tarefa','corrigir','continuar'].includes(decisao.acao)&&decisao.texto&&projeto){const base=decisao.base?e.arquivos.find(a=>a.id===decisao.base):null,kit=S.factory.porId(decisao.kit)?decisao.kit:'autonomo',alvo=decisao.para?rtById(decisao.para):null,interno=normalizarFrase(decisao.destino)==='interno';const pai=interno&&(e.tarefas||[]).find(t=>t.clienteVisivel&&t.status!=='feita');const t=novaTarefa({titulo:decisao.texto,kit,briefing:decisao.texto,para:alvo&&alvo.papel==='func'?alvo.id:null,projectId:projeto.id,baseArquivoId:base?.id,clienteVisivel:!interno,parentTaskId:pai?.id,origem:'reunião consolidada'});if(t)registrarReuniao('Sistema',`A decisão virou trabalho executável: ${t.titulo}.`,'ordem');}
+    registrarReuniao('Sistema',`Reunião encerrada: ${decisao?.texto||'sem nova tarefa.'}`,'reuniao-fim');e.reuniao.reunioes.unshift({id:uid('reu'),t:Date.now(),motivo,participantes:participantes.map(p=>p.nome),falas,decisao:decisao?.texto||''});e.reuniao.reunioes=e.reuniao.reunioes.slice(0,30);delete e.reuniao.reuniaoAtiva;
+    participantes.forEach(p=>{p.ocupado=false;p.balao=null;p.estado='andando';p.ref.foco='';});await Promise.all(participantes.map(p=>irPara(p,assento(p))));S.state.gravar();S.bus.emit('reuniao');S.bus.emit('equipe');S.bus.emit('trabalho');return{participantes,falas,decisao};
   }
 
   function pareceOrdemDiretaDoDono(msg,g){
@@ -457,6 +492,10 @@
     const ordemExplicita=pareceOrdemDiretaDoDono(msg,g);
     guardarMemoria(g,`Diretriz do dono: ${msg}`,'diretriz_dono',5,[]);
     e.diretrizesDono=Array.isArray(e.diretrizesDono)?e.diretrizesDono:[];e.diretrizesDono.push({id:uid('dir'),t:Date.now(),texto:msg,status:'recebida'});e.diretrizesDono=e.diretrizesDono.slice(-40);
+    if(e.fundacao&&e.fundacao.estado!=='operacional'){
+      e.diretrizesDono[e.diretrizesDono.length-1].status='aguardando_fundacao';
+      registrarReuniao(g.nome,'Diretriz registrada. Vou executá-la assim que o plano de obra estiver fundado.','resposta');S.state.gravar();return{ok:true,falas:1,executado:false,pendente:true};
+    }
 
     // Ordens inequívocas que o simulador sabe materializar são executadas
     // deterministicamente e sem gastar uma chamada de IA. A gerente continua
@@ -504,9 +543,19 @@
   function bloquearTarefaSemOrcamento(e,p,t){
     if(!S.ai.podeChamarEstimado)return false;
     const prev=estimativaTarefa(e,p,t);if(prev.ok){delete t.aguardandoOrcamentoDia;delete t.motivoEsperaOrcamento;return false;}
-    const dia=new Date().toISOString().slice(0,10);t.status='aberta';delete t._agenteEmExecucao;t.aguardandoOrcamentoDia=dia;t.motivoEsperaOrcamento=prev.motivo;
+    const dia=new Date().toISOString().slice(0,10);if(t.status!=='aguardando_decisao')t.status='aberta';delete t._agenteEmExecucao;t.aguardandoOrcamentoDia=dia;t.motivoEsperaOrcamento=prev.motivo;
     if(t.ultimoLogOrcamentoDia!==dia){t.ultimoLogOrcamentoDia=dia;S.state.registrar(`${rotuloAgente(p)} preservou “${t.titulo}” na fila sem gastar pensamento: ${prev.motivo}`,'orcamento',p&&p.id);}
-    S.state.gravar();return true;
+    return true;
+  }
+  function resolverEscaladas(e,g){
+    let mudou=false;
+    (e.tarefas||[]).filter(t=>t.status==='aguardando_decisao').forEach(t=>{
+      const b=t.orcamentoTokens=S.operacao&&S.operacao.normalizarOrcamento?S.operacao.normalizarOrcamento(t.orcamentoTokens,t):(t.orcamentoTokens||{});
+      if(!t.renovacoesOrcamento){t.renovacoesOrcamento=1;b.saidaMax=Math.round((b.saidaMax||3000)*1.8);b.chamadasMax=(b.chamadasMax||4)+2;b.status='ativo';t.status='aberta';t.para=null;t.retomadaEm=Date.now();registrarReuniao(g&&g.nome||'Gerência',`Renovei uma vez o orçamento de “${t.titulo}” e devolvi à fila com uma abordagem mais enxuta.`,'decisao');mudou=true;}
+      else if(!t.escaladaAoDono){t.escaladaAoDono=true;e.decisoesCriticas=Array.isArray(e.decisoesCriticas)?e.decisoesCriticas:[];e.decisoesCriticas.push({id:uid('dec'),tipo:'orcamento_tarefa',status:'pendente',criadaEm:Date.now(),tarefaId:t.id,titulo:`Tarefa parada por orçamento: ${t.titulo}`.slice(0,180),texto:`${t.motivoEscalada||'O orçamento da tarefa foi atingido.'} Escolha: dividir em partes menores, aumentar o orçamento ou cancelar.`});e.decisoesCriticas=e.decisoesCriticas.slice(-200);mudou=true;}
+    });
+    if(mudou){S.state.gravar();S.bus.emit('trabalho');S.bus.emit('reuniao');}
+    return mudou;
   }
   function tarefaAdequadaLocal(e,p){
     const funcionarios=new Set(rt.filter(x=>x.papel==='func').map(x=>x.id));
@@ -1056,6 +1105,10 @@
     const clienteVisivel=inferirClienteVisivel(dados,e);
     const etapaDestino=etapaTarefa(dados,e,clienteVisivel);
     const titulo = limpo(dados.titulo, 24); if (!titulo || titulo.length < 6) return null;
+    if(dados.origem==='reunião'){
+      const textoEscopo=`${titulo} ${dados.briefing||''}`,valores=[...textoEscopo.matchAll(/(?:US\$|\$)\s*([\d.,]+)/gi)].map(m=>Number(m[1].replace(/\./g,'').replace(',','.'))).filter(Number.isFinite),horas=[...textoEscopo.matchAll(/\b(\d+(?:[.,]\d+)?)\s*horas?\b/gi)].map(m=>Number(m[1].replace(',','.'))).filter(Number.isFinite),caixa=Number(e.economia&&e.economia.caixaUSD||0);
+      if(valores.some(v=>v>Math.max(1,caixa*2))||horas.some(h=>h>Math.max(80,((e.equipe||[]).length-1)*40))){const existente=(e.decisoesCriticas||[]).find(x=>x.status==='pendente'&&x.tipo==='proporcionalidade'&&x.titulo.includes(titulo.slice(0,50)));if(!existente){e.decisoesCriticas=(e.decisoesCriticas||[]).concat({id:uid('dec'),tipo:'proporcionalidade',status:'pendente',criadaEm:Date.now(),titulo:`Escopo desproporcional: ${titulo}`.slice(0,180),texto:`A reunião propôs ${valores.length?'US$ '+Math.max(...valores).toFixed(2):''}${valores.length&&horas.length?' e ':''}${horas.length?Math.max(...horas)+' horas':''}, mas o caixa é US$ ${caixa.toFixed(2)} e a equipe real tem ${Math.max(0,(e.equipe||[]).length-1)} funcionário(s). Confirme, reduza ou cancele.`});S.bus.emit('reuniao');}return null;}
+    }
     const acaoExterna=/\b(?:contatar|contactar|telefonar|ligar para|enviar (?:um |o )?e-?mail|ler (?:um |o )?e-?mail|enviar mensagem|realizar (?:uma |a )?(?:venda|compra|pagamento|cadastro|upload|deploy|publica[cç][aã]o externa)|publicar (?:na|no|em)|assinar contrato|marcar reuni[aã]o externa)\b/i;
     if(!dados._dadosHumanosConfirmados&&(acaoExterna.test(titulo)||acaoExterna.test(String(dados.briefing||'').slice(0,240)))){
       const existente=(e.decisoesCriticas||[]).find(d=>d.status==='pendente'&&d.tipo==='acao_humana'&&d.titulo===titulo);if(existente)return null;
@@ -1064,6 +1117,8 @@
     }
     const baseAlvo = dados.baseArquivoId || null;
     const projeto = e.projetos.find(p => p.id === dados.projectId) || e.projetos.find(p => p.status === 'ativo') || e.projetos[0];
+    let parentTaskId=dados.parentTaskId||null;
+    if(!clienteVisivel){const pai=(e.tarefas||[]).find(t=>t.id===parentTaskId&&t.clienteVisivel)||(e.tarefas||[]).find(t=>t.projectId===(projeto&&projeto.id)&&t.clienteVisivel&&t.status!=='feita')||(e.tarefas||[]).find(t=>t.projectId===(projeto&&projeto.id)&&t.clienteVisivel);if(!pai&&dados.origem!=='fundação da empresa')return null;parentTaskId=pai&&pai.id||null;if(parentTaskId&&(e.tarefas||[]).some(t=>t.parentTaskId===parentTaskId&&!t.clienteVisivel&&t.status!=='feita'&&!t.bloqueada))return null;}
     const chaveSemantica=chaveSemanticaTarefa(dados,titulo,projeto&&projeto.id,etapaDestino);
     const equivalente=(e.tarefas||[]).find(t=>{
       if(t.status==='feita'||t.bloqueada||t.projectId!==(projeto&&projeto.id)||String(t.etapaDestino||'')!==etapaDestino)return false;
@@ -1082,6 +1137,7 @@
       saidaVisualAutorizada:Boolean(dados.saidaVisualAutorizada),
       projectId: projeto ? projeto.id : null,
       acervoBaseIds:Array.isArray(dados.acervoBaseIds)?dados.acervoBaseIds.slice(0,20):(projeto&&Array.isArray(projeto.acervoIds)?projeto.acervoIds.slice(0,20):[]),
+      parentTaskId,
       dependsOn: Array.isArray(dados.dependsOn) ? dados.dependsOn : [],
       // Este campo era recebido por cinco chamadas diferentes e nunca era
       // gravado. Sem ele, nenhuma tarefa conseguia provar que era evolução
@@ -1092,7 +1148,7 @@
       handoff: dados.handoff || null, criadaEm: Date.now()
     };
     t.contratoAceitacao=S.operacao?S.operacao.contrato(Object.assign({},dados,{clienteVisivel})):Object.assign({},dados.contratoAceitacao||{});
-    t.orcamentoTokens=S.operacao?S.operacao.orcamentoPadrao(t):{tokensMax:12000,tokensUsados:0,chamadasMax:4,chamadasUsadas:0,status:'ativo'};
+    t.orcamentoTokens=S.operacao?S.operacao.orcamentoPadrao(t):{saidaMax:5000,contextoMax:9000,saidaUsada:0,entradaUsada:0,chamadasMax:4,chamadasUsadas:0,status:'ativo'};
     if(S.operacao)S.operacao.evento('tarefa.criada',{taskId:t.id,projectId:t.projectId,contrato:t.contratoAceitacao,orcamento:t.orcamentoTokens});
     e.tarefas.unshift(t);
     if (projeto) {
@@ -1131,7 +1187,16 @@
   function responderDecisaoCritica(id,resposta){
     const e=S.state.atual(),d=e&&(e.decisoesCriticas||[]).find(x=>x.id===id&&x.status==='pendente');if(!d)return false;const texto=String(resposta||'').trim();if(!texto)throw new Error('Informe os dados reais ou a decisão tomada fora do jogo.');
     d.status='respondida';d.respondidaEm=Date.now();d.respostaDono=texto.slice(0,4000);registrarReuniao('Você',`Resposta à solicitação “${d.titulo}”: ${texto}`,'resposta_humana');
-    if(d.retomar){const r=Object.assign({},d.retomar,{_dadosHumanosConfirmados:true,briefing:`DADOS REAIS FORNECIDOS PELO PROPRIETÁRIO:\n${texto}\n\nTrabalhe somente com esses dados. Não suponha outras ações externas.\n\nCONTEXTO ORIGINAL:\n${d.retomar.briefing||d.titulo}`,origem:'retomada após ação do proprietário'});novaTarefa(r);}
+    if(d.tipo==='orcamento_tarefa'&&d.tarefaId){
+      const t=(e.tarefas||[]).find(x=>x.id===d.tarefaId),r=normalizarFrase(texto);
+      if(t&&/(cancel|encerr|desist)/.test(r)){t.status='feita';t.cancelada=true;t.bloqueada=false;t.handoff='Cancelada por decisão do proprietário após atingir o orçamento da tarefa.';}
+      else if(t&&/(divid|separ|part)/.test(r)){
+        t.status='feita';t.dividida=true;t.bloqueada=false;
+        ['parte 1','parte 2'].forEach((sufixo,i)=>novaTarefa({titulo:`${t.titulo} — ${sufixo}`,briefing:`Execute somente ${sufixo} do escopo original, preservando o contrato de aceitação.\n\n${t.briefing||t.titulo}`,kit:t.kit,projectId:t.projectId,baseArquivoId:t.baseArquivoId,clienteVisivel:t.clienteVisivel,etapaDestino:t.etapaDestino,parentTaskId:t.clienteVisivel?null:(t.parentTaskId||null),contratoAceitacao:Object.assign({},t.contratoAceitacao||{},i?{minPalavras:0}:{}),origem:'divisão autorizada pelo proprietário'}));
+      }else if(t){const b=t.orcamentoTokens=S.operacao&&S.operacao.normalizarOrcamento?S.operacao.normalizarOrcamento(t.orcamentoTokens,t):(t.orcamentoTokens||{});b.saidaMax=Math.ceil(Math.max(Number(b.saidaMax||0),Number(b.saidaUsada||0)+1200)*1.75);b.chamadasMax=Math.max(Number(b.chamadasMax||0)+2,4);b.status='ativo';t.status='aberta';t.bloqueada=false;t.retomarAposIA=0;t._agenteEmExecucao=null;}
+      if(t)delete t.escaladaAoDono;
+    }
+    if(d.retomar){const r=Object.assign({},d.retomar,{_dadosHumanosConfirmados:true,briefing:`DADOS REAIS FORNECIDOS PELO PROPRIETÁRIO:\n${texto}\n\nTrabalhe somente com esses dados. Não suponha outras ações externas.\n\nCONTEXTO ORIGINAL:\n${d.retomar.briefing||d.titulo}`,origem:'retomada após ação do proprietário'});const criada=novaTarefa(r);if(!criada){const ativa=(e.tarefas||[]).find(t=>!t.clienteVisivel&&t.status!=='feita'&&t.projectId===(r.projectId||t.projectId));if(ativa){ativa.briefing=`${ativa.briefing||ativa.titulo}\n\nDADOS REAIS DO PROPRIETÁRIO PARA ESTA FRENTE:\n${texto}`;ativa.ultimaAtividadeEm=Date.now();}}}
     S.state.gravarJa();S.bus.emit('reuniao');S.bus.emit('trabalho');return true;
   }
   async function despacharTarefa(t, alvo) {
@@ -1186,6 +1251,8 @@
     const prox=PROXIMA_ETAPA[etapa];
     const rev=estadoLinhagem(e,cand); rev.avaliacoes++; rev.atualizadoEm=Date.now();
     cand.tentativasAvaliacao=Number(cand.tentativasAvaliacao||0)+1;
+    const falhaLocal=Boolean(cand.validacao&&(cand.validacao.prontoEstrutural===false||(cand.validacao.prontoEstrutural==null&&cand.validacao.pronto===false)));
+    if(falhaLocal){const original=cand.taskId&&(e.tarefas||[]).find(t=>t.id===cand.taskId);cand.avaliado=true;rev.correcoes++;if(S.operacao)S.operacao.registrarAprovacao(cand.taskId,(cand.metricasIA?.modelos||[]).slice(-1)[0],false);novaTarefa({titulo:`Corrigir validação local: ${cand.nome}`,briefing:`Corrija somente estas falhas determinísticas: ${(cand.validacao.notas||[]).join('; ')}`,kit:cand.kit||'autonomo',para:cand.autorId,projectId:cand.projectId,baseArquivoId:cand.id,clienteVisivel:!interno,etapaDestino:etapa,parentTaskId:interno&&original?.parentTaskId,origem:'validação determinística antes da revisão'});registrarReuniao(g.nome,`A validação local devolveu ${cand.nome} sem gastar uma revisão de IA: ${(cand.validacao.notas||[]).slice(0,3).join('; ')}.`,'ordem');S.state.gravar();S.bus.emit('trabalho');return;}
     g.ocupado=true; g.estado='trabalhando'; g.balao=interno?'revisando material interno':`revisando ${etapa}`;
     try{
       const visual=['png','jpg','jpeg','webp','gif'].includes(String(cand.tipo||'').toLowerCase())||/^data:image\//i.test(String(cand.conteudo||''));
@@ -1229,7 +1296,8 @@ PARA: <id de funcionário ou vazio>
 ACERVO_ID: <id exato ou vazio>
 SOLICITACAO_ACERVO: <consideração objetiva ao dono ou vazio>`;
       const r=await S.ai.perguntar({sistema,pedido:`Inspecione ${cand.nome} e decida o próximo estado sem pular o pipeline.`,nivel:rev.correcoes>=2?'avancado':'padrao',correcoes:rev.correcoes,etapa,tokens:420,reasoning_effort:'low',agente:g.nome,agenteId:g.id,motivo:'revisão de etapa de produção',taskId:cand.taskId||null,projectId:cand.projectId||null,artifactId:cand.id});
-      if(!r){logPessoa(g,`a revisão de ${cand.nome} não recebeu resposta; continuará no próximo ciclo.`,'alerta');return;}
+      if(!r){cand._revisaoFalhas=Number(cand._revisaoFalhas||0)+1;cand._revisarApos=Date.now()+Math.min(10*60000,30000*2**(cand._revisaoFalhas-1));if(cand._revisaoFalhas>=3){cand.avaliado=true;cand.pendenteDecisaoDono=true;S.state.registrar(`${cand.nome} aguarda decisão do proprietário: a revisão automática falhou 3 vezes.`,'alerta');}else logPessoa(g,`a revisão de ${cand.nome} não recebeu resposta; nova tentativa após o backoff.`,'alerta');return;}
+      cand._revisaoFalhas=0;delete cand._revisarApos;
       const c=r.campos||{},dec=normalizarFrase(c.decisao).replace(/ /g,'_'),analise=String(c.analise||'').trim(),acao=String(c.acao||'').trim();
       const registrarResultado=aprovado=>{if(S.operacao)S.operacao.registrarAprovacao(cand.taskId,(cand.metricasIA&&cand.metricasIA.modelos||[]).slice(-1)[0],aprovado);};
       if(c.acervo_id&&c.solicitacao_acervo&&S.acervo)S.acervo.solicitarMudanca(String(c.acervo_id).trim(),projeto&&projeto.id,g.id,String(c.solicitacao_acervo));
@@ -1291,13 +1359,15 @@ SOLICITACAO_ACERVO: <consideração objetiva ao dono ou vazio>`;
     const e = S.state.atual(); if (!e || !g || g.ocupado || (S.ai.orcamentoIndisponivel && S.ai.orcamentoIndisponivel())) return;
     const agora = Date.now();
     limparFilaCandidatos(e);
-    const candidatos = e.arquivos.filter(a => ['esboco','prototipo','candidato'].includes(a.classe) && !a.avaliado);
+    const candidatos = e.arquivos.filter(a => ['esboco','prototipo','candidato'].includes(a.classe) && !a.avaliado && agora>=Number(a._revisarApos||0));
     const cand = candidatoPreferido&&candidatos.includes(candidatoPreferido)?candidatoPreferido:candidatos.find(a=>{
       if(!g.liderSetor)return true;
       const esp=(S.factory.porId(a.kit||'autonomo')||{}).especialidade;
       return esp===g.especialidade&&!(a.classe==='candidato'&&a.clienteVisivel);
     });
     if (!cand) return;
+    const falhaLocal=Boolean(cand.validacao&&(cand.validacao.prontoEstrutural===false||(cand.validacao.prontoEstrutural==null&&cand.validacao.pronto===false)));
+    if(cand.classe==='candidato'&&cand.clienteVisivel&&falhaLocal){cand.avaliado=true;if(S.operacao)S.operacao.registrarAprovacao(cand.taskId,(cand.metricasIA?.modelos||[]).slice(-1)[0],false);novaTarefa({titulo:`Corrigir gate local: ${cand.nome}`,briefing:`Resolva antes de nova revisão: ${(cand.validacao.notas||[]).join('; ')}`,kit:cand.kit||'autonomo',para:cand.autorId,projectId:cand.projectId,baseArquivoId:cand.id,clienteVisivel:true,etapaDestino:'candidato',origem:'gate determinístico de candidato'});registrarReuniao(g.nome,`O gate local reteve ${cand.nome} sem chamada de revisão: ${(cand.validacao.notas||[]).slice(0,3).join('; ')}.`,'ordem');S.state.gravar();S.bus.emit('trabalho');return;}
     if(cand.classe==='candidato'&&cand.clienteVisivel)registrarAprovacaoProprietario(e,cand);
     if (cand.classe === 'esboco' || cand.classe === 'prototipo' || !cand.clienteVisivel || cand.escopo === 'interno') {
       return avaliarEtapaIntermediaria(g,cand,e);
@@ -1605,6 +1675,23 @@ ${ultimaChance ? 'MODO ANTI-LOOP: esta linhagem já consumiu o máximo de corre�
   }
 
   function parseLista(v){ return String(v||'').split(/[,;|]/).map(x=>x.trim()).filter(Boolean).slice(0,8); }
+  function parsePlanoObra(texto){
+    const linhas=String(texto||'').split(/\n+/).filter(l=>/^\s*PE[CÇ]A\s*:/i.test(l)),out=[];
+    linhas.slice(0,40).forEach((linha,i)=>{const campos={};String(linha.replace(/^\s*PE[CÇ]A\s*:/i,'')).split(';').forEach(parte=>{const p=parte.indexOf('=');if(p>0)campos[normalizarFrase(parte.slice(0,p)).replace(/ /g,'_')]=parte.slice(p+1).trim();});const titulo=limparTexto(campos.titulo||`Peça ${i+1}`);if(!titulo)return;const destino=normalizarFrase(campos.destino),aceite=parseLista(campos.aceite),min=Math.max(0,Number(String(campos.min||'').replace(/\D/g,''))||0),max=Math.max(0,Number(String(campos.max||'').replace(/\D/g,''))||0);out.push({id:`peca_${i+1}`,ordem:i+1,titulo,setor:normalizarFrase(campos.setor||'producao').replace(/ /g,'_'),destino:destino==='cliente'?'cliente':'interno',aceite,min,max,arquivosEsperados:parseLista(campos.arquivo||campos.arquivos),depende:parseLista(campos.depende),kit:normalizarFrase(campos.kit||'').replace(/ /g,'_')});});return out;
+  }
+  function kitDaPeca(p){if(S.factory.porId(p.kit))return p.kit;const s=p.setor,t=normalizarFrase(p.titulo);if(s==='criacao')return /capa|ilustracao|logo|visual/.test(t)?'visual':'texto';if(s==='desenvolvimento')return /site|pagina|landing|html/.test(t)?'pagina':'codigo';return{producao:'autonomo',operacoes:'dados',comercial:'comercial',financeiro:'financeiro',laboratorio:'laboratorio'}[s]||'autonomo';}
+  function materializarPlanoObra(e,projeto,pecas){
+    if(!pecas.length)return[];const criadas=[],porTitulo=new Map(),clientes=pecas.filter(p=>p.destino==='cliente'),ordem=clientes.concat(pecas.filter(p=>p.destino!=='cliente'));let interno=0;
+    const achar=nome=>{const chave=normalizarFrase(nome),direto=porTitulo.get(chave);if(direto)return direto;return [...porTitulo.entries()].find(([k])=>k.includes(chave)||chave.includes(k.split(' — ')[0]))?.[1]||null;};
+    ordem.forEach(p=>{const contrato={arquivosEsperados:p.arquivosEsperados,secoesObrigatorias:p.aceite,minPalavras:p.min,maxPalavras:p.max,referenciasDevemResolver:true,cliente:p.destino==='cliente'};const pai=p.destino==='cliente'?null:(clientes.length?achar(clientes[interno++%clientes.length].titulo):null);const t=novaTarefa({titulo:p.titulo,briefing:`Peça ${p.ordem} do plano de obra congelado. Entregue exatamente “${p.titulo}”. Critérios verificáveis: ${p.aceite.join(', ')||'utilidade, completude e coerência com o acervo'}.`,kit:kitDaPeca(p),projectId:projeto.id,clienteVisivel:p.destino==='cliente',etapaDestino:p.destino==='cliente'?'esboco':'prototipo',parentTaskId:pai&&pai.id,contratoAceitacao:contrato,origem:'plano de obra congelado'});if(t){p.taskId=t.id;criadas.push(t);porTitulo.set(normalizarFrase(p.titulo),t);}});
+    pecas.forEach(p=>{const t=criadas.find(x=>x.id===p.taskId);if(!t)return;t.dependsOn=p.depende.map(achar).filter(Boolean).map(x=>x.id);});
+    const biblia=pecas.find(p=>p.destino==='interno'&&/(b[ií]blia|guia de marca|gdd|tratamento|ementa|c[aâ]none)/i.test(p.titulo));if(biblia)projeto.bibliaTaskId=biblia.taskId||null;
+    return criadas;
+  }
+  function planoObraFallback(titulo,forma){
+    const serial=forma==='serial',base=serial?['Bíblia de continuidade','Sumário e arquitetura das unidades','Unidade 1','Unidade 2','Unidade 3','Unidade 4','Revisão de continuidade','Edição integrada','Empacotamento final','README e instruções de entrega']:['Guia do projeto','Arquitetura e mapa de componentes','Componente principal','Componente secundário','Integração funcional','Dados e conteúdo definitivo','Teste determinístico','Correções de acabamento','Empacotamento vendável','README e prévia'];
+    return base.map((nome,i)=>({id:`peca_${i+1}`,ordem:i+1,titulo:`${nome} — ${titulo}`.slice(0,180),setor:i===0?'criacao':i===1?'operacoes':i<6?(serial?'criacao':'desenvolvimento'):i===6?'laboratorio':'producao',destino:i===0||i===6?'interno':'cliente',aceite:i===0?['tom','regras','cânone']:i===6?['lint','contrato','realidade']:['conteúdo completo','sem placeholders'],min:i===0?800:0,max:i===0?1500:0,arquivosEsperados:[],depende:i?[(i===6?base[5]:base[i-1])]:[],kit:''}));
+  }
 
   function fundacaoContexto(e){
     const f=e.fundacao||{}, q=f.perguntas||{}, projeto=(e.projetos||[]).find(x=>x.status==='ativo')||(e.projetos||[])[0];
@@ -1636,16 +1723,19 @@ ${S.acervo&&projeto?S.acervo.contexto(projeto.id,6500):'nenhuma referência vinc
     e.fundacao.tentativas=Number(e.fundacao.tentativas||0)+1;
     S.state.gravar();
     const gerente=(e.equipe||[]).find(x=>x.papel==='gerente');
+    const gerenteCena=gerente&&rtById(gerente.id);if(gerenteCena){gerenteCena.estado='falando';gerenteCena.balao='definindo identidade e plano de obra';gerente.pensamento='Estou fundando a empresa e congelando um plano executável.';S.bus.emit('equipe');}
     const prompt=`Você é ${gerente?.nome||'a gerente'}, sócia-gerente e autoridade fundadora. ${modo==='migracao'?'Esta empresa já existe e possui dados persistentes; reinterprete-os sem apagar ou invalidar o que já foi construído.':'Esta empresa acabou de ser fundada e você recebeu somente algumas respostas estruturais do dono.'}
 
 Sua primeira responsabilidade é fundar a empresa de verdade. Você decide NOME, identidade visual, missão, visão, valores, posicionamento, tom, manifesto, plano de negócio e planejamento do primeiro produto.
+NOME deve ser o nome da EMPRESA — jamais o título de uma obra, produto, jogo ou serviço que ela produz. A empresa deve sobreviver a todos os seus produtos.
 
 CONSTITUIÇÃO IMUTÁVEL DO JOGO:
 ${S.principiosTexto?S.principiosTexto():'Produzir produtos reais com custo mínimo e qualidade máxima.'}
 
 Escreva de forma objetiva: o plano de negócio e o planejamento do produto devem ser densos, mas curtos o suficiente para caber na resposta. Não use asteriscos, markdown decorativo nem títulos enfeitados nos campos de identidade.
 O plano deve cobrir problema/oportunidade, cliente ideal, proposta de valor, diferenciais, modelo de negócio, canais, operação, métricas, riscos e roadmap inicial. Não invente faturamento, clientes, validações ou fatos externos: marque hipóteses.
-O primeiro produto deve ter nome, problema, público, escopo, entregáveis, critérios de aceitação e o que fica fora do v1.
+O primeiro produto deve ter nome, problema, público, escopo, entregáveis, critérios de aceitação e o que fica fora do v1. Declare uma FORMA entre serial, pacote, acervo, iterada ou servico.
+Crie uma vez um PLANO_DE_OBRA de 10 a 15 peças concretas. Cada linha PECA precisa ter título, setor canônico, destino cliente/interno, critérios curtos de aceite, limites de palavras quando aplicáveis e dependências. A primeira peça interna de obra longa deve ser uma bíblia/guia de projeto entre 800 e 1500 palavras. O plano será congelado e executado sem rediscutir o escopo a cada ciclo.
 Os critérios de aceitação precisam ser verificáveis dentro das capacidades do estúdio. Não use como gate assinatura real, Asana/Trello/Notion, e-mail, upload, publicação externa, aprovação de terceiros nem outra ação que o runtime não executa. Produtos longos podem ser planejados em partes/capítulos incrementais; não exija que dezenas ou centenas de páginas apareçam em uma única chamada. Jamais invente que houve contato com clientes, leitura/envio de e-mail, telefonema, venda, pagamento, cadastro, upload, publicação, deploy ou qualquer ação humana/externa. Quando necessária, registre-a como solicitação ao proprietário e espere que ele forneça dados reais.
 A empresa opera em SETE setores: criacao (Produto & Criação), desenvolvimento (Desenvolvimento de Software), producao (Produção & Acabamento), operacoes (Operações & Dados), comercial (Crescimento & Comercial), financeiro (Finanças & Eficiência) e laboratorio (Laboratório & Pesquisa). Cada setor começa com um chefe responsável, que também é funcionário: primeiro delega ao próprio setor e produz pessoalmente quando não houver subordinado apto. Cada funcionário trabalha somente em sua especialidade. Colaboração entre setores ocorre por handoff; ninguém executa fora da função. Não crie outra gerente geral. O financeiro dimensiona expansões e reduções do quadro pelo caixa, custo projetado por agente e demanda real, sem teto fixo arbitrário.
 
@@ -1663,6 +1753,7 @@ TOM: <tom de comunicação>
 CORES: <paleta/direção cromática>
 TIPOGRAFIA: <direção tipográfica>
 ESTILO_VISUAL: <direção visual>
+FORMA: <serial | pacote | acervo | iterada | servico>
 EQUIPE: criacao, desenvolvimento, producao, operacoes, comercial, financeiro, laboratorio
 FUNCIONARIO: nome=...; setor=...; cargo=...; tracos=...; comunicacao=...; prioridades=...; estilo=...; colaboracao=...; aversoes=...; experiencia=...
 FUNCIONARIO: nome=...; setor=...; cargo=...; tracos=...; comunicacao=...; prioridades=...; estilo=...; colaboracao=...; aversoes=...; experiencia=...
@@ -1676,14 +1767,18 @@ PLANEJAMENTO DO PRIMEIRO PRODUTO
 <texto>
 
 MANIFESTO
-<manifesto curto>`;
+<manifesto curto>
+
+PLANO_DE_OBRA:
+PECA: titulo=...; setor=criacao; destino=interno; aceite=...,...; min=800; max=1500; depende=
+PECA: titulo=...; setor=criacao; destino=cliente; aceite=...,...; min=...; max=...; depende=...`;
 
     let r=null;
     try{
       /* Fundação é uma decisão estratégica de alto impacto: usa uma única
-         chamada avançada robusta da gerente. O parâmetro de tokens serve apenas à
-         estimativa preventiva de custo; a API não recebe teto de saída. */
-      r=await S.ai.perguntar({sistema:prompt,pedido:modo==='migracao'?'Atualize a empresa existente usando os dados persistentes como fonte primária e conclua a nova fundação.':'Tome as decisões fundadoras agora, com coerência entre identidade, negócio e primeiro produto.',tipo:'pensamento',nivel:'avancado',tokens:3000,reasoning_effort:'medium',agente:gerente?.nome||'gerente',agenteId:gerente?.id,motivo:modo==='migracao'?'migração da fundação':'fundação estratégica'});
+         chamada avançada robusta da gerente, com teto explícito e uma única
+         continuação automática caso o provedor interrompa por comprimento. */
+      r=await S.ai.perguntar({sistema:prompt,pedido:modo==='migracao'?'Atualize a empresa existente usando os dados persistentes como fonte primária e conclua a nova fundação.':'Tome as decisões fundadoras agora, com coerência entre identidade, negócio e primeiro produto.',tipo:'pensamento',nivel:'avancado',tokens:5200,reasoning_effort:'low',agente:gerente?.nome||'gerente',agenteId:gerente?.id,motivo:modo==='migracao'?'migração da fundação':'fundação estratégica',kit:'fundacao'});
     }catch(err){ r=null; e.fundacao.ultimoErro=String(err&&err.message||err).slice(0,400); }
     if(!r||!String(r.texto||'').trim()){
       e.fundacao.estado=modo==='migracao'?'migracao_pendente':'aguardando_IA';
@@ -1701,10 +1796,15 @@ MANIFESTO
       const corpo=String(r.corpo||r.texto||'').trim();
       const pm=corpo.match(/PLANO DE NEGÓCIO\s*\n([\s\S]*?)(?:\n+PLANEJAMENTO DO PRIMEIRO PRODUTO\s*\n|$)/i);
       const fm=corpo.match(/PLANEJAMENTO DO PRIMEIRO PRODUTO\s*\n([\s\S]*?)(?:\n+MANIFESTO\s*\n|$)/i);
-      const mm=corpo.match(/MANIFESTO\s*\n([\s\S]*)$/i);
+      const mm=corpo.match(/MANIFESTO\s*\n([\s\S]*?)(?:\n+PLANO_DE_OBRA\s*:|$)/i);
       e.fundacao.planoNegocio=(pm?pm[1]:corpo).trim();
       e.fundacao.primeiroProduto=(fm?fm[1]:corpo).trim();
       identidade.manifesto=(mm?mm[1]:'').trim();
+      const planoTrecho=(String(r.texto||'').match(/PLANO_DE_OBRA\s*:\s*\n([\s\S]*)$/i)||[])[1]||'';
+      e.fundacao.forma=['serial','pacote','acervo','iterada','servico'].includes(normalizarFrase(c.forma).replace(/ /g,''))?normalizarFrase(c.forma).replace(/ /g,''):'iterada';
+      e.fundacao.planoObraTexto=planoTrecho.trim();e.fundacao.planoObra=parsePlanoObra(planoTrecho);e.fundacao.planoObraCongelado=true;
+      const tituloProdutoPlanejado=limparTexto(((e.fundacao.primeiroProduto.match(/(?:^|\n)#{0,3}\s*(?:Nome do produto|Produto|Nome)\s*:?\s*(.+)/i)||[])[1]||e.fundacao.planoObra.find(x=>x.destino==='cliente')?.titulo||'Primeiro produto')).slice(0,180);
+      if(identidade.nome&&similaridadeTexto(identidade.nome,tituloProdutoPlanejado)>0.58){const nomeCorrigido=await S.ai.perguntar({sistema:'Escolha somente um nome durável para a EMPRESA, nunca o título de seu produto. Retorne NOME: <nome>.',pedido:`Ramo: ${c.ramo||''}. Produto: ${tituloProdutoPlanejado}. Nome rejeitado por ser parecido com o produto: ${identidade.nome}`,tipo:'pensamento',nivel:'leve',tokens:80,reasoning_effort:'low',agente:gerente?.nome||'gerente',agenteId:gerente?.id,motivo:'corrigir nome da empresa',kit:'fundacao'});const novo=nomeCorrigido&&limparTexto(nomeCorrigido.campos&&nomeCorrigido.campos.nome);identidade.nome=novo&&similaridadeTexto(novo,tituloProdutoPlanejado)<=0.58?novo:`${limparTexto(c.ramo)||'Empresa'} ${gerente?.nome||'Studio'}`;}
       e.nome=identidade.nome||e.nome;e.ramo=limparTexto(c.ramo)||e.ramo||e.fundacao.perguntas.tipoProduto||'empresa de produto';e.missao=identidade.missao||e.missao;e.tom=identidade.tom||e.tom;e.publico=e.fundacao.perguntas.publico||e.publico;
       const validos=new Set(ESPECIALIDADES.map(x=>x.id));
       const aliases={criacao:['criação','criativa','design','produto','criacao','conteudo','conteúdo','editorial','escrita'],desenvolvimento:['desenvolvimento','software','programacao','programação','engenharia de software','frontend','backend','web'],comercial:['comercial','marketing','vendas','negócios','negocios','crescimento'],operacoes:['dados','data','analise','análise','analytics','operações','operacoes','qa'],financeiro:['financeiro','finanças','financas','custos','orçamento','orcamento','controladoria'],laboratorio:['laboratório','laboratorio','pesquisa','testes','experimentos','r&d'],producao:['produção','producao','acabamento','revisao','revisão','geral']};
@@ -1730,20 +1830,15 @@ MANIFESTO
         for(const id of padrao) if(planejadas.length<3&&!planejadas.includes(id)) planejadas.push(id);
       }
       e.fundacao.equipePlanejada=planejadas.map(especialidade=>({especialidade,funcionario:funcionarios.find(f=>f.especialidade===especialidade)||null}));
-      e.fundacao.equipePlanejada.forEach(item=>contratarPerfil(e,item.funcionario?.nome||'',item.especialidade,item.funcionario||{},'gerência fundadora · chefia inicial do setor'));
-      montar();
-      const pr=e.projetos?.find(x=>x.status==='ativo')||e.projetos?.[0],produtoTit=limparTexto(((e.fundacao.primeiroProduto.match(/(?:^|\n)#{0,3}\s*(?:Nome do produto|Produto|Nome)\s*:?\s*(.+)/i)||[])[1]||'Primeiro produto')).slice(0,180);
+      for(const item of e.fundacao.equipePlanejada){
+        const novo=contratarPerfil(e,item.funcionario?.nome||'',item.especialidade,item.funcionario||{},'gerência fundadora · chefia inicial do setor');if(!novo)continue;
+        montar();const chegada=rtById(novo.id);if(chegada){chegada.pos={x:Math.round((LAYOUT.largura||640)/2),y:Math.max(40,(typeof LAYOUT.altura==='function'?LAYOUT.altura(e.equipe.length):LAYOUT.altura||410)-45)};chegada.estado='andando';chegada.balao=`cheguei para ${nomeSetor(novo.especialidade)}`;await irPara(chegada,assento(chegada));chegada.balao=null;}await sleep(450);
+      }
+      const pr=e.projetos?.find(x=>x.status==='ativo'&&x.tipo!=='site_institucional')||e.projetos?.find(x=>x.tipo!=='site_institucional'),produtoTit=tituloProdutoPlanejado;
       if(!pr)e.projetos=[{id:uid('proj'),nome:produtoTit,objetivo:e.fundacao.perguntas.objetivo||'Executar o planejamento do primeiro produto.',status:'ativo',criadoEm:Date.now(),tarefaIds:[],arquivoIds:[],atividade:[]}];else if(/primeiro produto|principal|planejamento inicial/i.test(pr.nome)){pr.nome=produtoTit||pr.nome;pr.objetivo=e.fundacao.perguntas.objetivo||pr.objetivo;}
-      const active=e.projetos.find(x=>x.status==='ativo')||e.projetos[0];
-      if(!e.tarefas.some(t=>/plano de negócio|primeiro produto/i.test(t.titulo||'')))novaTarefa({titulo:'Consolidar plano de negócio e planejamento do primeiro produto',kit:'autonomo',briefing:`Criar os artefatos persistentes de estratégia e produto a partir da fundação decidida pela gerente. Preserve o contexto existente.
-
-PLANO DE NEGÓCIO:
-${e.fundacao.planoNegocio}
-
-PRIMEIRO PRODUTO:
-${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empresa'});
-      const kitProduto=/software|app|site|web|saas|programa|jogo/.test(tipo)?'codigo':/livro|texto|artigo|conte[uú]do|roteiro/.test(tipo)?'texto':'autonomo';
-      if(!e.tarefas.some(t=>t.status!=='feita'&&t.clienteVisivel))novaTarefa({titulo:`Produzir esboço utilizável: ${produtoTit||'primeiro produto'}`,kit:kitProduto,briefing:`Materialize agora o primeiro produto real que o dono poderá vender ou distribuir fora do jogo. A entrega deve ser um arquivo útil, não um plano, relatório ou simulação.\n\nPLANEJAMENTO APROVADO:\n${e.fundacao.primeiroProduto}`,projectId:active?.id,clienteVisivel:true,etapaDestino:'esboco',origem:'objetivo comercial da fundação'});
+      const active=e.projetos.find(x=>x.status==='ativo'&&x.tipo!=='site_institucional')||e.projetos[0];active.forma=e.fundacao.forma;active.dados=active.dados||{};active.dados.planoNegocio=e.fundacao.planoNegocio;active.dados.planejamentoProduto=e.fundacao.primeiroProduto;
+      let pecas=e.fundacao.planoObra;if(pecas.length<5){pecas=planoObraFallback(produtoTit,e.fundacao.forma);e.fundacao.planoObra=pecas;e.fundacao.planoObraTexto=pecas.map(p=>`PECA: titulo=${p.titulo}; setor=${p.setor}; destino=${p.destino}; aceite=${p.aceite.join(',')}; min=${p.min||''}; max=${p.max||''}; depende=${p.depende.join(',')}`).join('\n');}
+      materializarPlanoObra(e,active,pecas);
     }catch(err){
       /* Falha de materialização não reabre a chamada: a empresa segue com o
          que foi possível aproveitar e o erro fica registrado. */
@@ -1754,11 +1849,9 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
         montar();
       }
     }
-    e.fundacao.versao=2;e.fundacao.estado='operacional';e.fundacao.concluidaEm=Date.now();e.gerencia.recomendacao='Fundação concluída: identidade, plano de negócio e primeiro produto definidos. A equipe agora trabalha sobre esse contexto.';
+    e.fundacao.versao=3;e.fundacao.estado='operacional';e.fundacao.concluidaEm=Date.now();e.fundacao.reuniaoInicialRealizada=Date.now();e.gerencia.recomendacao='Fundação concluída: identidade e plano de obra congelado. A equipe executa a próxima peça sem rediscutir o escopo.';
     registrarReuniao('Sistema',`Fundação concluída${modo==='migracao'?' a partir dos dados persistentes':''}. ${e.nome} agora tem identidade, plano de negócio, primeiro produto e equipe definida.`,'fundacao');
     S.state.registrar(`${e.nome}: fundação concluída; identidade, plano de negócio e primeiro produto definidos.`,'ok');
-    const reuniao=await reuniaoInterna('planejamento inicial da empresa, do portfólio e do primeiro produto',{todos:true,inicial:true});
-    if(reuniao)e.fundacao.reuniaoInicialRealizada=Date.now();
     S.state.gravar();S.bus.emit('reuniao');S.bus.emit('equipe');S.bus.emit('trabalho');S.bus.emit('arquivos');S.bus.emit('trocou');
     return true;
   }
@@ -2000,7 +2093,8 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
       } else throw new Error('Nenhuma transformação foi produzida.');
     } catch(err) {
       if(err&&(err.limiteLocal||err.cota)){
-        tarefa.status='aberta';S.state.registrar(`${tarefa.titulo} permanece na fila: ${err.message||err} Nenhuma tentativa de qualidade foi consumida.`,'alerta',p.id);return false;
+        if(err.orcamentoTarefa){tarefa.status='aguardando_decisao';tarefa.para=null;tarefa.escaladaEm=Date.now();}else tarefa.status='aberta';
+        S.state.registrar(`${tarefa.titulo} permanece na fila: ${err.message||err} Nenhuma tentativa de qualidade foi consumida.`,'alerta',p.id);return false;
       }
       if(err&&err.transitoria){
         tarefa.status='aberta';
@@ -2055,6 +2149,12 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     const t=novaTarefa({titulo,kit:base&&base.kit||'autonomo',briefing:`Crie uma evolução concreta que o dono possa baixar, vender ou distribuir no mundo real. Não entregue apenas planejamento, relatório ou métricas internas.\n${direcao?`Direção da gerente: ${direcao}\n`:''}Base estratégica: ${plano}`,para:null,projectId:projeto.id,baseArquivoId:base&&base.id,clienteVisivel:true,etapaDestino:'esboco',origem:'invariante de produto real'});
     if(t){registrarReuniao(g.nome,`A fila estava vazia; abri imediatamente a próxima frente vendável: ${t.titulo}.`,'ordem');S.state.registrar(`Continuidade produtiva: ${t.titulo} entrou na fila sem espera por cronômetro.`,'produto',g.id);}
     return t;
+  }
+  function garantirInvarianteProduto(e,g){
+    const executavel=(e.tarefas||[]).some(t=>t.clienteVisivel&&t.status==='aberta'&&!t.bloqueada&&dependenciasOK(t));
+    const emExecucao=(e.tarefas||[]).some(t=>t.clienteVisivel&&t.status==='fazendo');
+    if(executavel||emExecucao)return true;
+    return Boolean(abrirFrenteProduto(e,g,null));
   }
 
   function garantirSiteInstitucional(e){
@@ -2183,11 +2283,12 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     S.bus.emit('relogio');
     if(S.ai.estado && S.ai.estado.pausado) return;
     if(e.fundacao && e.fundacao.estado && e.fundacao.estado !== 'operacional'){ if(e.fundacao.estado!=='aguardando_jogador')await processarFundacaoAtual(); return; }
+    const g=gerente();
+    resolverEscaladas(e,g);
     if(garantirSetorFinanceiro(e))return;
     garantirLiderancas(e);
     analisarFinancas(e);
-    if(e.fundacao&&!e.fundacao.reuniaoInicialRealizada){const r=await reuniaoInterna('planejamento inicial da empresa, do portfólio e do primeiro produto',{todos:true,inicial:true});if(r){e.fundacao.reuniaoInicialRealizada=Date.now();S.state.gravar();}return;}
-    garantirPortfolioParalelo(e);
+    garantirInvarianteProduto(e,g);
     garantirSiteInstitucional(e);
     if(S.ai.orcamentoIndisponivel && S.ai.orcamentoIndisponivel()) {
       const orc = S.ai.orcamento ? S.ai.orcamento() : null;
@@ -2197,7 +2298,6 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
       S.bus.emit('equipe'); return;
     }
     e.gerencia.ultimoLogOrcamentoDia='';
-    const g=gerente();
     avaliarCapacidadeDosLideres(e);
     cobrarAndamento(e,g);
 
@@ -2206,8 +2306,8 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     if(g && !g.ocupado && S.ai.disponivel(g.id)) {
       const recomendacaoFinanceira=(e.financeiro?.recomendacoes||[]).find(x=>x.status==='pendente_gerencia');
       const pedidoLider=(e.gerencia.solicitacoesContratacao||[]).find(x=>x.status==='pendente');
-      const pendenteFinal=e.arquivos.find(a=>a.classe==='candidato'&&a.clienteVisivel&&!a.avaliado&&!a._revisorEmExecucao);
-      const pendenteSemLider=e.arquivos.find(a=>['esboco','prototipo'].includes(a.classe)&&!a.avaliado&&!a._revisorEmExecucao&&!liderDoSetor((S.factory.porId(a.kit||'autonomo')||{}).especialidade));
+      const pendenteFinal=e.arquivos.find(a=>a.classe==='candidato'&&a.clienteVisivel&&!a.avaliado&&!a._revisorEmExecucao&&Date.now()>=Number(a._revisarApos||0));
+      const pendenteSemLider=e.arquivos.find(a=>['esboco','prototipo'].includes(a.classe)&&!a.avaliado&&!a._revisorEmExecucao&&Date.now()>=Number(a._revisarApos||0)&&!liderDoSetor((S.factory.porId(a.kit||'autonomo')||{}).especialidade));
       if(recomendacaoFinanceira){trabalhoGerencia=Promise.resolve(resolverRecomendacaoFinanceira(e,g,recomendacaoFinanceira));}
       else if(pedidoLider){trabalhoGerencia=Promise.resolve(processarPedidoDeLider(e,g));}
       else if(Date.now()>=Number(e.gerencia.circuitBreakerRevisaoAte||0)&&(pendenteFinal||pendenteSemLider)){ trabalhoGerencia=revisarComClaim(g,pendenteFinal||pendenteSemLider); }
@@ -2217,11 +2317,7 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
       // houver trabalho executável, a equipe produz; quando a fila esvazia, a
       // gerente define imediatamente a próxima evolução de produto real.
       if(!abertasGerencia.length){
-        trabalhoGerencia=(async()=>{const d=await S.agency.decidir(g,true);
-          if(d&&d.acao==='sugerir_acervo'){S.agency.marcarAcao(g,d);await materializarDecisaoAgente(g,d);}
-          const produtiva=d&&['criar_tarefa','revisar','estudar','planejar','executar_tarefa'].includes(d.acao);
-          if(produtiva){S.agency.marcarAcao(g,d);const fez=await materializarDecisaoAgente(g,d);if(fez)return;}
-          if(abrirFrenteProduto(e,g,d))S.bus.emit('trabalho');})();
+        trabalhoGerencia=Promise.resolve(garantirInvarianteProduto(e,g));
       }
       }
     }
@@ -2231,7 +2327,7 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
     // Sims-like e ficam disponíveis até a gerente ou a fila produzir demanda.
     const livres=rt.filter(p=>p.papel==='func'&&!p.ocupado&&Number(p.ref.energia)>10).sort((a,b)=>Number(a.liderSetor)-Number(b.liderSetor));
     const revisoesLideres=livres.filter(p=>p.liderSetor&&Date.now()>=Number(e.gerencia.circuitBreakerRevisaoAte||0)).map(lider=>{
-      const cand=e.arquivos.find(a=>['esboco','prototipo'].includes(a.classe)&&!a.avaliado&&!a._revisorEmExecucao&&(S.factory.porId(a.kit||'autonomo')||{}).especialidade===lider.especialidade);
+      const cand=e.arquivos.find(a=>['esboco','prototipo'].includes(a.classe)&&!a.avaliado&&!a._revisorEmExecucao&&Date.now()>=Number(a._revisarApos||0)&&(S.factory.porId(a.kit||'autonomo')||{}).especialidade===lider.especialidade);
       return cand?revisarComClaim(lider,cand):Promise.resolve(false);
     });
     const lideresEmRevisao=new Set(livres.filter(p=>p.liderSetor).filter(lider=>e.arquivos.some(a=>['esboco','prototipo'].includes(a.classe)&&!a.avaliado&&a._revisorEmExecucao===lider.id)).map(p=>p.id));
@@ -2247,14 +2343,15 @@ ${e.fundacao.primeiroProduto}`,projectId:active?.id,origem:'fundação da empres
   function iniciar(meu) {
     parar();
     const alvo = meu == null ? token : meu;
-    motorTimer = setInterval(() => { ciclo(alvo).catch(err => console.error('ciclo', err)); }, 6000);
+    motorDelay=6000;ultimaAssinaturaMotor='';
+    const rodar=async()=>{if(alvo!==token)return;try{await ciclo(alvo);}catch(err){console.error('ciclo',err);}const e=S.state.atual(),assinatura=e?JSON.stringify({t:(e.tarefas||[]).map(t=>[t.id,t.status,t.para,t.bloqueada]),a:(e.arquivos||[]).map(a=>[a.id,a.classe,a.avaliado]),f:e.fundacao&&e.fundacao.estado}):'';motorDelay=assinatura&&assinatura===ultimaAssinaturaMotor?Math.min(60000,Math.round(motorDelay*1.65)):6000;ultimaAssinaturaMotor=assinatura;motorTimer=setTimeout(rodar,motorDelay);};
     vitaisTimer = setInterval(tickVitais, 7000);
     socialTimer = setInterval(() => { try { socializar(); } catch(_){} }, 30000);
-    setTimeout(()=>ciclo(alvo).catch(err=>console.error('ciclo inicial',err)),80);
+    motorTimer=setTimeout(rodar,80);
     if (!animacao) laco();
   }
   function parar() {
-    if (motorTimer) clearInterval(motorTimer);
+    if (motorTimer) clearTimeout(motorTimer);
     if (vitaisTimer) clearInterval(vitaisTimer);
     if (socialTimer) clearInterval(socialTimer);
     motorTimer = vitaisTimer = socialTimer = null;

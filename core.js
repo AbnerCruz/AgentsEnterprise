@@ -140,7 +140,11 @@ window.S = window.S || {};
     ['nome','slogan','missao','visao','valores','posicionamento','manifesto','tom','cores','tipografia','estiloVisual'].forEach(k => { e.fundacao.identidade[k] = String(e.fundacao.identidade[k] || ''); });
     e.fundacao.planoNegocio = String(e.fundacao.planoNegocio || '');
     e.fundacao.primeiroProduto = String(e.fundacao.primeiroProduto || '');
-    e.fundacao.equipePlanejada = Array.isArray(e.fundacao.equipePlanejada) ? e.fundacao.equipePlanejada.slice(0,6) : [];
+    e.fundacao.forma=['serial','pacote','acervo','iterada','servico'].includes(e.fundacao.forma)?e.fundacao.forma:'iterada';
+    e.fundacao.planoObra=Array.isArray(e.fundacao.planoObra)?e.fundacao.planoObra.slice(0,40):[];
+    e.fundacao.planoObraTexto=String(e.fundacao.planoObraTexto||'').slice(0,24000);
+    e.fundacao.planoObraCongelado=Boolean(e.fundacao.planoObraCongelado);
+    e.fundacao.equipePlanejada = Array.isArray(e.fundacao.equipePlanejada) ? e.fundacao.equipePlanejada.slice(0,7) : [];
     e.fundacao.ultimaTentativa = Number(e.fundacao.ultimaTentativa) || 0;
     e.fundacao.retomarApos = Number(e.fundacao.retomarApos||e.fundacao.proximaTentativa) || 0;
     delete e.fundacao.proximaTentativa;
@@ -305,13 +309,14 @@ window.S = window.S || {};
     e.tarefas.forEach(t => {
       // Estados legados não podem deixar trabalho invisível para o quadro.
       if(['pendente','nova','todo','aguardando','fila'].includes(String(t.status||'').toLowerCase()))t.status='aberta';
-      if(!['aberta','fazendo','feita','incompleta'].includes(t.status))t.status='aberta';
+      if(!['aberta','fazendo','feita','incompleta','aguardando_decisao'].includes(t.status))t.status='aberta';
       if(t.status==='incompleta'){t.incompleta=true;t.bloqueada=true;}
       t.projectId = t.projectId || (e.projetos[0] && e.projetos[0].id);
       // Kits continuam sendo apenas roteamento de capacidade; não definem um
       // template de produto. Preservamos o kit novo quando conhecido.
       t.kit = ['autonomo','texto','visual','pagina','codigo','dados','comercial','financeiro','laboratorio'].includes(t.kit) ? t.kit : 'autonomo';
       t.dependsOn = Array.isArray(t.dependsOn) ? t.dependsOn : [];
+      t.parentTaskId=t.parentTaskId||null;
       t.acervoBaseIds=Array.isArray(t.acervoBaseIds)?[...new Set(t.acervoBaseIds.map(String))]:[];
       t.handoff = t.handoff || null;
       const tt=String((t.titulo||'')+' '+(t.briefing||'')).toLowerCase();
@@ -319,6 +324,10 @@ window.S = window.S || {};
       if(typeof t.clienteVisivel!=='boolean') t.clienteVisivel=!interno && /produto|cliente|p[uú]blico|livro|conto|romance|ebook|site|p[aá]gina|aplica[cç][aã]o|cat[aá]logo|capa|ilustra[cç][aã]o|banner|logo|artigo|jogo|zip/.test(tt);
       t.escopo=t.clienteVisivel?'produto':'interno';
       if(!['esboco','prototipo','candidato'].includes(t.etapaDestino)) t.etapaDestino=t.clienteVisivel?'esboco':'prototipo';
+      if(t.orcamentoTokens&&typeof t.orcamentoTokens==='object'){
+        const b=t.orcamentoTokens,base={visual:2500,pagina:7000,codigo:7000,texto:8000,laboratorio:3500,financeiro:2000,comercial:3500,dados:3500,autonomo:5000};
+        if(b.saidaMax==null)b.saidaMax=Number(b.tokensMax)||base[t.kit]||5000;if(b.contextoMax==null)b.contextoMax=9000;if(b.saidaUsada==null)b.saidaUsada=Number(b.tokensUsados)||0;if(b.entradaUsada==null)b.entradaUsada=0;if(b.chamadasUsadas==null)b.chamadasUsadas=0;delete b.tokensMax;delete b.tokensUsados;
+      }
     });
     e.arquivos.forEach(a => {
       a.classe = ['esboco', 'prototipo', 'candidato', 'produto'].includes(a.classe) ? a.classe : 'esboco';
