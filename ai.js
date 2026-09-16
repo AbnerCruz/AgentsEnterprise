@@ -486,7 +486,7 @@
     const metaRota={nivel:rota.nivel,rotaMotivo:rota.motivo,rotaScore:rota.score,tentativa:rota.tentativa};
     // A estimativa define um teto explícito de saída. Se o provedor atingir o
     // teto, fazemos no máximo uma continuação e validamos o resultado unido.
-    const estimativaSaida = Math.max(120,Number(op.tokens)||(tipo==='conteudo'?3000:700));
+    const estimativaSaida = Math.max(120,Number(op.maxTokensPeca)||Number(op.tokens)||(tipo==='conteudo'?2500:700));
     const provedorUsado = 'openrouter';
     const provInfo = PROVEDORES.openrouter;
     const chaveUsada = chaves.openrouter;
@@ -505,7 +505,7 @@
     if (Date.now() < l.bloqueadaAte && !op.forcar) {
       const er=new Error(`IA de ${agente || agenteId} em recuperação após uma falha temporária.`);er.transitoria=true;er.codigo='lane_em_recuperacao';throw er;
     }
-    if (l.emVoo > 0 && !op.forcar && !op._recuperacao && !op._failover && !op._continuacao) {
+    if (l.emVoo > 0 && !op.forcar && !op._recuperacao && !op._failover && !op._continuacao && !op._toolRound) {
       const er=new Error(`A IA própria de ${agente || agenteId} já está trabalhando.`);er.transitoria=true;er.codigo='lane_ocupada';throw er;
     }
 
@@ -517,11 +517,9 @@
     if(sistemaEmpresa)mensagens.push({role:'system',content:sistemaEmpresa});
     mensagens.push({role:'user',content:String(pedido||'')});
     const entradaEstimada=Math.ceil((sistemaEstavel.length+sistemaEmpresa.length+String(pedido||'').length)/4);
-    let maxTokens=Math.min(tetoSaidaModelo(modelo),Math.ceil(estimativaSaida*1.6)+512);
-    const tarefaOrcada=op.taskId&&((S.state&&S.state.atual&&S.state.atual())||{}).tarefas?.find(t=>t.id===op.taskId),orcamentoTarefa=tarefaOrcada&&tarefaOrcada.orcamentoTokens;
-    if(orcamentoTarefa&&Number.isFinite(Number(orcamentoTarefa.saidaMax)))maxTokens=Math.min(maxTokens,Math.max(120,Number(orcamentoTarefa.saidaMax)-Number(orcamentoTarefa.saidaUsada||0)));
+    let maxTokens=Math.min(tetoSaidaModelo(modelo),tipo==='conteudo'?Math.min(2500,estimativaSaida):estimativaSaida);
     const custoEstimado = estimarCusto(provedorUsado, modelo, entradaEstimada, maxTokens);
-    if(S.operacao&&S.operacao.autorizarChamada)S.operacao.autorizarChamada(op,{entrada:entradaEstimada,saida:maxTokens});
+    if(!op._continuacao&&S.operacao&&S.operacao.autorizarChamada)S.operacao.autorizarChamada(op,{entrada:entradaEstimada,saida:maxTokens});
     if (provedorUsado === 'openrouter' && orStatus.temLimiteChave === true && Number.isFinite(Number(orStatus.limiteRestante)) && Number(orStatus.limiteRestante) < custoEstimado) {
       const er=new Error(`Saldo/limite real do OpenRouter insuficiente para esta chamada (restante ~US$ ${Number(orStatus.limiteRestante).toFixed(4)}).`); er.cota=true; throw er;
     }
@@ -554,9 +552,15 @@
         headers:{'Content-Type':'application/json',Authorization:'Bearer '+chaveUsada},
         body:JSON.stringify({
           model:modelo,messages:mensagens,max_tokens:maxTokens,
-          temperature:tipo==='conteudo'?0.55:0.2,stream:false,
+          temperature:Number.isFinite(Number(op.temperature))?Number(op.temperature):(tipo==='conteudo'?0.55:0.2),
+          top_p:Number.isFinite(Number(op.top_p))?Number(op.top_p):0.9,
+          presence_penalty:Number.isFinite(Number(op.presence_penalty))?Number(op.presence_penalty):0,
+          frequency_penalty:Number.isFinite(Number(op.frequency_penalty))?Number(op.frequency_penalty):0,
+          ...(op.seed!=null?{seed:Number(op.seed)}:{}),
+          ...(op.response_format?{response_format:op.response_format}:{}),stream:false,
+          ...(Array.isArray(op.tools)&&op.tools.length?{tools:op.tools,tool_choice:'auto'}:{}),
           ...(provedorUsado==='openrouter'
-            ? {reasoning:{effort:op.reasoning_effort || 'low',exclude:true}}
+            ? {reasoning:{max_tokens:Math.min(256,Math.max(64,Math.ceil(maxTokens*0.1))),exclude:true}}
             : {reasoning_effort:op.reasoning_effort || 'low'})
         }),signal:typeof AbortSignal!=='undefined'&&AbortSignal.timeout?AbortSignal.timeout(tipo==='conteudo'?240000:90000):undefined
       });
@@ -617,6 +621,15 @@
         ? mensagem.content.filter(x=>x&&x.type==='text').map(x=>x.text||'').join('\n')
         : mensagem.content;
       const texto=String(conteudoMensagem||escolha.text||'').trim();
+
+      const chamadasFerramenta=Array.isArray(mensagem.tool_calls)?mensagem.tool_calls:[];
+      if(chamadasFerramenta.length&&typeof op.executarFerramenta==='function'&&Number(op._toolRound||0)<2){
+        const resultados=[];
+        for(const chamada of chamadasFerramenta.slice(0,4)){const fn=chamada&&chamada.function||{};let args={};try{args=JSON.parse(fn.arguments||'{}');}catch(_){args={};}let resultado;try{resultado=await op.executarFerramenta(fn.name,args);}catch(err){resultado={erro:String(err&&err.message||err)};}resultados.push({tool_call_id:chamada.id||null,nome:fn.name,resultado});}
+        const custoFerramenta=numeroOpcional((dados.usage||{}).cost)||estimarCusto(provedorUsado,modelo,(dados.usage||{}).prompt_tokens,(dados.usage||{}).completion_tokens);
+        registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,...metaRota,modelo,provedor:provedorUsado,ms,ok:true,toolRound:Number(op._toolRound||0)+1,ferramentas:resultados.map(x=>x.nome),entrada:Number((dados.usage||{}).prompt_tokens||0),saida:Number((dados.usage||{}).completion_tokens||0),tokens:Number((dados.usage||{}).total_tokens||0),custo:custoFerramenta,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,detalhesUso:dados.usage||{}});
+        return chamar(Object.assign({},op,{_toolRound:Number(op._toolRound||0)+1,_skipSync:true,pedido:`${String(pedido||'')}\n\nRESULTADOS DE FERRAMENTAS SOMENTE LEITURA:\n${JSON.stringify(resultados)}\n\nAgora entregue a resposta final no formato solicitado.`,tools:Number(op._toolRound||0)>=1?null:op.tools}));
+      }
 
       const fim=String(escolha.finish_reason||'').toLowerCase();
       if(['length','max_tokens'].includes(fim)&&!op._continuacao&&texto.length>200){

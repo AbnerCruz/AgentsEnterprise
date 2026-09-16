@@ -187,8 +187,10 @@
     const e = S.state.atual(); const el = $('#dockGerente'); if (!e) { el.innerHTML = ''; return; }
     const msgs = ((e.reuniao && e.reuniao.mensagens) || []).slice(-24);
     const pendencias=(e.solicitacoesAcervo||[]).filter(x=>x.status==='pendente').length+(e.decisoesCriticas||[]).filter(x=>x.status==='pendente').length+(e.aprovacoes||[]).filter(x=>x.status==='pendente').length;
+    const diagnostico=(e.diagnosticos||[]).find(d=>d.status!=='resolvido'&&d.nivel==='erro');
+    const diagnosticoAviso=diagnostico?`<div class="critical-card"><b>Falha detectada · ${esc(diagnostico.codigo)}</b><small>${esc(diagnostico.mensagem)}</small></div>`:'';
     const fundacaoAviso=e.fundacao&&e.fundacao.estado!=='operacional'&&e.fundacao.estado!=='aguardando_jogador'?`<div class="critical-card"><b>Fundação aguardando retomada</b><small>${esc(e.fundacao.ultimoErro||'A gerente está estruturando a empresa.')}</small><button class="mini-action" id="tentarFundacaoAgora">Tentar agora</button></div>`:'';
-    el.innerHTML = fundacaoAviso+`<button class="meeting-inbox" id="abrirCaixaReuniao"><b>Caixa executiva</b><span>${pendencias} pendência(s) · aprovações, decisões e relatórios</span></button>`+(msgs.length ? msgs.map(m => {const s=(e.solicitacoesAcervo||[]).find(x=>x.id===m.solicitacaoId),pendente=m.tipo==='solicitacao_acervo'&&s&&s.status==='pendente';return `<div class="fala ${m.tipo==='solicitacao_acervo'?'solicitacao-especial':''}"><b>${esc(m.quem)}:</b> ${esc(m.texto)}${pendente?`<div class="solicitacao-acoes"><button data-sol-branch="${esc(m.solicitacaoId)}">Autorizar branch</button><button data-sol-editar="${esc(m.solicitacaoId)}">Editar sozinho</button><button data-sol-recusar="${esc(m.solicitacaoId)}">Recusar</button></div>`:''}</div>`;}).join('')
+    el.innerHTML = diagnosticoAviso+fundacaoAviso+`<button class="meeting-inbox" id="abrirCaixaReuniao"><b>Caixa executiva</b><span>${pendencias} pendência(s) · aprovações, decisões e relatórios</span></button>`+(msgs.length ? msgs.map(m => {const s=(e.solicitacoesAcervo||[]).find(x=>x.id===m.solicitacaoId),pendente=m.tipo==='solicitacao_acervo'&&s&&s.status==='pendente';return `<div class="fala ${m.tipo==='solicitacao_acervo'?'solicitacao-especial':''}"><b>${esc(m.quem)}:</b> ${esc(m.texto)}${pendente?`<div class="solicitacao-acoes"><button data-sol-branch="${esc(m.solicitacaoId)}">Autorizar branch</button><button data-sol-editar="${esc(m.solicitacaoId)}">Editar sozinho</button><button data-sol-recusar="${esc(m.solicitacaoId)}">Recusar</button></div>`:''}</div>`;}).join('')
       : '<div class="fala"><small>Fale com a equipe pela caixa abaixo.</small></div>');
     $('#abrirCaixaReuniao').onclick=abrirSalaReuniao;
     if($('#tentarFundacaoAgora'))$('#tentarFundacaoAgora').onclick=async()=>{const b=$('#tentarFundacaoAgora');b.disabled=true;b.textContent='Tentando…';const ok=await S.studio.processarFundacaoAtual(true);toast(ok?'Fundação concluída.':'A rede ainda não respondeu; a retomada automática continua ativa.',ok?'ok':'erro');pintarTudo();};
@@ -250,7 +252,9 @@
     const e=S.state.atual(),n = S.studio.pessoas().filter(p => p.ocupado).length;
     const bloqueadas=e?(e.tarefas||[]).filter(t=>t.bloqueada).length:0,espera=Math.max(0,Number(S.ai.estado.bloqueadaAte||0)-Date.now());
     const fund=e&&e.fundacao;
-    if(fund&&fund.estado==='aguardando_jogador')$('#mundoStatus').textContent=`${e.equipe[0]?.nome||'Gerente'} aguarda o briefing de fundação`;
+    const diag=e&&(e.diagnosticos||[]).find(d=>d.status!=='resolvido'&&d.nivel==='erro');
+    if(diag)$('#mundoStatus').textContent=`Falha detectada · ${diag.codigo}`;
+    else if(fund&&fund.estado==='aguardando_jogador')$('#mundoStatus').textContent=`${e.equipe[0]?.nome||'Gerente'} aguarda o briefing de fundação`;
     else if(fund&&fund.estado!=='operacional')$('#mundoStatus').textContent=fund.ultimoErro?'Fundação pausada · retomada automática programada':'Gerente estruturando e contratando a empresa';
     else $('#mundoStatus').textContent = n ? `${n} agente${n > 1 ? 's' : ''} produzindo agora` : espera?`OpenRouter limitou chamadas · retoma em ${S.fmt.dur(espera)}`:bloqueadas?`${bloqueadas} tarefa(s) bloqueada(s) aguardando decisão`:'Fila observada · gerente reage quando ficar vazia';
   }

@@ -152,6 +152,7 @@ window.S = window.S || {};
     e.fundacao.ultimoErro = String(e.fundacao.ultimoErro || '').slice(0,400);
     e.fundacao.reuniaoInicialRealizada = Number(e.fundacao.reuniaoInicialRealizada) || 0;
     e.fundacao.concluidaEm = Number(e.fundacao.concluidaEm) || 0;
+    e.diagnosticos = Array.isArray(e.diagnosticos) ? e.diagnosticos.slice(0,120) : [];
     e.criadoEm = e.criadoEm || Date.now();
     e.xp = Number(e.xp) || 0;
     e.ambiente = e.ambiente && typeof e.ambiente === 'object' ? e.ambiente : {};

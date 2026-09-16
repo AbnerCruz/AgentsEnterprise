@@ -26,7 +26,6 @@
   let motorDelay = 6000;
   let ultimaAssinaturaMotor = '';
   let vitaisTimer = null;
-  let socialTimer = null;
   let selecionado = null;
   const SOCIAL_OCIOSO_MIN_MS = 6 * 60 * 1000;
   const OCIOSO_TROCA_MIN_MS = 18000;
@@ -95,6 +94,18 @@
   function pessoa(id) { return rt.find(p => p.id === id) || null; }
   function logPessoa(p, texto, tag) { if (p && p.id) S.state.registrarPessoa(p.id, texto, tag || 'info'); }
   function logEscritorio(texto, tag) { S.state.registrar(texto, tag || 'info'); }
+  function registrarDiagnostico(e,codigo,mensagem,dados,nivel='erro'){
+    if(!e)return null;
+    e.diagnosticos=Array.isArray(e.diagnosticos)?e.diagnosticos:[];
+    const chave=`${codigo}|${JSON.stringify(dados||{})}`,anterior=e.diagnosticos.find(x=>x.chave===chave&&Date.now()-Number(x.ultimaOcorrencia||x.em||0)<60000);
+    if(anterior){anterior.ocorrencias=Number(anterior.ocorrencias||1)+1;anterior.ultimaOcorrencia=Date.now();return anterior;}
+    const d={id:uid('diag'),chave,codigo:String(codigo),mensagem:String(mensagem).slice(0,700),dados:dados||{},nivel,em:Date.now(),ultimaOcorrencia:Date.now(),ocorrencias:1,status:'aberto'};
+    e.diagnosticos.unshift(d);e.diagnosticos=e.diagnosticos.slice(0,120);
+    S.state.registrar(`Diagnóstico ${d.codigo}: ${d.mensagem}`,nivel==='erro'?'erro':'alerta');
+    if(S.operacao)S.operacao.evento('sistema.diagnostico',d,e);
+    S.bus.emit('diagnostico',d);return d;
+  }
+  function rejeitarTarefa(e,codigo,mensagem,dados){registrarDiagnostico(e,`tarefa.${codigo}`,mensagem,dados,'alerta');return null;}
   const gerente = () => rt.find(p => p.papel === 'gerente') || null;
   const nomeSetor = id => (ESPECIALIDADES.find(x=>x.id===id)||{}).cargo || id || 'área não definida';
   function liderDoSetor(especialidade){return rt.find(p=>p.papel==='func'&&p.especialidade===especialidade&&p.ref.liderSetor)||rt.find(p=>p.papel==='func'&&p.especialidade===especialidade)||null;}
@@ -311,6 +322,9 @@
     const primeiroArtefato=(e.arquivos||[]).filter(a=>a.clienteVisivel).sort((a,b)=>Number(a.criadoEm||0)-Number(b.criadoEm||0))[0],tempoPrimeiroArtefatoMs=primeiroArtefato?Math.max(0,Number(primeiroArtefato.criadoEm||0)-Number(e.criadoEm||primeiroArtefato.criadoEm||0)):0;
     const internasAbertas=(e.tarefas||[]).filter(t=>!t.clienteVisivel&&t.status!=='feita').length,produtosAtivos=Math.max(1,(e.projetos||[]).filter(p=>p.status==='ativo'&&p.tipo!=='site_institucional').length),tarefasInternasPorProduto=internasAbertas/produtosAtivos;
     const tokensCache=calls.reduce((n,c)=>n+Number(c.detalhesUso?.prompt_tokens_details?.cached_tokens||c.detalhesUso?.cached_tokens||0),0),tokensEntrada=calls.reduce((n,c)=>n+Number(c.entrada||c.detalhesUso?.prompt_tokens||0),0),aproveitamentoCache=tokensEntrada?Math.min(100,tokensCache/tokensEntrada*100):0;
+    const entregas=(e.tarefas||[]).filter(t=>t.status==='feita'&&t.arquivo),aprovadasPrimeira=entregas.filter(t=>Number(t.tentativasIA||0)===1&&((e.arquivos||[]).find(a=>a.id===t.arquivo)?.validacao?.pronto)),taxaAprovacaoPrimeira=entregas.length?aprovadasPrimeira.length/entregas.length*100:0;
+    const palavrasContratadas=entregas.reduce((n,t)=>n+Number(t.contratoAceitacao&&t.contratoAceitacao.minPalavras||0),0),palavrasEntregues=entregas.reduce((n,t)=>n+Number((e.arquivos||[]).find(a=>a.id===t.arquivo)?.validacao?.metricas?.palavras||0),0),pecasAceitas=entregas.filter(t=>(e.arquivos||[]).find(a=>a.id===t.arquivo)?.validacao?.pronto).length,custoPorPecaAceita=pecasAceitas?custo/pecasAceitas:0;
+    const metricasAmp=(e.arquivos||[]).map(a=>a.validacao&&a.validacao.amplificacao&&a.validacao.amplificacao.metricas).filter(Boolean),cliches=metricasAmp.reduce((n,m)=>n+Number(m.cliches||0),0),palavrasAmp=metricasAmp.reduce((n,m)=>n+Number(m.palavras||0),0),clichesPorMil=palavrasAmp?cliches/palavrasAmp*1000:0,turnosFerramenta=calls.filter(c=>c.toolRound).length;
     const imagens=calls.filter(c=>/(imagem|visual)/i.test(String(c.motivo||''))||/image/i.test(String(c.modelo||''))),custoImagem=imagens.reduce((n,c)=>n+Number(c.custo||0),0);
     const demanda={};abertas.forEach(t=>{const esp=(S.factory.porId(t.kit||'autonomo')||{}).especialidade||'producao';demanda[esp]=(demanda[esp]||0)+1;});
     const quadro={};funcs.forEach(f=>quadro[f.especialidade]=(quadro[f.especialidade]||0)+1);
@@ -319,7 +333,6 @@
     const anterior=(e.financeiro.analises||[]).slice(-1)[0];if(!forcar&&anterior&&anterior.assinatura===assinatura&&Date.now()-Number(anterior.em||0)<60000)return anterior;
     const ocorrencias=[];
     if(!quadro.financeiro)ocorrencias.push({codigo:'financeiro_sem_responsavel',texto:'Não há agente responsável por Finanças & Eficiência.',nivel:'critico'});
-    ESPECIALIDADES.forEach(esp=>{if(!quadro[esp.id])ocorrencias.push({codigo:`setor_sem_chefe:${esp.id}`,texto:`${esp.cargo} ainda não possui chefe responsável. Contratar somente se a capacidade financeira calculada permitir.`,nivel:'alto',especialidade:esp.id});});
     Object.entries(demanda).forEach(([esp,q])=>{if(q>0&&!quadro[esp])ocorrencias.push({codigo:`sem_especialista:${esp}`,texto:`${q} tarefa(s) exigem ${nomeSetor(esp)}, mas não há agente especializado contratado.`,nivel:'alto',especialidade:esp});});
     Object.entries(quadro).forEach(([esp,q])=>{if(q>0&&!demanda[esp])ocorrencias.push({codigo:`capacidade_ociosa:${esp}`,texto:`${q} agente(s) de ${nomeSetor(esp)} estão sem tarefa compatível; a gerência deve abrir um handoff real ou reavaliar esta alocação antes de contratar mais pessoas.`,nivel:'medio',especialidade:esp});});
     if(calls.length>=5&&falhas/calls.length>0.15)ocorrencias.push({codigo:'taxa_falha_alta',texto:`Taxa de falhas alta: ${(falhas/calls.length*100).toFixed(1)}% (${falhas}/${calls.length}).`,nivel:'alto',taxa:falhas/calls.length});
@@ -327,7 +340,7 @@
     if(custo>0&&custoImagem/custo>0.25)ocorrencias.push({codigo:'custo_visual_alto',texto:`Produção visual representa ${(custoImagem/custo*100).toFixed(1)}% do custo de IA (US$ ${custoImagem.toFixed(5)}).`,nivel:'alto',percentual:custoImagem/custo});
     if(funcs.length>capacidade.maxFuncionarios)ocorrencias.push({codigo:'equipe_acima_capacidade',texto:`A equipe tem ${funcs.length} agentes, acima da capacidade financeira projetada de ${capacidade.maxFuncionarios} para este turno.`,nivel:'alto',capacidade});
     const alertas=ocorrencias.map(x=>x.texto),eco=e.economia||{},recomendacao=alertas[0]||'Custos sob controle; manter modelos leves na produção, ferramentas locais e revisão forte antes de repetir chamadas.';
-    const analise={id:uid('fin'),em:Date.now(),assinatura,caixaUSD:Number(eco.caixaUSD||0),gastoUSD:custo,custoUSD:custo,tokens,chamadas:calls.length,falhas,incompletas,custoImagemUSD:custoImagem,produtosLiberados:releases.length,custoPorProdutoUSD:custoPorProduto,tokensEmRelease:tokensRelease,custoEmReleaseUSD:custoRelease,percentualTokensEmRelease:pctTokensRelease,tokensCliente,percentualTokensCliente,tempoPrimeiroArtefatoMs,tarefasInternasPorProduto,aproveitamentoCache,demanda,quadro,capacidadeEquipe:capacidade,recomendacao,alertas,ocorrencias};
+    const analise={id:uid('fin'),em:Date.now(),assinatura,caixaUSD:Number(eco.caixaUSD||0),gastoUSD:custo,custoUSD:custo,tokens,chamadas:calls.length,falhas,incompletas,custoImagemUSD:custoImagem,produtosLiberados:releases.length,custoPorProdutoUSD:custoPorProduto,tokensEmRelease:tokensRelease,custoEmReleaseUSD:custoRelease,percentualTokensEmRelease:pctTokensRelease,tokensCliente,percentualTokensCliente,tempoPrimeiroArtefatoMs,tarefasInternasPorProduto,aproveitamentoCache,taxaAprovacaoPrimeira,palavrasEntregues,palavrasContratadas,custoPorPecaAceita,clichesPorMil,turnosFerramenta,demanda,quadro,capacidadeEquipe:capacidade,recomendacao,alertas,ocorrencias};
     e.financeiro.analises=(e.financeiro.analises||[]).concat(analise).slice(-300);
     if(alertas.length){
       const chave=ocorrencias.map(x=>x.codigo).sort().join('|'),agora=Date.now();
@@ -599,6 +612,15 @@
   }
   function socializar(){void conversarOciosos();}
 
+  function motivoPausaIA(){
+    const o=S.ai&&S.ai.orcamento?S.ai.orcamento():null;
+    if(o&&Number(o.orcamentoUSD)<=0&&Number(o.custoPeriodo)<=0)return'o caixa de IA ainda não foi alocado';
+    if(o&&Number.isFinite(Number(o.openrouterSaldo))&&Number(o.openrouterSaldo)<=0)return'os créditos da conta OpenRouter acabaram';
+    if(o&&o.esgotado)return'o caixa da empresa chegou ao limite';
+    if(o&&o.esgotadoDia)return'o limite diário de IA foi atingido';
+    return'a IA está temporariamente indisponível';
+  }
+
   /* ---------- vitais ---------- */
   function tickVitais() {
     const e = S.state.atual(); if (!e) return;
@@ -629,15 +651,15 @@
       if (semOrcamento && !p.ocupado && !['dormindo','comendo','assistindo','andando','pausa'].includes(p.estado)) {
         if (f.cuidados.fome > 58) {
           p.estado='comendo'; f.cuidados.rotina='refeicao'; p.balao='comendo';
-          logPessoa(p,'foi comer porque o limite diário de IA acabou.','rotina');
-          irPara(p,ESTACOES.cafe).then(()=>setTimeout(()=>{ if(p.estado==='comendo'){p.estado='dormindo';f.cuidados.rotina='sono';p.balao='dormindo';irPara(p,ESTACOES.dormitorio);logPessoa(p,'foi dormir depois da refeição; a empresa aguarda o próximo dia de orçamento.','rotina');}},7000));
+          logPessoa(p,`foi comer porque ${motivoPausaIA()}.`,'rotina');
+          irPara(p,ESTACOES.cafe).then(()=>setTimeout(()=>{ if(p.estado==='comendo'){p.estado='dormindo';f.cuidados.rotina='sono';p.balao='dormindo';irPara(p,ESTACOES.dormitorio);logPessoa(p,`foi dormir depois da refeição; ${motivoPausaIA()}.`,'rotina');}},7000));
         } else if ((Math.floor(Date.now()/60000) + p.id.charCodeAt(p.id.length-1)) % 3 !== 0) {
           p.estado='assistindo'; f.cuidados.rotina='lazer'; p.balao='assistindo TV';
-          logPessoa(p,'foi assistir televisão enquanto o limite diário de IA está esgotado.','rotina');
+          logPessoa(p,`foi assistir televisão enquanto ${motivoPausaIA()}.`,'rotina');
           irPara(p,ESTACOES.tv).then(()=>setTimeout(()=>{ if(p.estado==='assistindo'){p.estado='dormindo';f.cuidados.rotina='sono';p.balao='dormindo';irPara(p,ESTACOES.dormitorio);logPessoa(p,'terminou o lazer e foi descansar no dormitório.','rotina');}},12000));
         } else {
           p.estado='dormindo'; f.cuidados.rotina='sono'; p.balao='dormindo';
-          logPessoa(p,'foi dormir porque o limite diário de IA acabou.','rotina');
+          logPessoa(p,`foi dormir porque ${motivoPausaIA()}.`,'rotina');
           irPara(p,ESTACOES.dormitorio);
         }
         return;
@@ -1054,7 +1076,7 @@
   function abrirHandoffParaCandidato(e,cand,acao){
     const laboratorio=liderDoSetor('laboratorio'),acabamento=liderDoSetor('producao');
     let qa=null;
-    if(laboratorio)qa=novaTarefa({titulo:`Testar ${cand.nome} antes do acabamento`,kit:'laboratorio',para:laboratorio.id,projectId:cand.projectId,clienteVisivel:false,origem:'handoff criação→laboratório',briefing:`Inspecione o protótipo ${cand.id} (${cand.nome}) contra o objetivo do projeto e o acervo soberano. Entregue um relatório verificável com falhas concretas, coerência, completude e critérios de aceite. Não reescreva o produto e não invente testes externos.`});
+    if(laboratorio)qa=novaTarefa({titulo:`Testar ${cand.nome} antes do acabamento`,kit:'laboratorio',para:laboratorio.id,projectId:cand.projectId,clienteVisivel:false,somenteLeitura:true,inspecionarArquivoId:cand.id,origem:'handoff criação→laboratório',briefing:`Inspecione em modo SOMENTE LEITURA o protótipo ${cand.id} (${cand.nome}) contra o objetivo do projeto e o acervo soberano. Entregue um relatório Markdown separado com falhas concretas, coerência, completude e critérios de aceite. Não reescreva, substitua nem crie versão do produto e não invente testes externos.`});
     const briefing=acao||`Transformar ${cand.nome} em candidato final completo. Aplicar acabamento editorial/técnico, incorporar somente achados verificáveis do laboratório e remover anotações internas, status, checklist, instruções de build e metatexto. Entregar a versão integral que o cliente receberá.`;
     const tarefa=novaTarefa({titulo:`Acabamento final de ${cand.nome}`,briefing,kit:acabamento?'autonomo':(cand.kit||'autonomo'),para:acabamento&&acabamento.id,projectId:cand.projectId,baseArquivoId:cand.id,clienteVisivel:true,etapaDestino:'candidato',dependsOn:qa?[qa.id]:[],origem:qa?'handoff laboratório→produção':'handoff criação→produção'});
     return {tarefa,qa};
@@ -1104,30 +1126,31 @@
     dados=Object.assign({},dados||{}); const kitDeclarado=String(dados.kit||'').trim();dados.kit=inferirKitTarefa(dados,e);dados.saidaVisualAutorizada=dados.kit==='visual'&&(kitDeclarado==='visual'||Boolean(dados.baseArquivoId));
     const clienteVisivel=inferirClienteVisivel(dados,e);
     const etapaDestino=etapaTarefa(dados,e,clienteVisivel);
-    const titulo = limpo(dados.titulo, 24); if (!titulo || titulo.length < 6) return null;
+    const titulo = limpo(dados.titulo, 24); if (!titulo || titulo.length < 6) return rejeitarTarefa(e,'titulo_invalido','A tarefa foi rejeitada porque não possui título útil.',{origem:dados.origem||'desconhecida'});
     if(dados.origem==='reunião'){
       const textoEscopo=`${titulo} ${dados.briefing||''}`,valores=[...textoEscopo.matchAll(/(?:US\$|\$)\s*([\d.,]+)/gi)].map(m=>Number(m[1].replace(/\./g,'').replace(',','.'))).filter(Number.isFinite),horas=[...textoEscopo.matchAll(/\b(\d+(?:[.,]\d+)?)\s*horas?\b/gi)].map(m=>Number(m[1].replace(',','.'))).filter(Number.isFinite),caixa=Number(e.economia&&e.economia.caixaUSD||0);
-      if(valores.some(v=>v>Math.max(1,caixa*2))||horas.some(h=>h>Math.max(80,((e.equipe||[]).length-1)*40))){const existente=(e.decisoesCriticas||[]).find(x=>x.status==='pendente'&&x.tipo==='proporcionalidade'&&x.titulo.includes(titulo.slice(0,50)));if(!existente){e.decisoesCriticas=(e.decisoesCriticas||[]).concat({id:uid('dec'),tipo:'proporcionalidade',status:'pendente',criadaEm:Date.now(),titulo:`Escopo desproporcional: ${titulo}`.slice(0,180),texto:`A reunião propôs ${valores.length?'US$ '+Math.max(...valores).toFixed(2):''}${valores.length&&horas.length?' e ':''}${horas.length?Math.max(...horas)+' horas':''}, mas o caixa é US$ ${caixa.toFixed(2)} e a equipe real tem ${Math.max(0,(e.equipe||[]).length-1)} funcionário(s). Confirme, reduza ou cancele.`});S.bus.emit('reuniao');}return null;}
+      if(valores.some(v=>v>Math.max(1,caixa*2))||horas.some(h=>h>Math.max(80,((e.equipe||[]).length-1)*40))){const existente=(e.decisoesCriticas||[]).find(x=>x.status==='pendente'&&x.tipo==='proporcionalidade'&&x.titulo.includes(titulo.slice(0,50)));if(!existente){e.decisoesCriticas=(e.decisoesCriticas||[]).concat({id:uid('dec'),tipo:'proporcionalidade',status:'pendente',criadaEm:Date.now(),titulo:`Escopo desproporcional: ${titulo}`.slice(0,180),texto:`A reunião propôs ${valores.length?'US$ '+Math.max(...valores).toFixed(2):''}${valores.length&&horas.length?' e ':''}${horas.length?Math.max(...horas)+' horas':''}, mas o caixa é US$ ${caixa.toFixed(2)} e a equipe real tem ${Math.max(0,(e.equipe||[]).length-1)} funcionário(s). Confirme, reduza ou cancele.`});S.bus.emit('reuniao');}return rejeitarTarefa(e,'escopo_desproporcional','A tarefa foi escalada porque excede a capacidade financeira ou humana atual.',{titulo,caixa,valores,horas});}
     }
     const acaoExterna=/\b(?:contatar|contactar|telefonar|ligar para|enviar (?:um |o )?e-?mail|ler (?:um |o )?e-?mail|enviar mensagem|realizar (?:uma |a )?(?:venda|compra|pagamento|cadastro|upload|deploy|publica[cç][aã]o externa)|publicar (?:na|no|em)|assinar contrato|marcar reuni[aã]o externa)\b/i;
     if(!dados._dadosHumanosConfirmados&&(acaoExterna.test(titulo)||acaoExterna.test(String(dados.briefing||'').slice(0,240)))){
-      const existente=(e.decisoesCriticas||[]).find(d=>d.status==='pendente'&&d.tipo==='acao_humana'&&d.titulo===titulo);if(existente)return null;
+      const existente=(e.decisoesCriticas||[]).find(d=>d.status==='pendente'&&d.tipo==='acao_humana'&&d.titulo===titulo);if(existente)return rejeitarTarefa(e,'acao_humana_duplicada','A dependência humana já está aguardando o proprietário.',{titulo,decisaoId:existente.id});
       const dep={id:uid('dec'),tipo:'acao_humana',status:'pendente',criadaEm:Date.now(),titulo:`Ação do proprietário: ${titulo}`.slice(0,180),texto:`Os agentes não podem executar nem presumir esta ação externa. Realize-a fora do jogo e envie aqui os dados reais necessários para a equipe continuar. Pedido original: ${String(dados.briefing||titulo).slice(0,500)}`,retomar:{titulo:`Processar retorno do proprietário: ${titulo}`.slice(0,180),kit:dados.kit,briefing:String(dados.briefing||titulo),projectId:dados.projectId||null,baseArquivoId:dados.baseArquivoId||null,clienteVisivel:dados.clienteVisivel}};
-      e.decisoesCriticas=(e.decisoesCriticas||[]).concat(dep);registrarReuniao('Gerência',`Preciso de uma ação externa do proprietário para continuar: ${titulo}. Não registrei a ação como realizada.`,'solicitacao_humana');S.state.registrar(`Dependência humana encaminhada à sala de reuniões: ${titulo}.`,'decisao');S.state.gravar();S.bus.emit('reuniao');return null;
+      e.decisoesCriticas=(e.decisoesCriticas||[]).concat(dep);registrarReuniao('Gerência',`Preciso de uma ação externa do proprietário para continuar: ${titulo}. Não registrei a ação como realizada.`,'solicitacao_humana');S.state.registrar(`Dependência humana encaminhada à sala de reuniões: ${titulo}.`,'decisao');S.state.gravar();S.bus.emit('reuniao');return rejeitarTarefa(e,'acao_humana','A tarefa depende de uma ação externa e foi encaminhada ao proprietário.',{titulo,decisaoId:dep.id});
     }
     const baseAlvo = dados.baseArquivoId || null;
     const projeto = e.projetos.find(p => p.id === dados.projectId) || e.projetos.find(p => p.status === 'ativo') || e.projetos[0];
     let parentTaskId=dados.parentTaskId||null;
-    if(!clienteVisivel){const pai=(e.tarefas||[]).find(t=>t.id===parentTaskId&&t.clienteVisivel)||(e.tarefas||[]).find(t=>t.projectId===(projeto&&projeto.id)&&t.clienteVisivel&&t.status!=='feita')||(e.tarefas||[]).find(t=>t.projectId===(projeto&&projeto.id)&&t.clienteVisivel);if(!pai&&dados.origem!=='fundação da empresa')return null;parentTaskId=pai&&pai.id||null;if(parentTaskId&&(e.tarefas||[]).some(t=>t.parentTaskId===parentTaskId&&!t.clienteVisivel&&t.status!=='feita'&&!t.bloqueada))return null;}
+    if(!clienteVisivel){const pai=(e.tarefas||[]).find(t=>t.id===parentTaskId&&t.clienteVisivel)||(e.tarefas||[]).find(t=>t.projectId===(projeto&&projeto.id)&&t.clienteVisivel&&t.status!=='feita')||(e.tarefas||[]).find(t=>t.projectId===(projeto&&projeto.id)&&t.clienteVisivel);if(!pai&&dados.origem!=='fundação da empresa'&&dados.origem!=='plano de obra congelado')return rejeitarTarefa(e,'pai_ausente','A peça interna não possui uma peça destinada ao cliente como pai.',{titulo,origem:dados.origem,projectId:projeto&&projeto.id});parentTaskId=pai&&pai.id||null;if(parentTaskId&&(e.tarefas||[]).some(t=>t.parentTaskId===parentTaskId&&!t.clienteVisivel&&t.status!=='feita'&&!t.bloqueada&&t.planoPecaId!==dados.planoPecaId))return rejeitarTarefa(e,'interna_duplicada','Já existe uma peça interna ativa para esta entrega-cliente.',{titulo,parentTaskId});}
     const chaveSemantica=chaveSemanticaTarefa(dados,titulo,projeto&&projeto.id,etapaDestino);
     const equivalente=(e.tarefas||[]).find(t=>{
       if(t.status==='feita'||t.bloqueada||t.projectId!==(projeto&&projeto.id)||String(t.etapaDestino||'')!==etapaDestino)return false;
+      if(dados.planoPecaId||t.planoPecaId)return Boolean(dados.planoPecaId&&t.planoPecaId===dados.planoPecaId);
       if((t.baseArquivoId||null)!==baseAlvo||t.kit!==(dados.kit||'autonomo'))return false;
       if(t.chaveSemantica&&t.chaveSemantica===chaveSemantica)return true;
       const atual=`${t.titulo||''} ${t.briefing||''}`,novo=`${titulo} ${dados.briefing||''}`;
       return similaridadeTexto(atual,novo)>=0.58;
     });
-    if(equivalente){equivalente.ultimaSolicitacaoEquivalente=Date.now();equivalente.repeticoesEvitadas=Number(equivalente.repeticoesEvitadas||0)+1;return null;}
+    if(equivalente){equivalente.ultimaSolicitacaoEquivalente=Date.now();equivalente.repeticoesEvitadas=Number(equivalente.repeticoesEvitadas||0)+1;return rejeitarTarefa(e,'equivalente','Uma tarefa semanticamente equivalente já está ativa.',{titulo,existenteId:equivalente.id,planoPecaId:dados.planoPecaId||null});}
     const t = {
       id: uid('t'), titulo, kit: dados.kit || 'autonomo', briefing: limpo(dados.briefing) || titulo,
       chaveSemantica,
@@ -1145,7 +1168,8 @@
       // "já existe uma versão publicada" e a produção travava no primeiro
       // produto de cada kit.
       baseArquivoId: dados.baseArquivoId || null,
-      handoff: dados.handoff || null, criadaEm: Date.now()
+      handoff: dados.handoff || null, planoPecaId:dados.planoPecaId||null,
+      somenteLeitura:Boolean(dados.somenteLeitura),inspecionarArquivoId:dados.inspecionarArquivoId||null, criadaEm: Date.now()
     };
     t.contratoAceitacao=S.operacao?S.operacao.contrato(Object.assign({},dados,{clienteVisivel})):Object.assign({},dados.contratoAceitacao||{});
     t.orcamentoTokens=S.operacao?S.operacao.orcamentoPadrao(t):{saidaMax:5000,contextoMax:9000,saidaUsada:0,entradaUsada:0,chamadasMax:4,chamadasUsadas:0,status:'ativo'};
@@ -1677,20 +1701,22 @@ ${ultimaChance ? 'MODO ANTI-LOOP: esta linhagem já consumiu o máximo de corre�
   function parseLista(v){ return String(v||'').split(/[,;|]/).map(x=>x.trim()).filter(Boolean).slice(0,8); }
   function parsePlanoObra(texto){
     const linhas=String(texto||'').split(/\n+/).filter(l=>/^\s*PE[CÇ]A\s*:/i.test(l)),out=[];
-    linhas.slice(0,40).forEach((linha,i)=>{const campos={};String(linha.replace(/^\s*PE[CÇ]A\s*:/i,'')).split(';').forEach(parte=>{const p=parte.indexOf('=');if(p>0)campos[normalizarFrase(parte.slice(0,p)).replace(/ /g,'_')]=parte.slice(p+1).trim();});const titulo=limparTexto(campos.titulo||`Peça ${i+1}`);if(!titulo)return;const destino=normalizarFrase(campos.destino),aceite=parseLista(campos.aceite),min=Math.max(0,Number(String(campos.min||'').replace(/\D/g,''))||0),max=Math.max(0,Number(String(campos.max||'').replace(/\D/g,''))||0);out.push({id:`peca_${i+1}`,ordem:i+1,titulo,setor:normalizarFrase(campos.setor||'producao').replace(/ /g,'_'),destino:destino==='cliente'?'cliente':'interno',aceite,min,max,arquivosEsperados:parseLista(campos.arquivo||campos.arquivos),depende:parseLista(campos.depende),kit:normalizarFrase(campos.kit||'').replace(/ /g,'_')});});return out;
+    linhas.slice(0,40).forEach((linha,i)=>{const campos={};String(linha.replace(/^\s*PE[CÇ]A\s*:/i,'')).split(';').forEach(parte=>{const p=parte.indexOf('=');if(p>0)campos[normalizarFrase(parte.slice(0,p)).replace(/ /g,'_')]=parte.slice(p+1).trim();});const titulo=limparTexto(campos.titulo||`Peça ${i+1}`);if(!titulo)return;const destinoBruto=normalizarFrase(campos.destino),destino=/^(?:cliente(?: final)?|externo|externa|publico|publica|produto|entrega)$/.test(destinoBruto)?'cliente':'interno',aceite=parseLista(campos.aceite);let min=Math.max(0,Number(String(campos.min||'').replace(/\D/g,''))||0),max=Math.max(0,Number(String(campos.max||'').replace(/\D/g,''))||0);if(/(?:unidade|capitulo|episodio|aula)\s*\d+/i.test(normalizarFrase(titulo))&&destino==='cliente'){min=Math.max(min,1800);max=Math.max(max,2600);}if(/b[ií]blia|guia de projeto|c[aâ]none/i.test(titulo)&&destino==='interno'){min=Math.max(min,800);max=max?Math.max(max,1500):1500;}out.push({id:`peca_${i+1}`,ordem:i+1,titulo,setor:normalizarFrase(campos.setor||'producao').replace(/ /g,'_'),destino,aceite,min,max,arquivosEsperados:parseLista(campos.arquivo||campos.arquivos),depende:parseLista(campos.depende),kit:normalizarFrase(campos.kit||'').replace(/ /g,'_')});});return out;
   }
   function kitDaPeca(p){if(S.factory.porId(p.kit))return p.kit;const s=p.setor,t=normalizarFrase(p.titulo);if(s==='criacao')return /capa|ilustracao|logo|visual/.test(t)?'visual':'texto';if(s==='desenvolvimento')return /site|pagina|landing|html/.test(t)?'pagina':'codigo';return{producao:'autonomo',operacoes:'dados',comercial:'comercial',financeiro:'financeiro',laboratorio:'laboratorio'}[s]||'autonomo';}
   function materializarPlanoObra(e,projeto,pecas){
-    if(!pecas.length)return[];const criadas=[],porTitulo=new Map(),clientes=pecas.filter(p=>p.destino==='cliente'),ordem=clientes.concat(pecas.filter(p=>p.destino!=='cliente'));let interno=0;
+    if(!pecas.length){registrarDiagnostico(e,'plano.vazio','O plano de obra congelado não contém peças materializáveis.',{projectId:projeto&&projeto.id});throw new Error('Plano de obra vazio: nenhuma tarefa pôde ser criada.');}const criadas=[],porTitulo=new Map(),clientes=pecas.filter(p=>p.destino==='cliente'),ordem=clientes.concat(pecas.filter(p=>p.destino!=='cliente'));let interno=0;
+    if(!clientes.length){registrarDiagnostico(e,'plano.sem_cliente','Todas as peças do plano foram interpretadas como internas.',{destinos:pecas.map(p=>p.destino)});throw new Error('Plano de obra inválido: nenhuma peça destinada ao cliente.');}
     const achar=nome=>{const chave=normalizarFrase(nome),direto=porTitulo.get(chave);if(direto)return direto;return [...porTitulo.entries()].find(([k])=>k.includes(chave)||chave.includes(k.split(' — ')[0]))?.[1]||null;};
-    ordem.forEach(p=>{const contrato={arquivosEsperados:p.arquivosEsperados,secoesObrigatorias:p.aceite,minPalavras:p.min,maxPalavras:p.max,referenciasDevemResolver:true,cliente:p.destino==='cliente'};const pai=p.destino==='cliente'?null:(clientes.length?achar(clientes[interno++%clientes.length].titulo):null);const t=novaTarefa({titulo:p.titulo,briefing:`Peça ${p.ordem} do plano de obra congelado. Entregue exatamente “${p.titulo}”. Critérios verificáveis: ${p.aceite.join(', ')||'utilidade, completude e coerência com o acervo'}.`,kit:kitDaPeca(p),projectId:projeto.id,clienteVisivel:p.destino==='cliente',etapaDestino:p.destino==='cliente'?'esboco':'prototipo',parentTaskId:pai&&pai.id,contratoAceitacao:contrato,origem:'plano de obra congelado'});if(t){p.taskId=t.id;criadas.push(t);porTitulo.set(normalizarFrase(p.titulo),t);}});
+    ordem.forEach(p=>{const existente=(e.tarefas||[]).find(t=>t.projectId===projeto.id&&t.planoPecaId===p.id);if(existente){p.taskId=existente.id;criadas.push(existente);porTitulo.set(normalizarFrase(p.titulo),existente);return;}const contrato={arquivosEsperados:p.arquivosEsperados,secoesObrigatorias:p.aceite,minPalavras:p.min,maxPalavras:p.max,referenciasDevemResolver:true,cliente:p.destino==='cliente'};const pai=p.destino==='cliente'?null:(clientes.length?achar(clientes[interno++%clientes.length].titulo):null);const t=novaTarefa({titulo:p.titulo,briefing:`Peça ${p.ordem} do plano de obra congelado. Entregue exatamente “${p.titulo}”. Critérios verificáveis: ${p.aceite.join(', ')||'utilidade, completude e coerência com o acervo'}.`,kit:kitDaPeca(p),projectId:projeto.id,clienteVisivel:p.destino==='cliente',etapaDestino:p.destino==='cliente'?'esboco':'prototipo',parentTaskId:pai&&pai.id,contratoAceitacao:contrato,planoPecaId:p.id,origem:'plano de obra congelado'});if(t){p.taskId=t.id;criadas.push(t);porTitulo.set(normalizarFrase(p.titulo),t);}});
     pecas.forEach(p=>{const t=criadas.find(x=>x.id===p.taskId);if(!t)return;t.dependsOn=p.depende.map(achar).filter(Boolean).map(x=>x.id);});
+    if(criadas.length!==pecas.length){const ausentes=pecas.filter(p=>!p.taskId).map(p=>({id:p.id,titulo:p.titulo,destino:p.destino}));registrarDiagnostico(e,'plano.pos_condicao',`O plano criou ${criadas.length} de ${pecas.length} tarefas.`,{projectId:projeto.id,ausentes});throw new Error(`Pós-condição do plano falhou: ${criadas.length}/${pecas.length} tarefas criadas.`);}
     const biblia=pecas.find(p=>p.destino==='interno'&&/(b[ií]blia|guia de marca|gdd|tratamento|ementa|c[aâ]none)/i.test(p.titulo));if(biblia)projeto.bibliaTaskId=biblia.taskId||null;
     return criadas;
   }
   function planoObraFallback(titulo,forma){
     const serial=forma==='serial',base=serial?['Bíblia de continuidade','Sumário e arquitetura das unidades','Unidade 1','Unidade 2','Unidade 3','Unidade 4','Revisão de continuidade','Edição integrada','Empacotamento final','README e instruções de entrega']:['Guia do projeto','Arquitetura e mapa de componentes','Componente principal','Componente secundário','Integração funcional','Dados e conteúdo definitivo','Teste determinístico','Correções de acabamento','Empacotamento vendável','README e prévia'];
-    return base.map((nome,i)=>({id:`peca_${i+1}`,ordem:i+1,titulo:`${nome} — ${titulo}`.slice(0,180),setor:i===0?'criacao':i===1?'operacoes':i<6?(serial?'criacao':'desenvolvimento'):i===6?'laboratorio':'producao',destino:i===0||i===6?'interno':'cliente',aceite:i===0?['tom','regras','cânone']:i===6?['lint','contrato','realidade']:['conteúdo completo','sem placeholders'],min:i===0?800:0,max:i===0?1500:0,arquivosEsperados:[],depende:i?[(i===6?base[5]:base[i-1])]:[],kit:''}));
+    return base.map((nome,i)=>({id:`peca_${i+1}`,ordem:i+1,titulo:`${nome} — ${titulo}`.slice(0,180),setor:i===0?'criacao':i===1?'operacoes':i<6?(serial?'criacao':'desenvolvimento'):i===6?'laboratorio':'producao',destino:i===0||i===6?'interno':'cliente',aceite:i===0?['tom','regras','cânone']:i===6?['lint','contrato','realidade']:['conteúdo completo','sem placeholders'],min:i===0?800:(serial&&i>=2&&i<6?1800:0),max:i===0?1500:(serial&&i>=2&&i<6?2600:0),arquivosEsperados:[],depende:i?[(i===6?base[5]:base[i-1])]:[],kit:''}));
   }
 
   function fundacaoContexto(e){
@@ -1737,7 +1763,7 @@ O plano deve cobrir problema/oportunidade, cliente ideal, proposta de valor, dif
 O primeiro produto deve ter nome, problema, público, escopo, entregáveis, critérios de aceitação e o que fica fora do v1. Declare uma FORMA entre serial, pacote, acervo, iterada ou servico.
 Crie uma vez um PLANO_DE_OBRA de 10 a 15 peças concretas. Cada linha PECA precisa ter título, setor canônico, destino cliente/interno, critérios curtos de aceite, limites de palavras quando aplicáveis e dependências. A primeira peça interna de obra longa deve ser uma bíblia/guia de projeto entre 800 e 1500 palavras. O plano será congelado e executado sem rediscutir o escopo a cada ciclo.
 Os critérios de aceitação precisam ser verificáveis dentro das capacidades do estúdio. Não use como gate assinatura real, Asana/Trello/Notion, e-mail, upload, publicação externa, aprovação de terceiros nem outra ação que o runtime não executa. Produtos longos podem ser planejados em partes/capítulos incrementais; não exija que dezenas ou centenas de páginas apareçam em uma única chamada. Jamais invente que houve contato com clientes, leitura/envio de e-mail, telefonema, venda, pagamento, cadastro, upload, publicação, deploy ou qualquer ação humana/externa. Quando necessária, registre-a como solicitação ao proprietário e espere que ele forneça dados reais.
-A empresa opera em SETE setores: criacao (Produto & Criação), desenvolvimento (Desenvolvimento de Software), producao (Produção & Acabamento), operacoes (Operações & Dados), comercial (Crescimento & Comercial), financeiro (Finanças & Eficiência) e laboratorio (Laboratório & Pesquisa). Cada setor começa com um chefe responsável, que também é funcionário: primeiro delega ao próprio setor e produz pessoalmente quando não houver subordinado apto. Cada funcionário trabalha somente em sua especialidade. Colaboração entre setores ocorre por handoff; ninguém executa fora da função. Não crie outra gerente geral. O financeiro dimensiona expansões e reduções do quadro pelo caixa, custo projetado por agente e demanda real, sem teto fixo arbitrário.
+A empresa pode operar em SETE setores: criacao (Produto & Criação), desenvolvimento (Desenvolvimento de Software), producao (Produção & Acabamento), operacoes (Operações & Dados), comercial (Crescimento & Comercial), financeiro (Finanças & Eficiência) e laboratorio (Laboratório & Pesquisa). Contrate agora somente 3 ou 4 chefes necessários ao plano inicial; os demais setores continuam disponíveis para contratação quando houver demanda comprovada. Cada chefe também produz pessoalmente. Cada funcionário trabalha somente em sua especialidade. Colaboração entre setores ocorre por handoff; ninguém executa fora da função. Não crie outra gerente geral.
 
 ${fundacaoContexto(e)}
 
@@ -1754,7 +1780,7 @@ CORES: <paleta/direção cromática>
 TIPOGRAFIA: <direção tipográfica>
 ESTILO_VISUAL: <direção visual>
 FORMA: <serial | pacote | acervo | iterada | servico>
-EQUIPE: criacao, desenvolvimento, producao, operacoes, comercial, financeiro, laboratorio
+EQUIPE: <3 ou 4 setores necessários agora, separados por vírgula>
 FUNCIONARIO: nome=...; setor=...; cargo=...; tracos=...; comunicacao=...; prioridades=...; estilo=...; colaboracao=...; aversoes=...; experiencia=...
 FUNCIONARIO: nome=...; setor=...; cargo=...; tracos=...; comunicacao=...; prioridades=...; estilo=...; colaboracao=...; aversoes=...; experiencia=...
 FUNCIONARIO: nome=...; setor=...; cargo=...; tracos=...; comunicacao=...; prioridades=...; estilo=...; colaboracao=...; aversoes=...; experiencia=...
@@ -1818,11 +1844,13 @@ PECA: titulo=...; setor=criacao; destino=cliente; aceite=...,...; min=...; max=.
       });
       if(funcionarios.length) planejadas=funcionarios.map(x=>x.especialidade);
       planejadas=[...new Set(planejadas)];
-      for(const obrigatoria of ESPECIALIDADES.map(x=>x.id))if(!planejadas.includes(obrigatoria))planejadas.push(obrigatoria);
       const tipo=String(e.fundacao?.perguntas?.tipoProduto||'').toLowerCase();
       if(/software|app|site|web|saas|programa|jogo/.test(tipo)&&!planejadas.includes('desenvolvimento'))planejadas.unshift('desenvolvimento');
       if(/pesquisa|laborat[oó]rio|experimento|teste|ci[eê]ncia|formula[cç][aã]o/.test(tipo)&&!planejadas.includes('laboratorio'))planejadas.unshift('laboratorio');
-      planejadas=planejadas.slice(0,ESPECIALIDADES.length);
+      const setoresPlano=(e.fundacao.planoObra||[]).map(p=>normalizarEsp(p.setor)).filter(Boolean);
+      const demandaSetor=setoresPlano.reduce((m,id)=>(m[id]=(m[id]||0)+1,m),{}),prioridade=Object.keys(demandaSetor).sort((a,b)=>demandaSetor[b]-demandaSetor[a]);
+      planejadas=[...new Set([prioridade[0],...planejadas,...prioridade,'producao','financeiro'].filter(Boolean))];
+      const obrigatorias=[prioridade[0],'producao','financeiro'].filter(Boolean),selecionadas=[...new Set(obrigatorias)];for(const id of planejadas)if(selecionadas.length<4&&!selecionadas.includes(id))selecionadas.push(id);planejadas=selecionadas;
       // A gerente nunca fica sozinha por falha de formato: sem ficha válida,
       // preservamos os cargos mínimos e criamos fichas coerentes.
       if(planejadas.length<1){
@@ -1837,17 +1865,18 @@ PECA: titulo=...; setor=criacao; destino=cliente; aceite=...,...; min=...; max=.
       const pr=e.projetos?.find(x=>x.status==='ativo'&&x.tipo!=='site_institucional')||e.projetos?.find(x=>x.tipo!=='site_institucional'),produtoTit=tituloProdutoPlanejado;
       if(!pr)e.projetos=[{id:uid('proj'),nome:produtoTit,objetivo:e.fundacao.perguntas.objetivo||'Executar o planejamento do primeiro produto.',status:'ativo',criadoEm:Date.now(),tarefaIds:[],arquivoIds:[],atividade:[]}];else if(/primeiro produto|principal|planejamento inicial/i.test(pr.nome)){pr.nome=produtoTit||pr.nome;pr.objetivo=e.fundacao.perguntas.objetivo||pr.objetivo;}
       const active=e.projetos.find(x=>x.status==='ativo'&&x.tipo!=='site_institucional')||e.projetos[0];active.forma=e.fundacao.forma;active.dados=active.dados||{};active.dados.planoNegocio=e.fundacao.planoNegocio;active.dados.planejamentoProduto=e.fundacao.primeiroProduto;
-      let pecas=e.fundacao.planoObra;if(pecas.length<5){pecas=planoObraFallback(produtoTit,e.fundacao.forma);e.fundacao.planoObra=pecas;e.fundacao.planoObraTexto=pecas.map(p=>`PECA: titulo=${p.titulo}; setor=${p.setor}; destino=${p.destino}; aceite=${p.aceite.join(',')}; min=${p.min||''}; max=${p.max||''}; depende=${p.depende.join(',')}`).join('\n');}
+      let pecas=e.fundacao.planoObra;if(pecas.length<5){registrarDiagnostico(e,'plano.fallback','A resposta fundadora trouxe menos de cinco peças; o plano determinístico de recuperação foi ativado.',{recebidas:pecas.length,forma:e.fundacao.forma},'alerta');pecas=planoObraFallback(produtoTit,e.fundacao.forma);e.fundacao.planoObra=pecas;e.fundacao.planoObraTexto=pecas.map(p=>`PECA: titulo=${p.titulo}; setor=${p.setor}; destino=${p.destino}; aceite=${p.aceite.join(',')}; min=${p.min||''}; max=${p.max||''}; depende=${p.depende.join(',')}`).join('\n');}
       materializarPlanoObra(e,active,pecas);
     }catch(err){
-      /* Falha de materialização não reabre a chamada: a empresa segue com o
-         que foi possível aproveitar e o erro fica registrado. */
       e.fundacao.ultimoErro=String(err&&err.message||err).slice(0,400);
-      S.state.registrar(`A fundação foi concluída com ressalvas: ${e.fundacao.ultimoErro}`,'alerta');
+      e.fundacao.estado='erro_materializacao';
+      registrarDiagnostico(e,'fundacao.materializacao',`A fundação foi interrompida: ${e.fundacao.ultimoErro}`,{modo,tentativa:e.fundacao.tentativas});
+      e.decisoesCriticas=(e.decisoesCriticas||[]).concat({id:uid('dec'),tipo:'plano_obra_falhou',status:'pendente',criadaEm:Date.now(),titulo:'Plano de obra não gerou todas as tarefas',texto:`A identidade e o plano foram preservados, mas a materialização falhou: ${e.fundacao.ultimoErro}. Corrija o plano ou tente materializá-lo novamente; nenhuma frente genérica será criada para esconder a falha.`});
       if((e.equipe||[]).filter(f=>f.papel==='func').length===0){
         ['criacao','producao','financeiro'].forEach(id=>contratarPerfil(e,'',id,{},'equipe mínima de recuperação'));
         montar();
       }
+      S.state.gravar();S.bus.emit('reuniao');S.bus.emit('trabalho');S.bus.emit('trocou');return false;
     }
     e.fundacao.versao=3;e.fundacao.estado='operacional';e.fundacao.concluidaEm=Date.now();e.fundacao.reuniaoInicialRealizada=Date.now();e.gerencia.recomendacao='Fundação concluída: identidade e plano de obra congelado. A equipe executa a próxima peça sem rediscutir o escopo.';
     registrarReuniao('Sistema',`Fundação concluída${modo==='migracao'?' a partir dos dados persistentes':''}. ${e.nome} agora tem identidade, plano de negócio, primeiro produto e equipe definida.`,'fundacao');
@@ -1859,6 +1888,7 @@ PECA: titulo=...; setor=criacao; destino=cliente; aceite=...,...; min=...; max=.
   async function processarFundacaoAtual(forcar){
     const e=S.state.atual(); if(!e||!e.fundacao||e.fundacao.estado==='operacional')return true;
     if(e.fundacao.estado==='aguardando_jogador')return false;
+    if(e.fundacao.estado==='erro_materializacao'&&e.fundacao.planoObraCongelado){try{const projeto=(e.projetos||[]).find(x=>x.status==='ativo'&&x.tipo!=='site_institucional')||e.projetos[0];materializarPlanoObra(e,projeto,e.fundacao.planoObra||[]);e.fundacao.estado='operacional';e.fundacao.ultimoErro='';e.fundacao.concluidaEm=Date.now();(e.decisoesCriticas||[]).filter(d=>d.tipo==='plano_obra_falhou'&&d.status==='pendente').forEach(d=>d.status='resolvida');(e.diagnosticos||[]).filter(d=>/^plano\.|^fundacao\.materializacao/.test(d.codigo)).forEach(d=>d.status='resolvido');registrarReuniao('Sistema','A materialização do plano foi refeita localmente, sem nova chamada de IA, e todas as tarefas foram confirmadas.','fundacao');S.state.gravar();S.bus.emit('trocou');S.bus.emit('trabalho');return true;}catch(err){e.fundacao.ultimoErro=String(err&&err.message||err).slice(0,400);S.state.gravar();return false;}}
     if(fundacoesEmCurso.has(e.id))return fundacoesEmCurso.get(e.id);
     if(!forcar&&Date.now()<Number(e.fundacao.retomarApos||0))return false;
     const promessa=construirFundacao(e,e.fundacao.estado==='migracao_pendente'?'migracao':'nova').finally(()=>fundacoesEmCurso.delete(e.id));
@@ -2072,7 +2102,7 @@ PECA: titulo=...; setor=criacao; destino=cliente; aceite=...,...; min=...; max=.
       const revisoes=Number((e.gerencia&&e.gerencia.revisoesPorLinhagem&&tarefa.baseArquivoId&&e.gerencia.revisoesPorLinhagem[(e.arquivos.find(a=>a.id===tarefa.baseArquivoId)||{}).linhagem]||{}).correcoes)||0;
       const rota=S.ai.rotear({tipo:'conteudo',agenteId:p.id,motivo:'produção de artefato',sistema:tarefa.titulo,pedido:tarefa.briefing,etapa:tarefa.etapaDestino,correcoes:revisoes});
       tarefa.ultimaRota=rota;tarefa.tentativasIA=Number(tarefa.tentativasIA||0)+1;
-      const saida = await S.factory.produzir({ kit:tarefa.kit || 'autonomo', briefing:tarefa.briefing, deliberacao:p.ref.pensamento, agente:p.ref, projectId:tarefa.projectId, taskId:tarefa.id, baseArquivoId:tarefa.baseArquivoId, etapa:tarefa.etapaDestino || (tarefa.clienteVisivel?'esboco':'prototipo'), clienteVisivel:Boolean(tarefa.clienteVisivel), titulo:tarefa.titulo,nivel:rota.nivel,correcoes:revisoes,saidaVisualAutorizada:Boolean(tarefa.saidaVisualAutorizada),contrato:tarefa.contratoAceitacao });
+      const saida = await S.factory.produzir({ kit:tarefa.kit || 'autonomo', briefing:tarefa.briefing, deliberacao:p.ref.pensamento, agente:p.ref, projectId:tarefa.projectId, taskId:tarefa.id, baseArquivoId:tarefa.somenteLeitura?null:tarefa.baseArquivoId, somenteLeitura:Boolean(tarefa.somenteLeitura),inspecionarArquivoId:tarefa.inspecionarArquivoId||null, permitirPatch:!tarefa.patchFalhou, etapa:tarefa.etapaDestino || (tarefa.clienteVisivel?'esboco':'prototipo'), clienteVisivel:Boolean(tarefa.clienteVisivel), titulo:tarefa.titulo,nivel:rota.nivel,correcoes:revisoes,saidaVisualAutorizada:Boolean(tarefa.saidaVisualAutorizada),contrato:tarefa.contratoAceitacao,maxTokensPeca:tarefa.maxTokensPeca });
       if (!saida) throw new Error('A IA de produção não entregou uma transformação utilizável.');
       if (saida.excluir && saida.excluir.length) {
         saida.excluir.forEach(id => { const a=e.arquivos.find(x=>x.id===id); if(a && a.classe!=='produto'){ e.arquivos=e.arquivos.filter(x=>x.id!==id); e.projetos.forEach(pr=>pr.arquivoIds=pr.arquivoIds.filter(x=>x!==id)); } });
@@ -2080,7 +2110,7 @@ PECA: titulo=...; setor=criacao; destino=cliente; aceite=...,...; min=...; max=.
         logPessoa(p, `removeu um artefato que julgou inadequado ao objetivo.`, 'entrega'); sucesso=true;
       } else if (saida.arquivos && saida.arquivos.length) {
         const etapaSaida=['esboco','prototipo','candidato'].includes(String(tarefa.etapaDestino||'')) ? tarefa.etapaDestino : (tarefa.clienteVisivel?'esboco':'prototipo');
-        const salvos = salvarArquivos(saida.arquivos, { projectId:tarefa.projectId, taskId:tarefa.id, baseArquivoId:tarefa.baseArquivoId || null, briefing:tarefa.briefing, viaIA:true, kit:tarefa.kit||'autonomo', classe:etapaSaida, validacao:saida.validacao || null, clienteVisivel:Boolean(tarefa.clienteVisivel), linhagem:(tarefa.baseArquivoId && e.arquivos.find(a=>a.id===tarefa.baseArquivoId)?.linhagem) || saida.linhagem || null, grupoEntrega:saida.bundle?uid('grp'):null }, p);
+        const salvos = salvarArquivos(saida.arquivos, { projectId:tarefa.projectId, taskId:tarefa.id, baseArquivoId:tarefa.somenteLeitura?null:(tarefa.baseArquivoId || null), briefing:tarefa.briefing, viaIA:true, kit:tarefa.kit||'autonomo', classe:etapaSaida, validacao:saida.validacao || null, clienteVisivel:Boolean(tarefa.clienteVisivel), linhagem:tarefa.somenteLeitura?null:((tarefa.baseArquivoId && e.arquivos.find(a=>a.id===tarefa.baseArquivoId)?.linhagem) || saida.linhagem || null), grupoEntrega:saida.bundle?uid('grp'):null,somenteLeitura:Boolean(tarefa.somenteLeitura),inspecionarArquivoId:tarefa.inspecionarArquivoId||null }, p);
         if(saida.solicitacaoAcervo&&saida.acervoId&&S.acervo)S.acervo.solicitarMudanca(saida.acervoId,tarefa.projectId,p.id,saida.solicitacaoAcervo);
         tarefa.contributors = Array.isArray(tarefa.contributors) ? tarefa.contributors : []; if(!tarefa.contributors.includes(p.id)) tarefa.contributors.push(p.id);
         tarefa.status='feita'; tarefa.concluidaEm=Date.now(); tarefa.arquivo=salvos[0] && salvos[0].id; tarefa.handoff=`${p.nome} entregou ${salvos.map(a=>a.nome).join(', ')} para inspeção da gerente.`; tarefa.validacao=saida.validacao || null;
@@ -2114,6 +2144,7 @@ PECA: titulo=...; setor=criacao; destino=cliente; aceite=...,...; min=...; max=.
         return false;
       }
       tarefa.status='aberta';
+      if(err&&err.patchFormato){tarefa.patchFalhou=true;S.state.registrar(`${tarefa.titulo}: o protocolo de patch falhou; a próxima tentativa aceitará arquivo integral.`,'alerta',p.id);}
       if(err&&err.naoProgresso){
         tarefa.naoProgressos=Number(tarefa.naoProgressos||0)+1;
         if(tarefa.naoProgressos>=3){tarefa.status='aguardando_decisao';tarefa.para=null;tarefa.abordagemAnterior=tarefa.briefing;tarefa.motivoEscalada='Três versões consecutivas sem progresso material. A gerente deve mudar a abordagem ou o responsável.';if(S.operacao)S.operacao.evento('tarefa.nao_progresso_escalado',{taskId:tarefa.id,responsavelId:p.id});return false;}
@@ -2140,13 +2171,20 @@ PECA: titulo=...; setor=criacao; destino=cliente; aceite=...,...; min=...; max=.
 
   function abrirFrenteProduto(e,g,decisao){
     const projeto=e.projetos.find(x=>x.status==='ativo')||e.projetos[0];if(!projeto)return null;
+    const plano=e.fundacao&&e.fundacao.planoObra||[],tarefasPlano=(e.tarefas||[]).filter(t=>t.projectId===projeto.id&&t.planoPecaId);
+    if(e.fundacao&&e.fundacao.planoObraCongelado&&plano.length&&tarefasPlano.length<plano.length){
+      registrarDiagnostico(e,'plano.frente_generica_bloqueada',`A frente genérica foi recusada porque só ${tarefasPlano.length}/${plano.length} peças do plano viraram tarefas.`,{projectId:projeto.id});
+      const existe=(e.decisoesCriticas||[]).some(d=>d.status==='pendente'&&d.tipo==='plano_obra_falhou');
+      if(!existe)e.decisoesCriticas=(e.decisoesCriticas||[]).concat({id:uid('dec'),tipo:'plano_obra_falhou',status:'pendente',criadaEm:Date.now(),titulo:'Plano de obra não gerou tarefas',texto:`O plano congelado possui ${plano.length} peças, mas somente ${tarefasPlano.length} tarefas foram encontradas. O motor não vai substituir esse erro por uma tarefa genérica.`});
+      return null;
+    }
     const linhagemEmProducao=(e.arquivos||[]).find(a=>a.projectId===projeto.id&&a.clienteVisivel&&a.classe!=='produto'&&!a.motivoEncerramento);
     if(linhagemEmProducao)return null;
     const base=(e.arquivos||[]).find(a=>a.classe==='produto'&&a.projectId===projeto.id)||null;
     const direcao=String(decisao&&(decisao.briefing||decisao.abordagem||decisao.motivo)||'').trim();
-    const plano=String(e.fundacao&&e.fundacao.primeiroProduto||projeto.objetivo||e.missao);
+    const diretrizProduto=String(e.fundacao&&e.fundacao.primeiroProduto||projeto.objetivo||e.missao);
     const titulo=base?`Produzir nova versão vendável de ${base.nome}`:`Materializar próximo produto real de ${projeto.nome}`;
-    const t=novaTarefa({titulo,kit:base&&base.kit||'autonomo',briefing:`Crie uma evolução concreta que o dono possa baixar, vender ou distribuir no mundo real. Não entregue apenas planejamento, relatório ou métricas internas.\n${direcao?`Direção da gerente: ${direcao}\n`:''}Base estratégica: ${plano}`,para:null,projectId:projeto.id,baseArquivoId:base&&base.id,clienteVisivel:true,etapaDestino:'esboco',origem:'invariante de produto real'});
+    const t=novaTarefa({titulo,...(base&&base.kit?{kit:base.kit}:{}),briefing:`Crie uma evolução concreta que o dono possa baixar, vender ou distribuir no mundo real. Não entregue apenas planejamento, relatório ou métricas internas.\n${direcao?`Direção da gerente: ${direcao}\n`:''}Base estratégica: ${diretrizProduto}`,para:null,projectId:projeto.id,baseArquivoId:base&&base.id,clienteVisivel:true,etapaDestino:'esboco',origem:'invariante de produto real'});
     if(t){registrarReuniao(g.nome,`A fila estava vazia; abri imediatamente a próxima frente vendável: ${t.titulo}.`,'ordem');S.state.registrar(`Continuidade produtiva: ${t.titulo} entrou na fila sem espera por cronômetro.`,'produto',g.id);}
     return t;
   }
@@ -2291,8 +2329,7 @@ PECA: titulo=...; setor=criacao; destino=cliente; aceite=...,...; min=...; max=.
     garantirInvarianteProduto(e,g);
     garantirSiteInstitucional(e);
     if(S.ai.orcamentoIndisponivel && S.ai.orcamentoIndisponivel()) {
-      const orc = S.ai.orcamento ? S.ai.orcamento() : null;
-      const dia=new Date().toISOString().slice(0,10),motivo=orc&&orc.esgotado?'o caixa da empresa chegou ao limite':'o limite diário de IA foi atingido';
+      const dia=new Date().toISOString().slice(0,10),motivo=motivoPausaIA();
       if(e.gerencia.ultimoLogOrcamentoDia!==dia){e.gerencia.ultimoLogOrcamentoDia=dia;S.state.registrar(`Sistema: ${motivo}. ${rt.length} agentes entraram em rotina Sims-like; o trabalho persistente permanece na fila.`,'orcamento');}
       rt.forEach(p=>{ if(!p.ocupado && !['dormindo','comendo','assistindo','andando'].includes(p.estado)){ p.estado='dormindo'; p.ref.cuidados=p.ref.cuidados||{}; p.ref.cuidados.rotina='sono'; p.balao='dormindo'; irPara(p,ESTACOES.dormitorio); }});
       S.bus.emit('equipe'); return;
@@ -2345,16 +2382,15 @@ PECA: titulo=...; setor=criacao; destino=cliente; aceite=...,...; min=...; max=.
     const alvo = meu == null ? token : meu;
     motorDelay=6000;ultimaAssinaturaMotor='';
     const rodar=async()=>{if(alvo!==token)return;try{await ciclo(alvo);}catch(err){console.error('ciclo',err);}const e=S.state.atual(),assinatura=e?JSON.stringify({t:(e.tarefas||[]).map(t=>[t.id,t.status,t.para,t.bloqueada]),a:(e.arquivos||[]).map(a=>[a.id,a.classe,a.avaliado]),f:e.fundacao&&e.fundacao.estado}):'';motorDelay=assinatura&&assinatura===ultimaAssinaturaMotor?Math.min(60000,Math.round(motorDelay*1.65)):6000;ultimaAssinaturaMotor=assinatura;motorTimer=setTimeout(rodar,motorDelay);};
-    vitaisTimer = setInterval(tickVitais, 7000);
-    socialTimer = setInterval(() => { try { socializar(); } catch(_){} }, 30000);
+    const simular=()=>{if(alvo!==token)return;try{tickVitais();socializar();const e=S.state.atual();if(e)rt.filter(p=>p.papel==='func'&&!p.ocupado&&!['dormindo','comendo'].includes(p.estado)).forEach(p=>{if(!tarefaAdequadaLocal(e,p))entrarOcio(p,'nenhuma tarefa executável está disponível');});S.bus.emit('equipe');}catch(err){console.error('simulação',err);}};
+    vitaisTimer = setInterval(simular, 6000);
     motorTimer=setTimeout(rodar,80);
     if (!animacao) laco();
   }
   function parar() {
     if (motorTimer) clearTimeout(motorTimer);
     if (vitaisTimer) clearInterval(vitaisTimer);
-    if (socialTimer) clearInterval(socialTimer);
-    motorTimer = vitaisTimer = socialTimer = null;
+    motorTimer = vitaisTimer = null;
   }
 
   /* ============================================================

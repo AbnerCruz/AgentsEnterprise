@@ -27,6 +27,7 @@
   const TIPOS_TEXTO = ['md','markdown','html','htm','txt','csv','tsv','json','jsonl','js','mjs','cjs','ts','tsx','jsx','css','scss','xml','yaml','yml','svg','py','sql','sh','webmanifest'];
   const TIPOS_IMAGEM = ['png','jpg','jpeg','webp'];
   const TIPOS = TIPOS_TEXTO.concat(TIPOS_IMAGEM);
+  const TIPOS_POR_KIT={autonomo:['md','txt','markdown'],texto:['md','txt','markdown'],visual:TIPOS_IMAGEM.concat('svg'),pagina:['html','htm','css','scss','js','mjs','webmanifest','svg'],codigo:['js','mjs','cjs','ts','tsx','jsx','py','sql','sh','json'],dados:['csv','tsv','json','jsonl','xml','yaml','yml'],comercial:['md','txt','html'],financeiro:['json','csv','md'],laboratorio:['md','txt','json','csv']};
   const PLACEHOLDERS = [
     /lorem ipsum/i, /\bTODO\b/, /\bTBD\b/, /\bxxx+\b/i, /\{\{[^}]*\}\}/,
     /<preencher>/i, /\[inserir[^\]]*\]/i, /coloque aqui/i, /texto de exemplo/i,
@@ -47,6 +48,7 @@
     /\bnota (?:para|ao) marketing\b/i,
     /\b(?:remover antes de publicar|n[aã]o mostrar ao cliente)\b/i,
     /\b(?:vers[aã]o preliminar|conceito inicial|apenas um esbo[cç]o|sugest[oõ]es futuras)\b/i,
+    /(?:^|\n)\s*(?:#{1,6}\s*)?(?:guia|b[ií]blia) (?:de|do) (?:projeto|continuidade|c[aâ]none)\s*(?=\n|$)/im,
     /\b(?:este documento (?:prop[oõ]e|descreve)|a equipe dever[aá]|dever[aá] ser implementado)\b/i,
     /<!--\s*(?:TODO|TBD|INTERNAL|INTERNO|REVISAR)[\s\S]*?-->/i,
     /(?:^|\n)\s*(?:#{1,6}\s*)?(?:checklist de valida[cç][aã]o|status de valida[cç][aã]o(?: e empacotamento)?|passos? para finaliza[cç][aã]o|pr[oó]xima a[cç][aã]o sugerida|arquivos? que deve[m]? estar presentes?)\s*(?=\n|$)/im,
@@ -80,7 +82,8 @@
 
   function tipoValido(t, kit) {
     const v = String(t || '').toLowerCase().replace(/^\./, '').trim();
-    return TIPOS.includes(v) ? v : porId(kit).tipo;
+    const permitidos=TIPOS_POR_KIT[porId(kit).id]||[porId(kit).tipo];
+    return TIPOS.includes(v)&&permitidos.includes(v) ? v : porId(kit).tipo;
   }
 
   function validar(conteudo, tipo) {
@@ -199,7 +202,7 @@
   function bibliaProjeto(e,projeto){const a=(e.arquivos||[]).find(x=>x.projectId===(projeto&&projeto.id)&&!x.clienteVisivel&&/(b[ií]blia|guia de marca|gdd|tratamento|ementa|c[aâ]none)/i.test(`${x.nome} ${x.briefing||''}`));return a?String(a.conteudo||'').slice(0,6000):String(projeto&&projeto.bibliaResumo||projeto&&projeto.dados&&`${projeto.dados.resumo||''}\n${projeto.dados.requisitos||''}`||'');}
   function trechoBaseParaPrompt(base,modo,e,projeto,briefing) {
     const conteudo=String(base&&base.conteudo||'');
-    if(conteudo.length<6000)return{modo:'integral',texto:conteudo,intervalo:null};
+    if(conteudo.length<10000)return{modo:'integral',texto:conteudo,intervalo:null};
     if(modo==='crescimento'){
       const secoes=conteudo.split(/(?=^\s*#{1,6}\s+)/m).filter(Boolean),ultimas=secoes.slice(-2).join('\n').slice(-5000);
       return{modo:'crescimento',texto:`BÍBLIA/GUIA DO PROJETO:\n${bibliaProjeto(e,projeto)}\n\nRESUMO DAS DUAS ÚLTIMAS SEÇÕES:\n${ultimas}`,intervalo:null};
@@ -226,11 +229,17 @@
         ? 'ETAPA PROTÓTIPO: transforme o esboço em uma versão completa e utilizável para teste/revisão. Resolva estrutura, conteúdo e integração. Não inclua bilhetes editoriais dentro do conteúdo destinado ao cliente.'
         : 'ETAPA CANDIDATO FINAL: entregue somente o que o cliente final deve receber. Remova rascunhos, anotações internas, status, checklist, notas para marketing/editor, pedidos de aprovação, TODOs e qualquer texto sobre o processo de produção.';
     const base = op && op.baseArquivoId ? (e.arquivos || []).find(a => a.id === op.baseArquivoId) : null;
-    const metricasBase=base&&!TIPOS_IMAGEM.includes(String(base.tipo||'').toLowerCase())?{palavras:contarPalavras(base.conteudo),caracteres:String(base.conteudo||'').length,linhas:String(base.conteudo||'').split(/\r?\n/).length}:null;
+    const inspecionado=op&&op.inspecionarArquivoId?(e.arquivos||[]).find(a=>a.id===op.inspecionarArquivoId):null;
+    if(op&&op.somenteLeitura&&!inspecionado)throw new Error('A tarefa somente leitura perdeu o artefato que deveria inspecionar.');
+    const referencia=base||inspecionado;
+    const metricasBase=referencia&&!TIPOS_IMAGEM.includes(String(referencia.tipo||'').toLowerCase())?{palavras:contarPalavras(referencia.conteudo),caracteres:String(referencia.conteudo||'').length,linhas:String(referencia.conteudo||'').split(/\r?\n/).length}:null;
     const projeto = (e.projetos || []).find(p => p.id === (op && op.projectId)) ||
                     (e.projetos || []).find(p => p.status === 'ativo') || (e.projetos || [])[0] || null;
     const ferramentas=S.ferramentas&&S.ferramentas.contexto?S.ferramentas.contexto(projeto&&projeto.id,base&&base.id):null;
     const acervoSoberano=S.acervo&&S.acervo.contexto?S.acervo.contexto(projeto&&projeto.id,8500):'Nenhuma referência soberana vinculada.';
+    const amp=S.buff&&S.buff.preparar?S.buff.preparar(Object.assign({},op,{kit,contrato:op&&op.contrato,clienteVisivel}),{empresa:e}):null;
+    const integrarLocal=!base&&kit==='autonomo'&&/\b(?:edi[cç][aã]o integrada|integrar|unir|consolidar|montagem final)\b/i.test(`${op&&op.titulo||''} ${briefing}`);
+    if(integrarLocal){const candidatos=(e.arquivos||[]).filter(a=>a.projectId===(projeto&&projeto.id)&&a.clienteVisivel&&a.classe!=='produto'&&TIPOS_TEXTO.includes(String(a.tipo||'').toLowerCase())&&String(a.conteudo||'').trim()),partes=candidatos.filter(a=>!candidatos.some(b=>b.baseArquivoId===a.id)).sort((a,b)=>Number(a.criadoEm||0)-Number(b.criadoEm||0));if(partes.length>=2){const conteudo=partes.map(a=>String(a.conteudo||'').trim()).join('\n\n');const nome=limparNome((projeto&&projeto.nome)||op.titulo||'produto-integrado','md');let validacao=aplicarRequisitosDeterministicos(validar(conteudo,'md'),conteudo,'md',briefing);if(op&&op.contrato&&S.operacao){const cv=S.operacao.validarContrato(op.contrato,[{nome,tipo:'md',conteudo}]);validacao.notas=(validacao.notas||[]).concat(cv.notas||[]);validacao.pronto=validacao.pronto&&cv.pronto;validacao.contrato=cv;}if(S.buff&&amp){const vb=S.buff.validar(conteudo,amp.spec);validacao.notas=(validacao.notas||[]).concat(vb.notas||[]).slice(0,12);validacao.pronto=validacao.pronto&&vb.pronto;validacao.amplificacao=vb;}return{arquivos:[{nome,tipo:'md',conteudo}],resumo:`Integração determinística de ${partes.length} peças, sem reescrita paga.`,validacao,classe:etapa,kit,viaIA:false,linhagem:null,baseArquivoId:null,operacao:'substituir',integracaoLocal:true};}}
     // Artes visuais usam um modelo dedicado; não desperdiçamos uma chamada de
     // texto pedindo que um LLM descreva uma imagem que outro modelo terá de criar.
     const baseVisual=base&&TIPOS_IMAGEM.includes(String(base.tipo||'').toLowerCase());
@@ -247,8 +256,8 @@
       return {arquivos:[{nome,tipo:compacta.ext,conteudo}],resumo:baseVisual?'Nova versão do ativo visual gerada pelo modelo de imagem.':'Ativo visual gerado por modelo de imagem.',validacao:(etapa==='candidato'&&clienteVisivel?validarFinal(conteudo,compacta.ext):validar(conteudo,compacta.ext)),classe:etapa,kit,viaIA:true,linhagem:baseVisual?base.linhagem:null,baseArquivoId:baseVisual?base.id:null,operacao:'substituir',imagem:true};
     }
     const incremental = Boolean(base && pedeCrescimento(briefing));
-    const querPatch=Boolean(S.toolkit&&base&&!incremental&&(/\b(corrig|ajust|revis|refin|alter|substitu|consert|fix)\w*/i.test(briefing)||Number(op&&op.correcoes||0)>0));
-    const basePrompt = base ? trechoBaseParaPrompt(base,incremental?'crescimento':'correcao',e,projeto,briefing) : {modo:'nenhum',texto:'',intervalo:null};
+    const querPatch=Boolean(S.toolkit&&base&&!incremental&&op&&op.permitirPatch!==false&&(/\b(corrig|ajust|revis|refin|alter|substitu|consert|fix)\w*/i.test(briefing)||Number(op&&op.correcoes||0)>0));
+    const basePrompt = referencia ? trechoBaseParaPrompt(referencia,inspecionado?'crescimento':(incremental?'crescimento':'correcao'),e,projeto,briefing) : {modo:'nenhum',texto:'',intervalo:null};
     const modoPatch=Boolean(querPatch&&basePrompt.modo==='intervalo');
     const sistemaEstavel = [
       `CONSTITUIÇÃO ESTÁVEL DE PRODUÇÃO — PREFIXO CACHEÁVEL:\n${S.principiosTexto?S.principiosTexto():''}`,
@@ -256,6 +265,7 @@
       `Sua tarefa é PRODUZIR um arquivo real e utilizável, nunca apenas descrever o que faria. Use ferramentas determinísticas antes de pedir cálculo ao modelo. Nunca trunque de propósito, nunca invente fatos externos e nunca inclua raciocínio privado.`,
       `REGRAS DE PRODUÇÃO:`,
       `- Entregue o conteúdo integral do arquivo, sem resumo, sem comentários sobre o processo e sem pedir aprovação.`,
+      `- Material interno (bíblia, guia de projeto, checklist, plano, instruções editoriais e relatório de QA) serve como referência e jamais pode ser copiado como seção do produto do cliente.`,
       `- Nada de texto de exemplo, lorem ipsum, TODO, colchetes para preencher ou dados inventados sobre o mundo real.`,
       `- Não invente clientes, vendas, métricas, datas ou aprovações. Hipóteses devem ser declaradas como hipóteses.`,
       `- JAMAIS afirme ter contatado clientes, lido/enviado e-mails, feito ligações, reuniões externas, compras, vendas, pagamentos, cadastros, uploads, deploys ou qualquer ação que dependa de uma pessoa ou serviço externo. Prepare o material e sinalize a dependência humana ao proprietário.`,
@@ -272,28 +282,35 @@
       `ACERVO_ID: <id exato da referência que merece consideração ou vazio>`,
       `SOLICITACAO_ACERVO: <sugestão objetiva para o dono ou vazio; nunca altere a referência>`,
       `---`,
-      `Para projeto multi-arquivo use blocos <<<ARQUIVO: caminho/nome.ext>>> e <<<FIM_ARQUIVO>>>. Para correção por intervalo use SUBSTITUIR_LINHAS: início-fim, uma linha ---, e apenas o novo conteúdo. Não copie o trecho antigo.`
+      `Para projeto multi-arquivo use blocos <<<ARQUIVO: caminho/nome.ext>>> e <<<FIM_ARQUIVO>>>. Só use protocolo de patch quando a instrução de saída desta chamada o exigir explicitamente.`
     ].filter(Boolean).join('\n');
     const sistemaEmpresa=[`EMPRESA: ${e.nome} | ramo: ${e.ramo} | público: ${e.publico} | tom: ${e.tom}`,`MISSÃO: ${e.missao}`,`IDENTIDADE: ${(e.fundacao&&e.fundacao.identidade&&e.fundacao.identidade.posicionamento)||'n/d'}`,`FORMA DA OBRA: ${e.fundacao&&e.fundacao.forma||projeto&&projeto.forma||'iterada'}`,`PLANO DE OBRA CONGELADO: ${(e.fundacao&&e.fundacao.planoObraTexto)||'não registrado'}`,`AGENTE: ${agente.nome||'integrante'} | cargo=${agente.cargo||''} | personalidade=${JSON.stringify(agente.personalidade||{})}`].join('\n');
-    const pedidoVolatil=limitarBlocos([
+    let pedidoVolatil=limitarBlocos([
       {id:'tarefa',prio:1,max:2000,texto:`BRIEFING: ${briefing}\nDESTINO: ${clienteVisivel?'cliente':'interno'}\n${regraEtapa}\n${op&&op.deliberacao?`ABORDAGEM: ${op.deliberacao}`:''}`},
-      {id:'base',prio:1,max:3000,texto:base?`BASE ${base.nome} [${base.tipo}] modo=${basePrompt.modo}:\n${basePrompt.texto}`:''},
+      {id:'base',prio:1,max:3000,texto:referencia?`${inspecionado?'REFERÊNCIA SOMENTE LEITURA':'BASE'} ${referencia.nome} [${referencia.tipo}] modo=${basePrompt.modo}:\n${basePrompt.texto}`:''},
       {id:'projeto',prio:2,max:600,texto:`PROJETO: ${projeto?projeto.nome:'principal'} | objetivo=${projeto?projeto.objetivo:e.missao}\nDADOS: ${projeto&&projeto.dados?JSON.stringify(projeto.dados):'n/d'}`},
       {id:'acervo',prio:2,max:2000,texto:`ACERVO SOBERANO:\n${acervoSoberano}`},
       {id:'contrato',prio:2,max:400,texto:`CONTRATO DE ACEITAÇÃO: ${JSON.stringify(op&&op.contrato||{})}`},
+      {id:'amplificacao',prio:2,max:700,texto:amp&&amp.prompt||''},
       {id:'memoria',prio:3,max:500,texto:`BÍBLIA/CONTINUIDADE: ${bibliaProjeto(e,projeto)}\nACERVO RELACIONADO: ${contextoAcervo(e,base,projeto&&projeto.id).slice(0,1600)}`},
       {id:'fatos',prio:3,max:350,texto:`FERRAMENTAS/MÉTRICAS: ${ferramentas?JSON.stringify(ferramentas):'indisponíveis'} | base=${metricasBase?JSON.stringify(metricasBase):'n/d'}`}
     ],Number(op&&op.contextoMax)||9000)+`\n\nINSTRUÇÃO DE SAÍDA: ${incremental?'Anexe somente a nova unidade, sem repetir a base.':modoPatch&&basePrompt.intervalo?`Substitua somente as linhas ${basePrompt.intervalo.de}-${basePrompt.intervalo.ate} usando SUBSTITUIR_LINHAS e escreva apenas o trecho novo.`:'Entregue a versão integral.'}`;
 
+    if(amp&&amp.spec.minPalavras>=1000&&!base&&kit==='texto'){
+      try{const mapa=await S.ai.chamar({sistemaEstavel:'Planeje uma única peça textual. Não escreva a prosa. Retorne somente batidas concretas que cumpram a especificação.',sistemaEmpresa,pedido:`TAREFA: ${briefing}\nESPECIFICAÇÃO: ${JSON.stringify(amp.spec)}`,tipo:'pensamento',tokens:320,nivel:'leve',temperature:0.15,top_p:0.8,seed:68,response_format:{type:'json_schema',json_schema:{name:'mapa_peca',strict:true,schema:{type:'object',properties:{batidas:{type:'array',minItems:3,maxItems:12,items:{type:'string'}}},required:['batidas'],additionalProperties:false}}},agente:agente.nome,agenteId:agente.id,motivo:'mapa curto antes da prosa',taskId:op.taskId||null,projectId:op.projectId||null,kit,etapa});pedidoVolatil+=`\n\nMAPA APROVADO PARA ESTA PEÇA (siga as batidas sem reproduzir o mapa no produto):\n${String(mapa.texto||'').slice(0,1800)}`;}catch(err){if(S.operacao)S.operacao.evento('producao.mapa_curto_indisponivel',{taskId:op.taskId||null,motivo:String(err&&err.message||err).slice(0,180)});}
+    }
+
     const r = await S.ai.chamar({
       sistemaEstavel,sistemaEmpresa,pedido:pedidoVolatil,
       tipo: 'conteudo',
-      tokens: (op && op.tokens) || 3000,
+      tokens: (op && op.maxTokensPeca) || (op && op.tokens) || 2500,
+      maxTokensPeca:(op&&op.maxTokensPeca)||null,
       agente: agente.nome,
       agenteId: agente.id,
       nivel:op&&op.nivel,correcoes:op&&op.correcoes,etapa,
       motivo: 'produção de artefato',
-      taskId:op.taskId||null,projectId:op.projectId||null,baseArquivoId:op.baseArquivoId||null,etapa,kit,contextoMax:Number(op&&op.contextoMax)||9000
+      taskId:op.taskId||null,projectId:op.projectId||null,baseArquivoId:op.baseArquivoId||null,etapa,kit,contextoMax:Number(op&&op.contextoMax)||9000,
+      ...(amp&&amp.perfil||{}),tools:amp&&amp.tools,executarFerramenta:amp&&amp.executar
     });
 
     const texto = String((r && r.texto) || '');
@@ -306,7 +323,7 @@
     conteudo = conteudo.replace(/^```[a-z]*\n?|```$/gi, '').trim();
     if (conteudo.length < 80) throw new Error('A IA de produção não devolveu conteúdo utilizável.');
     if(modoPatch){
-      try{conteudo=S.toolkit.aplicarPatch(base.conteudo,conteudo);}catch(err){throw new Error(`Patch local rejeitado: ${err.message}`);}
+      try{conteudo=S.toolkit.aplicarPatch(base.conteudo,conteudo);}catch(err){const pareceIntegral=conteudo.length>=Math.max(200,String(base.conteudo||'').length*0.35)&&!/^\s*(?:SUBSTITUIR_LINHAS|BUSCAR:|@@)/m.test(conteudo);if(!pareceIntegral){const falha=new Error(`Patch local rejeitado: ${err.message}`);falha.patchFormato=true;throw falha;}if(S.operacao)S.operacao.evento('producao.patch_fallback_integral',{taskId:op.taskId,baseArquivoId:base.id,motivo:err.message});}
     }
     const operacao = incremental && String(campos.operacao || '').toLowerCase().trim() === 'anexar' ? 'anexar' : 'substituir';
     if (base && operacao === 'anexar') {
@@ -347,19 +364,21 @@
 
     // Em uma evolução, identidade de arquivo e formato pertencem à linhagem,
     // não à resposta do modelo. Isto impede renomeações acidentais a cada revisão.
-    const tipo = base ? tipoValido(base.tipo, kit) : tipoValido(campos.tipo, kit);
-    const nome = base ? limparNome(base.nome, tipo) : limparNome(campos.arquivo || (op && op.titulo) || 'entrega', tipo);
+    const tipo = op&&op.somenteLeitura?'md':(base ? tipoValido(base.tipo, kit) : tipoValido(campos.tipo, kit));
+    const nome = op&&op.somenteLeitura?limparNome(`relatorio-${inspecionado&&inspecionado.nome||op.titulo}`,tipo):(base ? limparNome(base.nome, tipo) : limparNome(campos.arquivo || (op && op.titulo) || 'entrega', tipo));
     const disponiveis=(e.arquivos||[]).filter(a=>a.projectId===(projeto&&projeto.id)).concat({nome,tipo,conteudo});
     let validacao = (clienteVisivel && etapa === 'candidato')
       ? validarPacote(conteudo, tipo, disponiveis,briefing)
       : aplicarRequisitosDeterministicos(validar(conteudo, tipo),conteudo,tipo,briefing);
     if(kit==='laboratorio')validacao=conferirAlegacoesDaBase(validacao,conteudo,metricasBase);
+    if(S.buff&&amp){const vb=S.buff.validar(conteudo,amp.spec);validacao.notas=(validacao.notas||[]).concat(vb.notas||[]).slice(0,12);validacao.pronto=validacao.pronto&&vb.pronto;validacao.amplificacao=vb;}
     if(op&&op.contrato&&S.operacao){const cv=S.operacao.validarContrato(op.contrato,[{nome,tipo,conteudo}]);validacao.notas=(validacao.notas||[]).concat(cv.notas||[]).slice(0,12);validacao.pronto=validacao.pronto&&cv.pronto;validacao.contrato=cv;}
     if(S.operacao){
       const forma=etapa==='candidato'?S.operacao.validarForma(e.fundacao&&e.fundacao.forma||projeto&&projeto.forma,disponiveis,{anterior:base&&base.conteudo}):{pronto:true,notas:[],adiado:true};
       const realidade=S.operacao.validarRealidade(conteudo,e);
       const refs=(projeto&&projeto.acervoIds||[]).map(id=>S.acervo&&S.acervo.item&&S.acervo.item(id)).filter(Boolean);
-      const ancoragem=clienteVisivel&&refs.length?S.operacao.validarAncoragem(conteudo,refs):{pronto:true,notas:[]};
+      if(!refs.length){const canon=(e.arquivos||[]).find(a=>a.projectId===(projeto&&projeto.id)&&!a.clienteVisivel&&/(b[ií]blia|guia de projeto|c[aâ]none|tratamento|ementa)/i.test(`${a.nome} ${a.briefing||''}`));if(canon)refs.push(canon);else{const fonte=`${e.fundacao&&e.fundacao.perguntas&&e.fundacao.perguntas.ideia||''}\n${e.fundacao&&e.fundacao.primeiroProduto||''}\n${projeto&&projeto.dados&&projeto.dados.planejamentoProduto||''}`.trim();if(fonte)refs.push({id:'identidade_fundadora',conteudo:fonte});}}
+      const ancoragem=clienteVisivel?S.operacao.validarAncoragem(conteudo,refs):{pronto:true,notas:[]};
       validacao.notas=(validacao.notas||[]).concat(forma.notas||[],realidade.notas||[],ancoragem.notas||[]).slice(0,12);
       validacao.pronto=validacao.pronto&&forma.pronto&&realidade.pronto&&ancoragem.pronto;validacao.forma=forma;validacao.realidade=realidade;validacao.ancoragem=ancoragem;
       if(S.operacao.registrarEvidenciaDeterministica)S.operacao.registrarEvidenciaDeterministica(op&&op.taskId,r&&r.modelo,{lint:S.toolkit?S.toolkit.lint({tipo,conteudo}).valido:true,contrato:!validacao.contrato||validacao.contrato.pronto,forma:forma.pronto,realidade:realidade.pronto,ancoragem:ancoragem.pronto,progresso:!base||S.operacao.diff(base.conteudo,conteudo).mudanca>=0.008});

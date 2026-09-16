@@ -13,7 +13,7 @@ global.localStorage = {
 global.document = { querySelector:()=>null, querySelectorAll:()=>[], visibilityState:'visible', createElement:()=>({click(){},remove(){},style:{}}), body:{appendChild(){}} };
 global.URL = Object.assign(URL,{createObjectURL:()=> 'blob:test',revokeObjectURL(){}});
 
-for (const file of ['core.js','optimization.js','ai.js','factory.js','studio.js']) {
+for (const file of ['core.js','optimization.js','buff.js','ai.js','factory.js','studio.js']) {
   vm.runInThisContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),{filename:file});
 }
 
@@ -52,6 +52,9 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   await assert.rejects(()=>S.ai.chamar({sistema:'teste',pedido:'teste',agente:'Ana',agenteId:'a1',forcar:true,_skipSync:false}),err=>err&&err.transitoria&&/choices/.test(err.message));
   assert.equal(eProvider.iaChamadas.at(-1).transitoria,true);assert.equal(eProvider.iaChamadas.at(-1).tokens,12,'uso de resposta sem choices continua auditável');
   await assert.rejects(()=>S.ai.chamar({sistema:'teste',pedido:'teste',agente:'Ana',agenteId:'a1',forcar:true,_skipSync:false}),err=>err&&err.transitoria&&err.codigo==='resposta_json_invalida');
+  let rodadaFerramenta=0;global.fetch=async()=>{rodadaFerramenta++;return new Response(JSON.stringify(rodadaFerramenta===1?{choices:[{finish_reason:'tool_calls',message:{content:null,tool_calls:[{id:'tc1',type:'function',function:{name:'contar_palavras',arguments:'{"texto":"um dois"}'}}]}}],usage:{prompt_tokens:20,completion_tokens:8,total_tokens:28,cost:0.000001}}:{choices:[{finish_reason:'stop',message:{content:'FALA: ferramenta executada'}}],usage:{prompt_tokens:30,completion_tokens:6,total_tokens:36,cost:0.000001}}),{status:200,headers:{'content-type':'application/json'}});};
+  const comFerramenta=await S.ai.chamar({sistema:'teste',pedido:'use a ferramenta',agente:'Ana',agenteId:'a1',forcar:true,_skipSync:true,tokens:120,tools:S.buff.ferramentas,executarFerramenta:(nome,args)=>S.buff.executarFerramenta(nome,args,{empresa:eProvider})});
+  assert.match(comFerramenta.texto,/ferramenta executada/);assert.equal(rodadaFerramenta,2,'tool calling deve retornar ao modelo sem bloquear a lane do próprio agente');
   global.fetch=fetchOriginal;selecionar(e);
   assert.equal(S.ai.rotear({tipo:'pensamento',agenteId:'a1',motivo:'triagem curta'}).nivel,'leve');
   assert.equal(S.ai.rotear({tipo:'conteudo',agenteId:'a1',motivo:'produção de artefato'}).nivel,'padrao');
@@ -204,6 +207,13 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   const tarefaSemantica=S.studio.novaTarefa({titulo:'Redação dos três contos iniciais',briefing:'Produzir os três contos centrais de Eldoria',kit:'texto',projectId:'pr1',clienteVisivel:true,etapaDestino:'esboco'});
   const repetidaSemantica=S.studio.novaTarefa({titulo:'Redação do rascunho inicial dos 3 contos',briefing:'Iniciar a produção dos três contos centrais de Eldoria',kit:'texto',projectId:'pr1',clienteVisivel:true,etapaDestino:'esboco'});
   assert.ok(tarefaSemantica);assert.equal(repetidaSemantica,null,'variações do mesmo trabalho não podem furar a deduplicação');
+  const ePlano=empresa('plano-pecas');selecionar(ePlano);
+  const peca1=S.studio.novaTarefa({titulo:'Unidade 1 — Livro',briefing:'Peça 1 do plano de obra congelado. Entregue exatamente a unidade.',kit:'texto',projectId:'pr1',clienteVisivel:true,etapaDestino:'esboco',planoPecaId:'peca_1',origem:'plano de obra congelado'});
+  const peca2=S.studio.novaTarefa({titulo:'Unidade 2 — Livro',briefing:'Peça 2 do plano de obra congelado. Entregue exatamente a unidade.',kit:'texto',projectId:'pr1',clienteVisivel:true,etapaDestino:'esboco',planoPecaId:'peca_2',origem:'plano de obra congelado'});
+  assert.ok(peca1&&peca2,'peças irmãs do plano não podem ser engolidas pela similaridade do boilerplate');
+  peca1.orcamentoTokens.saidaUsada=peca1.orcamentoTokens.saidaMax;
+  assert.equal(S.operacao.autorizarChamada({taskId:peca1.id,_continuacao:true},{entrada:500,saida:2500}),true,'continuação paga já iniciada não pode ser bloqueada pelo próprio orçamento');
+  selecionar(e);
   const eLegado=empresa('legado-duplicado');selecionar(eLegado);
   eLegado.tarefas.push({id:'leg-1',titulo:'Redação dos três contos iniciais',briefing:'Produzir os três contos centrais de Eldoria',kit:'texto',projectId:'pr1',clienteVisivel:true,etapaDestino:'esboco',status:'aberta',criadaEm:1},{id:'leg-2',titulo:'Redação do rascunho inicial dos 3 contos',briefing:'Iniciar a produção dos três contos centrais de Eldoria',kit:'texto',projectId:'pr1',clienteVisivel:true,etapaDestino:'esboco',status:'aberta',criadaEm:2});
   assert.equal(S.studio.consolidarTarefasEquivalentes(eLegado),1,'duplicatas herdadas precisam virar uma única tarefa ativa');
@@ -234,6 +244,8 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.doesNotMatch(studioSource,/cadenciaGerencia|ESPERA_FUNDACAO_MS|proximaAvaliacao\s*=|proximaTentativa\s*=\s*Date/);
   assert.doesNotMatch(studioSource,/fundacoesTentadasNestaSessao/,'falha de rede não pode impedir nova tentativa na mesma sessão');assert.match(studioSource,/retomarApos=Date\.now\(\)\+espera/);
   assert.match(studioSource,/if\(p\.papel==='gerente'\)/,'gerente precisa de guarda explícita contra produção');
+  assert.match(studioSource,/setInterval\(simular, 6000\)/,'simulação local precisa manter relógio fixo independente do backoff de decisão');
+  assert.match(studioSource,/plano\.pos_condicao/);assert.match(studioSource,/somenteLeitura:true/);
   assert.doesNotMatch(studioSource,/motivo:'conversa ociosa econômica'/,'ociosidade não pode gastar tokens');
   assert.doesNotMatch(studioSource,/_ultimoDesenho[^\n]+80/,'animação não pode continuar limitada a 12,5 fps');
   assert.match(studioSource,/Claim atômico/);assert.match(studioSource,/p\.especialidade===exigida/);assert.match(studioSource,/status='incompleta'/);
@@ -253,6 +265,9 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.match(gameUi,/Salvar JSON no dispositivo/);assert.match(fs.readFileSync(path.join(__dirname,'..','core.js'),'utf8'),/showSaveFilePicker/);
   assert.match(gameUi,/srBaixar/);assert.match(gameUi,/text\/markdown/);assert.match(gameUi,/ata-reuniao-/);
   const factorySource=fs.readFileSync(path.join(__dirname,'..','factory.js'),'utf8');assert.doesNotMatch(factorySource,/length\s*>\s*12000\s*\|\|\s*pedeCrescimento/,'tamanho do arquivo nunca pode ativar anexação automática');
+  assert.match(factorySource,/conteudo\.length<10000/,'arquivos pequenos não devem pagar tentativas de patch');assert.match(factorySource,/TIPOS_POR_KIT/,'extensão precisa respeitar o kit da tarefa');
+  assert.match(factorySource,/json_schema/);assert.match(factorySource,/mapa curto antes da prosa/);
+  assert.match(index,/buff\.js\?v=68/);assert.ok(S.buff&&S.buff.validar,'camada de amplificação precisa estar carregada');
   assert.match(gameUi,/navigator\.wakeLock\.request\('screen'\)/);assert.match(gameUi,/Caixa executiva/);assert.match(gameUi,/data-enviar-humana/);
   for(const legado of ['classico.html','app.css','ui.js'])assert.equal(fs.existsSync(path.join(__dirname,'..',legado)),false,`${legado} deve ter sido removido`);
   console.log('flow-smoke: ok — trabalho/delegação/acervos/branch/pipeline/release/bundle/retention/caixa/zip/jogo');

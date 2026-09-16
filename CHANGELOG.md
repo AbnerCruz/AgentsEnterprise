@@ -4,6 +4,24 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v68 — falhas visíveis, produção por peça e simulação desacoplada
+
+- O relógio local da simulação agora roda fixo a cada 6 segundos para movimento, vitais, ócio e interação gratuita; somente o relógio de decisão usa backoff adaptativo.
+- Toda rejeição relevante de tarefa produz diagnóstico persistente com código e contexto. O HUD prioriza falhas abertas, e a fundação não pode registrar sucesso quando o plano de obra falha.
+- O materializador do plano exige ao menos uma peça-cliente, reconhece aliases como `cliente final` e `externo`, identifica cada peça pelo próprio ID e verifica a pós-condição `tarefas criadas = peças planejadas`.
+- O fallback do plano deixou de ser silencioso. Uma frente genérica não pode encobrir peças ausentes, e uma materialização interrompida pode ser refeita localmente sem pagar outra chamada fundadora.
+- A equipe inicial caiu de sete chefes obrigatórios para três ou quatro setores escolhidos pela demanda do plano, preservando Produção e Finanças. Setores ausentes só geram alerta quando existe trabalho real sem especialista.
+- Tarefas de produto não usam mais `autonomo` por padrão: o kit é inferido do produto. Cada kit possui formatos permitidos, impedindo livros em HTML e outras extensões incompatíveis.
+- Testes de laboratório receberam permissão explícita de somente leitura e geram relatório separado; não podem substituir, renomear nem continuar a linhagem do produto inspecionado.
+- O orçamento de cada peça reserva 50% para uma continuação. Chamadas normais têm até 2.500 tokens, mas uma continuação iniciada por `max_tokens` não é bloqueada pelo próprio orçamento.
+- O raciocínio excluído foi limitado, perfis de amostragem variam por tipo de tarefa e o OpenRouter ganhou tool calling auditável para leitura de artefato, busca no cânone e contagem de palavras.
+- A nova camada `buff.js` compila especificação executável, seleciona exemplares aprovados, mede clichês, diversidade lexical e n-grams repetidos e oferece melhor-de-N apenas como ferramenta opt-in. Peças textuais longas recebem antes um mapa curto validado por JSON Schema.
+- Correções por patch só são pedidas para arquivos de pelo menos 10 KB. Arquivo integral plausível é aceito como fallback; uma falha real de protocolo faz a tentativa seguinte abandonar patch.
+- Obras seriais recebem limites por unidade e a edição integrada pode unir deterministicamente as últimas versões das peças, sem reescrever o livro inteiro por IA.
+- O gate final rejeita bíblia/guia interno dentro do produto e exige ancoragem no acervo, numa bíblia interna ou na identidade fundadora — ausência de fonte deixa de passar silenciosamente.
+- Finanças passou a registrar aprovação na primeira tentativa, palavras entregues/contratadas, custo por peça aceita, clichês por mil palavras e turnos de ferramenta.
+- Cache e URLs dos motores foram incrementados para v68, incluindo `buff.js` no shell offline.
+
 # v67 — plano de obra, fundação jogável e orçamento por resultado
 
 - A fundação deixa de prender o usuário no modal: a gerente entra no escritório imediatamente, trabalha em cena e os sete chefes chegam visualmente enquanto identidade e plano são materializados.
