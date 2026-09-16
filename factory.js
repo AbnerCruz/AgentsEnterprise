@@ -307,7 +307,7 @@
     const r = await S.ai.chamar({
       sistemaEstavel,sistemaEmpresa,pedido:pedidoVolatil,
       tipo: 'conteudo',
-      tokens: (op && op.maxTokensPeca) || (op && op.tokens) || 2500,
+      tokens: (op && op.maxTokensPeca) || (op && op.tokens) || 5000,
       maxTokensPeca:(op&&op.maxTokensPeca)||null,
       agente: agente.nome,
       agenteId: agente.id,

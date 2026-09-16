@@ -318,6 +318,7 @@ window.S = window.S || {};
     delete e.recompensas;
 
     e.arquivos = Array.isArray(e.arquivos) ? e.arquivos : [];
+    let tarefasRecuperadasDeLimite=0;
     e.tarefas.forEach(t => {
       // Estados legados não podem deixar trabalho invisível para o quadro.
       if(['pendente','nova','todo','aguardando','fila'].includes(String(t.status||'').toLowerCase()))t.status='aberta';
@@ -336,10 +337,10 @@ window.S = window.S || {};
       if(typeof t.clienteVisivel!=='boolean') t.clienteVisivel=!interno && /produto|cliente|p[uú]blico|livro|conto|romance|ebook|site|p[aá]gina|aplica[cç][aã]o|cat[aá]logo|capa|ilustra[cç][aã]o|banner|logo|artigo|jogo|zip/.test(tt);
       t.escopo=t.clienteVisivel?'produto':'interno';
       if(!['esboco','prototipo','candidato'].includes(t.etapaDestino)) t.etapaDestino=t.clienteVisivel?'esboco':'prototipo';
-      if(t.orcamentoTokens&&typeof t.orcamentoTokens==='object'){
-        const b=t.orcamentoTokens,base={visual:2500,pagina:7000,codigo:7000,texto:8000,laboratorio:3500,financeiro:2000,comercial:3500,dados:3500,autonomo:5000};
-        if(b.saidaMax==null)b.saidaMax=Number(b.tokensMax)||base[t.kit]||5000;if(b.contextoMax==null)b.contextoMax=9000;if(b.saidaUsada==null)b.saidaUsada=Number(b.tokensUsados)||0;if(b.entradaUsada==null)b.entradaUsada=0;if(b.chamadasUsadas==null)b.chamadasUsadas=0;delete b.tokensMax;delete b.tokensUsados;
-      }
+      const legado=t.orcamentoTokens&&typeof t.orcamentoTokens==='object'?t.orcamentoTokens:{},bloqueioTokens=legado.status==='escalado'||/orçamento de saída atingido/i.test(String(t.motivoEscalada||''));
+      const palavras=Math.max(Number(t.contratoAceitacao&&t.contratoAceitacao.minPalavras)||0,Number(t.contratoAceitacao&&t.contratoAceitacao.maxPalavras)||0),padraoSaida={visual:1600,pagina:5000,codigo:5000,texto:3500,laboratorio:2200,financeiro:1800,comercial:2600,dados:2600,autonomo:3500};t.maxTokensPeca=Math.max(Number(t.maxTokensPeca)||0,palavras?Math.ceil(palavras*1.8)+400:padraoSaida[t.kit]||3000);
+      t.orcamentoTokens={...legado,semLimite:true,saidaMax:null,contextoMax:null,chamadasMax:null,saidaUsada:Number(legado.saidaUsada!=null?legado.saidaUsada:legado.tokensUsados)||0,entradaUsada:Number(legado.entradaUsada)||0,chamadasUsadas:Number(legado.chamadasUsadas)||0,status:'telemetria',maxTokensPeca:t.maxTokensPeca};delete t.orcamentoTokens.tokensMax;delete t.orcamentoTokens.tokensUsados;
+      if(bloqueioTokens&&t.status==='aguardando_decisao'){t.status='aberta';t.para=null;t.bloqueada=false;t.retomarAposIA=0;delete t.motivoEscalada;delete t.escaladaEm;delete t.escaladaAoDono;delete t.renovacoesOrcamento;tarefasRecuperadasDeLimite++;}
     });
     e.arquivos.forEach(a => {
       a.classe = ['referencia','esboco', 'prototipo', 'candidato', 'produto'].includes(a.classe) ? a.classe : 'esboco';
@@ -423,6 +424,7 @@ window.S = window.S || {};
     e.acervoUsuario=Array.isArray(e.acervoUsuario)?e.acervoUsuario.map(normalizarItemAcervo).filter(Boolean):[];
     e.iaChamadas=Array.isArray(e.iaChamadas)?e.iaChamadas.slice(-2000):[];
     e.decisoesCriticas=Array.isArray(e.decisoesCriticas)?e.decisoesCriticas.slice(-200):[];
+    e.decisoesCriticas.forEach(d=>{if(d.tipo==='orcamento_tarefa'&&d.status==='pendente'){d.status='resolvida';d.resolvidaEm=Date.now();d.resolucao='O limite acumulado por tarefa foi removido; a tarefa voltou automaticamente à fila.';}});
     e.financeiro=e.financeiro&&typeof e.financeiro==='object'?e.financeiro:{};
     e.financeiro.analises=Array.isArray(e.financeiro.analises)?e.financeiro.analises.slice(-300):[];
     e.financeiro.recomendacoes=Array.isArray(e.financeiro.recomendacoes)?e.financeiro.recomendacoes.slice(-120):[];
@@ -433,7 +435,7 @@ window.S = window.S || {};
     // Nenhuma execução assíncrona sobrevive a um fechamento da página. Estados
     // transitórios persistidos precisam voltar à fila; caso contrário uma tarefa
     // "fazendo" ou uma reunião interrompida congelam a empresa para sempre.
-    let recuperadas=0;
+    let recuperadas=tarefasRecuperadasDeLimite;
     e.tarefas.forEach(t=>{delete t.proximaTentativa;delete t._agenteEmExecucao;if(t.status==='fazendo'){t.status='aberta';recuperadas++;}});
     e.arquivos.forEach(a=>{delete a.proximaAvaliacao;});
     if(e.reuniao.reuniaoAtiva){delete e.reuniao.reuniaoAtiva;e.reuniao.mensagens.push({id:uid('m'),t:Date.now(),quem:'Sistema',texto:'Reunião interrompida pelo fechamento do jogo foi encerrada; o trabalho voltou à fila.',tipo:'recuperacao'});e.reuniao.mensagens=e.reuniao.mensagens.slice(-180);recuperadas++;}

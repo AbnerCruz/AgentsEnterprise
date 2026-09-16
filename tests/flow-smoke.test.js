@@ -35,6 +35,7 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.equal(recuperada.tarefas[0].status,'aberta');assert.equal(recuperada.tarefas[0].proximaTentativa,undefined);
   assert.equal(recuperada.arquivos[0].proximaAvaliacao,undefined);assert.equal(recuperada.reuniao.reuniaoAtiva,undefined);
   const saneada=S.state.normalizarEstudio({id:'poison',nome:'Teste',publico:'A gerente deve inferir sem inventar fatos',fundacao:{versao:4,estado:'criando',perguntas:{tipoProduto:'A gerente deve inferir da ideia e das respostas',publico:'A gerente deve inferir sem inventar fatos'}},projetos:[]});assert.equal(saneada.publico,'a definir');assert.equal(saneada.fundacao.perguntas.tipoProduto,'');assert.equal(saneada.fundacao.perguntas.publico,'');
+  const semTeto=S.state.normalizarEstudio({id:'sem-teto',nome:'Recuperar limite',projetos:[{id:'pr-limite',nome:'Livro',status:'ativo'}],tarefas:[{id:'t-limite',titulo:'Bíblia do universo',briefing:'Produzir a bíblia completa',kit:'texto',projectId:'pr-limite',clienteVisivel:false,status:'aguardando_decisao',motivoEscalada:'Orçamento de saída atingido: 3314/4658 tokens, 2/5 chamadas.',orcamentoTokens:{saidaMax:4658,contextoMax:9000,chamadasMax:5,saidaUsada:3314,chamadasUsadas:2,status:'escalado'}}],decisoesCriticas:[{id:'d-limite',tipo:'orcamento_tarefa',tarefaId:'t-limite',status:'pendente'}]});assert.equal(semTeto.tarefas.find(t=>t.id==='t-limite').status,'aberta','tarefa bloqueada pelo teto antigo deve voltar à fila na carga');assert.equal(semTeto.tarefas.find(t=>t.id==='t-limite').orcamentoTokens.saidaMax,null);assert.equal(semTeto.tarefas.find(t=>t.id==='t-limite').orcamentoTokens.semLimite,true);assert.ok(semTeto.tarefas.find(t=>t.id==='t-limite').maxTokensPeca>2500,'tarefa legada também deve perder o corte fixo de saída');assert.equal(semTeto.decisoesCriticas[0].status,'resolvida','decisão crítica criada apenas pelo teto antigo deve ser encerrada');
 
   const e=empresa();selecionar(e);
   const eProvider=empresa('provider-null');selecionar(eProvider);eProvider.economia.caixaUSD=5;
@@ -93,10 +94,11 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.ok(S.operacao.diff('a\nb','a\nc').mudanca>0);
   assert.equal(S.operacao.vendavel([{nome:'index.html',conteudo:'<!doctype html><title>ok</title>'}]).vendavel,true);
   assert.equal(S.operacao.validarForma('serial',[{nome:'livro.md',conteudo:'Capítulo 1\nTexto\nCapítulo 2\nTexto'}]).pronto,true);
-  const tarefaOrcada={id:'orcada',titulo:'Entrega orçada',kit:'texto',clienteVisivel:true,status:'aberta',projectId:'pr1',orcamentoTokens:S.operacao.orcamentoPadrao({kit:'texto',clienteVisivel:true})};e.tarefas.push(tarefaOrcada);
-  assert.equal(S.operacao.autorizarChamada({taskId:'orcada'},{entrada:8500,saida:1000}),true);assert.equal(tarefaOrcada.orcamentoTokens.saidaUsada,0,'tokens de contexto não podem consumir o teto de saída');
+  const tarefaOrcada={id:'orcada',titulo:'Entrega sem teto local',kit:'texto',clienteVisivel:true,status:'aberta',projectId:'pr1',orcamentoTokens:S.operacao.orcamentoPadrao({kit:'texto',clienteVisivel:true})};e.tarefas.push(tarefaOrcada);
+  assert.equal(S.operacao.autorizarChamada({taskId:'orcada'},{entrada:85000,saida:50000}),true);assert.equal(tarefaOrcada.orcamentoTokens.semLimite,true);assert.equal(tarefaOrcada.orcamentoTokens.saidaMax,null);assert.equal(tarefaOrcada.orcamentoTokens.chamadasMax,null);
   S.operacao.registrarChamada({id:'orcada-call',taskId:'orcada',entrada:8500,saida:800,tokens:9300,ok:true,modelo:'modelo-teste',tipo:'conteudo',kit:'texto'});assert.equal(tarefaOrcada.orcamentoTokens.entradaUsada,8500);assert.equal(tarefaOrcada.orcamentoTokens.saidaUsada,800);
-  assert.throws(()=>S.operacao.autorizarChamada({taskId:'orcada'},{entrada:9001,saida:1}),err=>err&&err.contextoExcedido);
+  tarefaOrcada.orcamentoTokens.status='escalado';tarefaOrcada.orcamentoTokens.saidaUsada=999999;tarefaOrcada.orcamentoTokens.chamadasUsadas=999;assert.equal(S.operacao.autorizarChamada({taskId:'orcada'},{entrada:90000,saida:60000}),true,'telemetria acumulada nunca pode bloquear produção');assert.equal(tarefaOrcada.orcamentoTokens.status,'telemetria');
+  const pecaLonga={kit:'texto',clienteVisivel:true,contratoAceitacao:{minPalavras:5000,maxPalavras:7000}};S.operacao.orcamentoPadrao(pecaLonga);assert.ok(pecaLonga.maxTokensPeca>2500,'peça longa deve dimensionar a chamada acima do antigo corte fixo');
   const replay=await S.replay.executar([{texto:'primeira',custo:0.01},{texto:'segunda',custo:0.02}],async p=>(await p.chamar()).texto);assert.equal(replay.resultado,'primeira');assert.equal(replay.restantes,1);assert.equal(replay.custoUSD,0.01);
   const projEventos=S.operacao.projetar([{seq:1,tipo:'tarefa.criada',dados:{taskId:'tx'}},{seq:2,tipo:'ia.chamada_concluida',dados:{custo:0.1,tokens:10}},{seq:3,tipo:'produto.liberado',dados:{produtoId:'px'}}]);
   assert.equal(projEventos.tarefas.tx.status,'aberta');assert.equal(projEventos.tokens,10);assert.ok(projEventos.produtos.px);
@@ -230,8 +232,8 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   const peca1=S.studio.novaTarefa({titulo:'Unidade 1 — Livro',briefing:'Peça 1 do plano de obra congelado. Entregue exatamente a unidade.',kit:'texto',projectId:'pr1',clienteVisivel:true,etapaDestino:'esboco',planoPecaId:'peca_1',origem:'plano de obra congelado'});
   const peca2=S.studio.novaTarefa({titulo:'Unidade 2 — Livro',briefing:'Peça 2 do plano de obra congelado. Entregue exatamente a unidade.',kit:'texto',projectId:'pr1',clienteVisivel:true,etapaDestino:'esboco',planoPecaId:'peca_2',origem:'plano de obra congelado'});
   assert.ok(peca1&&peca2,'peças irmãs do plano não podem ser engolidas pela similaridade do boilerplate');
-  peca1.orcamentoTokens.saidaUsada=peca1.orcamentoTokens.saidaMax;
-  assert.equal(S.operacao.autorizarChamada({taskId:peca1.id,_continuacao:true},{entrada:500,saida:2500}),true,'continuação paga já iniciada não pode ser bloqueada pelo próprio orçamento');
+  peca1.orcamentoTokens.saidaUsada=999999;peca1.orcamentoTokens.chamadasUsadas=999;
+  assert.equal(S.operacao.autorizarChamada({taskId:peca1.id},{entrada:50000,saida:25000}),true,'nenhuma chamada da tarefa pode ser bloqueada por contagem local de tokens');
   selecionar(e);
   const eLegado=empresa('legado-duplicado');selecionar(eLegado);
   eLegado.tarefas.push({id:'leg-1',titulo:'Redação dos três contos iniciais',briefing:'Produzir os três contos centrais de Eldoria',kit:'texto',projectId:'pr1',clienteVisivel:true,etapaDestino:'esboco',status:'aberta',criadaEm:1},{id:'leg-2',titulo:'Redação do rascunho inicial dos 3 contos',briefing:'Iniciar a produção dos três contos centrais de Eldoria',kit:'texto',projectId:'pr1',clienteVisivel:true,etapaDestino:'esboco',status:'aberta',criadaEm:2});
@@ -286,9 +288,10 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   const factorySource=fs.readFileSync(path.join(__dirname,'..','factory.js'),'utf8');assert.doesNotMatch(factorySource,/length\s*>\s*12000\s*\|\|\s*pedeCrescimento/,'tamanho do arquivo nunca pode ativar anexação automática');
   assert.match(factorySource,/conteudo\.length<10000/,'arquivos pequenos não devem pagar tentativas de patch');assert.match(factorySource,/TIPOS_POR_KIT/,'extensão precisa respeitar o kit da tarefa');
   assert.match(factorySource,/json_schema/);assert.match(factorySource,/mapa curto Best-of-N antes da prosa/);assert.match(factorySource,/SUBSTITUIR_SECAO/);
+  assert.doesNotMatch(aiSource,/tipo==='conteudo'\?Math\.min\(2500/,'produção não pode manter o corte local fixo de 2500 tokens');
   assert.match(studioSource,/fundacao\.candidato_escolhido/);assert.match(studioSource,/formatoFundacao/);assert.doesNotMatch(studioSource,/A resposta fundadora trouxe menos de cinco peças/);
   assert.doesNotMatch(studioSource,/await\s+irPara\(chegada/,'a fundação nunca pode aguardar uma animação cosmética');assert.doesNotMatch(studioSource,/await\s+processarFundacaoAtual\(\)/,'o ciclo não pode ficar preso à promessa da fundação');
-  assert.match(index,/buff\.js\?v=69\.2/);assert.ok(S.buff&&S.buff.validar,'camada de amplificação precisa estar carregada');
+  assert.match(index,/buff\.js\?v=69\.3/);assert.ok(S.buff&&S.buff.validar,'camada de amplificação precisa estar carregada');
   assert.match(gameUi,/navigator\.wakeLock\.request\('screen'\)/);assert.match(gameUi,/Caixa executiva/);assert.match(gameUi,/data-enviar-humana/);
   assert.match(gameUi,/S\.economia\.definirCaixa\(alocacao\.valor[\s\S]{0,500}perguntarAlinhamentoFundacao/,'o caixa da empresa deve ser alocado antes da primeira chamada de fundação');
   for(const legado of ['classico.html','app.css','ui.js'])assert.equal(fs.existsSync(path.join(__dirname,'..',legado)),false,`${legado} deve ter sido removido`);

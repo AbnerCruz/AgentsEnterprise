@@ -597,9 +597,11 @@
   function resolverEscaladas(e,g){
     let mudou=false;
     (e.tarefas||[]).filter(t=>t.status==='aguardando_decisao').forEach(t=>{
-      const b=t.orcamentoTokens=S.operacao&&S.operacao.normalizarOrcamento?S.operacao.normalizarOrcamento(t.orcamentoTokens,t):(t.orcamentoTokens||{});
-      if(!t.renovacoesOrcamento){t.renovacoesOrcamento=1;b.saidaMax=Math.round((b.saidaMax||3000)*1.8);b.chamadasMax=(b.chamadasMax||4)+2;b.status='ativo';t.status='aberta';t.para=null;t.retomadaEm=Date.now();registrarReuniao(g&&g.nome||'Gerência',`Renovei uma vez o orçamento de “${t.titulo}” e devolvi à fila com uma abordagem mais enxuta.`,'decisao');mudou=true;}
-      else if(!t.escaladaAoDono){t.escaladaAoDono=true;e.decisoesCriticas=Array.isArray(e.decisoesCriticas)?e.decisoesCriticas:[];e.decisoesCriticas.push({id:uid('dec'),tipo:'orcamento_tarefa',status:'pendente',criadaEm:Date.now(),tarefaId:t.id,titulo:`Tarefa parada por orçamento: ${t.titulo}`.slice(0,180),texto:`${t.motivoEscalada||'O orçamento da tarefa foi atingido.'} Escolha: dividir em partes menores, aumentar o orçamento ou cancelar.`});e.decisoesCriticas=e.decisoesCriticas.slice(-200);mudou=true;}
+      const legado=t.orcamentoTokens||{},eraLimiteTokens=legado.status==='escalado'||/orçamento de saída atingido/i.test(String(t.motivoEscalada||''));
+      if(!eraLimiteTokens)return;
+      t.orcamentoTokens=S.operacao&&S.operacao.normalizarOrcamento?S.operacao.normalizarOrcamento(legado,t):legado;t.status='aberta';t.para=null;t.bloqueada=false;t.retomarAposIA=0;delete t.motivoEscalada;delete t.escaladaEm;delete t.escaladaAoDono;delete t.renovacoesOrcamento;
+      (e.decisoesCriticas||[]).filter(d=>d.tipo==='orcamento_tarefa'&&d.tarefaId===t.id&&d.status==='pendente').forEach(d=>{d.status='resolvida';d.resolvidaEm=Date.now();d.resolucao='Limite acumulado removido; tarefa retomada automaticamente.';});
+      registrarReuniao(g&&g.nome||'Gerência',`“${t.titulo}” voltou à fila. Tokens e chamadas continuam sendo medidos, mas não existe mais teto acumulado por tarefa.`,'recuperacao');mudou=true;
     });
     if(mudou){S.state.gravar();S.bus.emit('trabalho');S.bus.emit('reuniao');}
     return mudou;
@@ -1210,7 +1212,7 @@
       somenteLeitura:Boolean(dados.somenteLeitura),inspecionarArquivoId:dados.inspecionarArquivoId||null, criadaEm: Date.now()
     };
     t.contratoAceitacao=S.operacao?S.operacao.contrato(Object.assign({},dados,{clienteVisivel})):Object.assign({},dados.contratoAceitacao||{});
-    t.orcamentoTokens=S.operacao?S.operacao.orcamentoPadrao(t):{saidaMax:5000,contextoMax:9000,saidaUsada:0,entradaUsada:0,chamadasMax:4,chamadasUsadas:0,status:'ativo'};
+    t.orcamentoTokens=S.operacao?S.operacao.orcamentoPadrao(t):{semLimite:true,saidaMax:null,contextoMax:null,chamadasMax:null,saidaUsada:0,entradaUsada:0,chamadasUsadas:0,status:'telemetria'};
     if(S.operacao)S.operacao.evento('tarefa.criada',{taskId:t.id,projectId:t.projectId,contrato:t.contratoAceitacao,orcamento:t.orcamentoTokens});
     e.tarefas.unshift(t);
     if (projeto) {
@@ -1250,13 +1252,7 @@
     const e=S.state.atual(),d=e&&(e.decisoesCriticas||[]).find(x=>x.id===id&&x.status==='pendente');if(!d)return false;const texto=String(resposta||'').trim();if(!texto)throw new Error('Informe os dados reais ou a decisão tomada fora do jogo.');
     d.status='respondida';d.respondidaEm=Date.now();d.respostaDono=texto.slice(0,4000);registrarReuniao('Você',`Resposta à solicitação “${d.titulo}”: ${texto}`,'resposta_humana');
     if(d.tipo==='orcamento_tarefa'&&d.tarefaId){
-      const t=(e.tarefas||[]).find(x=>x.id===d.tarefaId),r=normalizarFrase(texto);
-      if(t&&/(cancel|encerr|desist)/.test(r)){t.status='feita';t.cancelada=true;t.bloqueada=false;t.handoff='Cancelada por decisão do proprietário após atingir o orçamento da tarefa.';}
-      else if(t&&/(divid|separ|part)/.test(r)){
-        t.status='feita';t.dividida=true;t.bloqueada=false;
-        ['parte 1','parte 2'].forEach((sufixo,i)=>novaTarefa({titulo:`${t.titulo} — ${sufixo}`,briefing:`Execute somente ${sufixo} do escopo original, preservando o contrato de aceitação.\n\n${t.briefing||t.titulo}`,kit:t.kit,projectId:t.projectId,baseArquivoId:t.baseArquivoId,clienteVisivel:t.clienteVisivel,etapaDestino:t.etapaDestino,parentTaskId:t.clienteVisivel?null:(t.parentTaskId||null),contratoAceitacao:Object.assign({},t.contratoAceitacao||{},i?{minPalavras:0}:{}),origem:'divisão autorizada pelo proprietário'}));
-      }else if(t){const b=t.orcamentoTokens=S.operacao&&S.operacao.normalizarOrcamento?S.operacao.normalizarOrcamento(t.orcamentoTokens,t):(t.orcamentoTokens||{});b.saidaMax=Math.ceil(Math.max(Number(b.saidaMax||0),Number(b.saidaUsada||0)+1200)*1.75);b.chamadasMax=Math.max(Number(b.chamadasMax||0)+2,4);b.status='ativo';t.status='aberta';t.bloqueada=false;t.retomarAposIA=0;t._agenteEmExecucao=null;}
-      if(t)delete t.escaladaAoDono;
+      const t=(e.tarefas||[]).find(x=>x.id===d.tarefaId);if(t){t.orcamentoTokens=S.operacao&&S.operacao.normalizarOrcamento?S.operacao.normalizarOrcamento(t.orcamentoTokens,t):(t.orcamentoTokens||{});t.status='aberta';t.para=null;t.bloqueada=false;t.retomarAposIA=0;t._agenteEmExecucao=null;delete t.motivoEscalada;delete t.escaladaAoDono;delete t.renovacoesOrcamento;}
     }
     if(d.retomar){const r=Object.assign({},d.retomar,{_dadosHumanosConfirmados:true,briefing:`DADOS REAIS FORNECIDOS PELO PROPRIETÁRIO:\n${texto}\n\nTrabalhe somente com esses dados. Não suponha outras ações externas.\n\nCONTEXTO ORIGINAL:\n${d.retomar.briefing||d.titulo}`,origem:'retomada após ação do proprietário'});const criada=novaTarefa(r);if(!criada){const ativa=(e.tarefas||[]).find(t=>!t.clienteVisivel&&t.status!=='feita'&&t.projectId===(r.projectId||t.projectId));if(ativa){ativa.briefing=`${ativa.briefing||ativa.titulo}\n\nDADOS REAIS DO PROPRIETÁRIO PARA ESTA FRENTE:\n${texto}`;ativa.ultimaAtividadeEm=Date.now();}}}
     S.state.gravarJa();S.bus.emit('reuniao');S.bus.emit('trabalho');return true;
@@ -2196,7 +2192,7 @@ ${JSON.stringify(S.buff&&S.buff.FUNDACAO_SCHEMA||{})}`;
       } else throw new Error('Nenhuma transformação foi produzida.');
     } catch(err) {
       if(err&&(err.limiteLocal||err.cota)){
-        if(err.orcamentoTarefa){tarefa.status='aguardando_decisao';tarefa.para=null;tarefa.escaladaEm=Date.now();}else tarefa.status='aberta';
+        tarefa.status='aberta';
         S.state.registrar(`${tarefa.titulo} permanece na fila: ${err.message||err} Nenhuma tentativa de qualidade foi consumida.`,'alerta',p.id);return false;
       }
       if(err&&err.transitoria){

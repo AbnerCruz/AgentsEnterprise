@@ -1,7 +1,7 @@
 /* Service worker do Estúdio.
    Só o shell é cacheado. A IA é remota (OpenRouter) e nunca passa por aqui:
    requisições para outras origens são ignoradas de propósito. */
-const CACHE = 'estudio-v69-2-foundation-watchdog';
+const CACHE = 'estudio-v69-3-unlimited-task-output';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './game.css',
   './core.js', './optimization.js', './buff.js', './ai.js',

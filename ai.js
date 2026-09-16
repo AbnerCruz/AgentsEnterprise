@@ -486,7 +486,7 @@
     const metaRota={nivel:rota.nivel,rotaMotivo:rota.motivo,rotaScore:rota.score,tentativa:rota.tentativa};
     // A estimativa define um teto explícito de saída. Se o provedor atingir o
     // teto, fazemos no máximo uma continuação e validamos o resultado unido.
-    const estimativaSaida = Math.max(120,Number(op.maxTokensPeca)||Number(op.tokens)||(tipo==='conteudo'?2500:700));
+    const estimativaSaida = Math.max(120,Number(op.maxTokensPeca)||Number(op.tokens)||(tipo==='conteudo'?5000:700));
     const provedorUsado = 'openrouter';
     const provInfo = PROVEDORES.openrouter;
     const chaveUsada = chaves.openrouter;
@@ -517,7 +517,7 @@
     if(sistemaEmpresa)mensagens.push({role:'system',content:sistemaEmpresa});
     mensagens.push({role:'user',content:String(pedido||'')});
     const entradaEstimada=Math.ceil((sistemaEstavel.length+sistemaEmpresa.length+String(pedido||'').length)/4);
-    let maxTokens=Math.min(tetoSaidaModelo(modelo),tipo==='conteudo'?Math.min(2500,estimativaSaida):estimativaSaida);
+    let maxTokens=Math.min(tetoSaidaModelo(modelo),estimativaSaida);
     const custoEstimado = estimarCusto(provedorUsado, modelo, entradaEstimada, maxTokens);
     if(!op._continuacao&&S.operacao&&S.operacao.autorizarChamada)S.operacao.autorizarChamada(op,{entrada:entradaEstimada,saida:maxTokens});
     if (provedorUsado === 'openrouter' && orStatus.temLimiteChave === true && Number.isFinite(Number(orStatus.limiteRestante)) && Number(orStatus.limiteRestante) < custoEstimado) {

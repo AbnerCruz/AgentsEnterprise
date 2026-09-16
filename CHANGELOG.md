@@ -4,6 +4,15 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v69.3 — produção sem teto local de tokens
+
+- Removido o orçamento acumulado de saída e de quantidade de chamadas por tarefa. Tokens continuam registrados para custo, métricas e roteamento, mas nunca mais colocam uma tarefa em `aguardando_decisao`.
+- Removido o corte local fixo de 2.500 tokens por chamada de produção. A extensão contratada dimensiona a saída, limitada apenas pela capacidade técnica declarada do modelo.
+- Respostas que atingirem o limite técnico do modelo continuam usando a continuação automática e só são aceitas depois de reunidas e validadas integralmente.
+- Tarefas já bloqueadas por versões anteriores voltam automaticamente para a fila, e as respectivas decisões críticas de orçamento são encerradas como resolvidas.
+- Permanecem ativos somente os freios financeiros reais: caixa da empresa, limite diário configurado, saldo/crédito e rate limits informados pelo OpenRouter.
+- Cache e URLs dos motores foram incrementados para v69.3.
+
 # v69.2 — fundação não bloqueante e autorrecuperável
 
 - O plano de obra congelado pode criar várias peças internas ligadas à mesma entrega-cliente; a restrição de uma frente interna continua valendo apenas para tarefas autônomas.
