@@ -635,8 +635,10 @@
       if(['length','max_tokens'].includes(fim)&&!op._continuacao&&texto.length>200){
         const custoParcial=numeroOpcional((dados.usage||{}).cost)||estimarCusto(provedorUsado,modelo,(dados.usage||{}).prompt_tokens,(dados.usage||{}).completion_tokens);
         registrarChamada({quem:agente||agenteId,agenteId,motivo:motivo||tipo,...metaRota,modelo,provedor:provedorUsado,ms,ok:true,continuacaoNecessaria:true,entrada:Number((dados.usage||{}).prompt_tokens||0),saida:Number((dados.usage||{}).completion_tokens||0),tokens:Number((dados.usage||{}).total_tokens||0),custo:custoParcial,em:Date.now(),taskId:op.taskId||null,projectId:op.projectId||null,artifactId:op.artifactId||op.baseArquivoId||null,detalhesUso:dados.usage||{},finishReason:fim,tipo,etapa:op.etapa||null,kit:op.kit||null});
-        const cont=await chamar(Object.assign({},op,{_continuacao:true,_skipSync:true,tokens:Math.max(700,estimativaSaida),pedido:`Continue EXATAMENTE de onde parou, sem repetir nada e sem reintroduzir o cabeçalho. Última parte entregue:\n${texto.slice(-600)}`}));
-        return Object.assign({},cont,{texto:texto+cont.texto,continuado:true});
+        try{
+          const cont=await chamar(Object.assign({},op,{_continuacao:true,_skipSync:true,tokens:Math.max(700,estimativaSaida),pedido:`${pedido}\n\nContinue EXATAMENTE de onde parou, sem repetir nada e sem reintroduzir o cabeçalho. Trecho já entregue:\n${texto}`}));
+          return Object.assign({},cont,{texto:texto+cont.texto,continuado:true});
+        }catch(err){if(err.incompleta)err.textoParcial=texto+String(err.textoParcial||'');throw err;}
       }
       if(['length','max_tokens','content_filter'].includes(fim)){
         const custoIncompleto=numeroOpcional((dados.usage||{}).cost)||estimarCusto(provedorUsado,modelo,(dados.usage||{}).prompt_tokens,(dados.usage||{}).completion_tokens);

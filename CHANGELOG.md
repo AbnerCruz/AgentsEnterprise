@@ -4,6 +4,24 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v70 — produto composto, aceite por peça e recuperação visível
+
+- Novo `product-run.js`: cada projeto acompanha um produto e suas peças, separando produção, aceite, montagem e release. Peças não podem ser publicadas isoladamente pelo fluxo antigo.
+- O contrato distingue critérios semânticos (revisados pela IA) de nomes, seções literais e extensão (validados localmente). Corrigir uma peça mantém sua identidade, contrato e histórico; não abre uma linhagem nova.
+- O aceite promove o mesmo arquivo após verificações reais. Não exige reescritas idênticas só para avançar de etapa. A gerente revisa o pacote completo antes da publicação.
+- A montagem inclui exclusivamente peças de cliente aceitas, resolve referências relativas e cria um ZIP imutável. Obras seriais incluem um Markdown integrado. Documentos fundadores e guias internos ficam fora da entrega.
+- A lista de arquivos do release é preservada no próprio produto, inclusive após recarga. Download e prévia usam essa edição, sem misturar arquivos mutáveis do projeto. O acervo preserva o pacote promovido pelo proprietário.
+- Planos admitem 1–15 peças conforme a necessidade, sem obrigar oito tarefas. Uma fundação estrutural válida encerra a geração; foi removida a segunda proposta completa obrigatória. Peças já planejadas dispensam o Best-of-N de planejamento antes da prosa.
+- Tarefas legadas bloqueadas têm uma retomada com abordagem revisada. Falhas persistentes e revisões sem resposta abrem decisão visível, com motivo, e botão Retomar no quadro. Dependências ausentes ou circulares deixam diagnóstico explícito.
+- Critérios de tamanho arbitrários foram retirados do parser: CSS, JSON, licenças e outros arquivos pequenos são aceitos quando válidos; limites de extensão do contrato continuam verificados. JavaScript comum recebe parse de sintaxe, sem executar o código.
+- O kit de arquivos HTML/CSS do desenvolvimento é corrigido pela extensão contratada. Peças gerenciadas não entram na consolidação heurística por similaridade. Tarefas persistentes não são descartadas ao atingir 250 registros.
+- A classificação explícita cliente/interno sobrevive à recarga. A continuação interrompida preserva também o primeiro trecho gerado.
+- Desenvolvimento pode iniciar o site institucional sem portfólio quando não há trabalho de produto para o setor. A revisão final não bloqueia o despacho dos demais funcionários. Movimento e vitais continuam com relógios próprios.
+- Persistência: a projeção compacta só substitui o conteúdo local depois de o snapshot completo ser confirmado no IndexedDB. O motor aguarda a hidratação; uma projeção não recuperada não pode sobrescrever o conteúdo durável.
+- Interface: andamento por produto e peças aceitas, motivos de parada, retomada, seletor de arquivos da edição publicada e download do ZIP completo. Cache e scripts incrementados para v70.0.
+- Validação offline: `tests/product-run.test.js` percorre entrevista, fundação, produção real do motor, recuperação, revisão, montagem, aprovação e ZIP usando respostas simuladas de provedor; inclui aplicativo, livro, dependências, revisão indisponível e recarga. `tests/persistence-order.test.js` simula falha de armazenamento. Smoke legado e oito testes de servidor passam.
+- Limite da validação: não foram gastos créditos reais de IA. Testes não certificam qualidade editorial universal nem execução de todo software gerado. O teste visual em Chromium não pôde ser executado neste ambiente: navegador ausente e download indisponível por timeout.
+
 # v69.3 — produção sem teto local de tokens
 
 - Removido o orçamento acumulado de saída e de quantidade de chamadas por tarefa. Tokens continuam registrados para custo, métricas e roteamento, mas nunca mais colocam uma tarefa em `aguardando_decisao`.

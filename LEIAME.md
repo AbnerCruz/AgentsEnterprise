@@ -1,4 +1,4 @@
-# Agents Enterprise — v62
+# Agents Enterprise — v70
 
 > Migração para servidor em andamento: consulte [docs/ARQUITETURA_SERVIDOR.md](docs/ARQUITETURA_SERVIDOR.md) e o contrato inicial em [server/openapi.yaml](server/openapi.yaml). O jogo publicado continua usando o motor local até a importação e o worker durável estarem validados.
 
@@ -9,9 +9,13 @@ Agents Enterprise é um jogo 2D top-down, mobile-first e projetado para jogar co
 1. Abra o menu principal e configure uma única conta OpenRouter para todas as empresas.
 2. Ao tocar em fundar, a gerente é nomeada imediatamente e conduz uma entrevista curta sobre negócio, público e produto.
 3. A gerente cria a estratégia, contrata a equipe especializada e inicia as operações com uma reunião de planejamento de toda a equipe.
-4. Funcionários procuram tarefas abertas e materializam produtos pelo pipeline `esboço → protótipo → candidato → produto`.
+4. Funcionários produzem as peças do plano. Cada peça passa por validação estrutural e revisão de conteúdo. As peças aceitas são montadas em um pacote, e a gerente decide o release do produto completo.
 5. Abra a central lateral para acompanhar produção, artefatos, estado ao vivo, logs e métricas de IA. Arraste o mapa com um dedo, use pinça ou `−`/`+` para controlar o zoom.
-6. Baixe os produtos finais ou envie os melhores ao acervo da empresa.
+6. Acompanhe as peças aceitas na aba Artefatos. Baixe o ZIP da edição publicada ou envie o produto ao acervo da empresa. Paradas exibem o motivo no quadro e na caixa de decisões; Retomar preserva o conteúdo anterior.
+
+## Verificação local
+
+Execute `node tests/flow-smoke.test.js`, `node tests/product-run.test.js`, `node tests/persistence-order.test.js` e `node --test server/tests/*.test.mjs`. As respostas de IA são simuladas; os testes não consomem crédito. O teste de produto executa fundação, produção, revisão e montagem, sem publicar manualmente um candidato fabricado.
 
 ## Mundo do jogo
 

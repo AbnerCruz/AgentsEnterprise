@@ -112,6 +112,7 @@ window.S = window.S || {};
     if(!a||typeof a!=='object')return null;
     const nome=String(a.nome||'').replace(/[\x00-\x1f]/g,'').trim();if(!nome)return null;
     return {id:String(a.id||uid('ref')),nome:nome.slice(0,180),tipo:String(a.tipo||'txt').replace(/^\./,'').toLowerCase().slice(0,16),conteudo:String(a.conteudo||''),
+      ...(Array.isArray(a.pacote)?{pacote:a.pacote.map(f=>({nome:String(f.nome),tipo:String(f.tipo||'txt'),conteudo:String(f.conteudo||'')}))}:{}),
       tamanho:Math.max(0,Number(a.tamanho)||String(a.conteudo||'').length),criadoEm:Number(a.criadoEm)||Date.now(),atualizadoEm:Number(a.atualizadoEm)||Number(a.criadoEm)||Date.now(),
       origem:String(a.origem||'dispositivo'),escopo:String(a.escopo||'global'),globalId:a.globalId||null,empresaItemId:a.empresaItemId||null,produtoOrigemId:a.produtoOrigemId||null,empresaOrigemId:a.empresaOrigemId||null,projetoOrigemId:a.projetoOrigemId||null,
       descricao:String(a.descricao||'').slice(0,1200),imutavelParaAgentes:true,versao:Math.max(1,Number(a.versao)||1)};
@@ -366,8 +367,7 @@ window.S = window.S || {};
       const at=String((a.nome||'')+' '+(a.briefing||'')).toLowerCase();
       const pareceInterno=/plano[_ -]?de[_ -]?neg[oó]cio|roadmap|relat[oó]rio|auditoria|checklist|briefing|pesquisa|m[eé]trica|aprova[cç][aã]o|ata|planejamento|lembrete|documenta[cç][aã]o interna/.test(at);
       if(a.classe==='produto') a.clienteVisivel=true;
-      else if(pareceInterno) a.clienteVisivel=false;
-      else if(typeof a.clienteVisivel!=='boolean') a.clienteVisivel=true;
+      else if(typeof a.clienteVisivel!=='boolean') a.clienteVisivel=!pareceInterno;
       a.escopo=a.clienteVisivel?'produto':'interno';
       const tinhaPipeline=a.pipeline&&a.pipeline.versao>=1&&Array.isArray(a.pipeline.etapas);
       if(!tinhaPipeline){
@@ -438,6 +438,7 @@ window.S = window.S || {};
     let recuperadas=tarefasRecuperadasDeLimite;
     e.tarefas.forEach(t=>{delete t.proximaTentativa;delete t._agenteEmExecucao;if(t.status==='fazendo'){t.status='aberta';recuperadas++;}});
     e.arquivos.forEach(a=>{delete a.proximaAvaliacao;});
+    for(const r of e.productRuns||[]){delete r._publicando;for(const p of r.pecas||[])delete p._revisando;}
     if(e.reuniao.reuniaoAtiva){delete e.reuniao.reuniaoAtiva;e.reuniao.mensagens.push({id:uid('m'),t:Date.now(),quem:'Sistema',texto:'Reunião interrompida pelo fechamento do jogo foi encerrada; o trabalho voltou à fila.',tipo:'recuperacao'});e.reuniao.mensagens=e.reuniao.mensagens.slice(-180);recuperadas++;}
     if(recuperadas)e.log.push({t:Date.now(),texto:`Recuperação de sessão: ${recuperadas} estado(s) transitório(s) voltaram ao fluxo operacional.`,tag:'recuperacao',agente:null});
     if(e.log.length>2000)e.log.splice(0,e.log.length-2000);
@@ -474,7 +475,12 @@ window.S = window.S || {};
     DB.estudios.forEach(processarFolhaInterna);
     // A projeção compacta permite inicialização síncrona; o snapshot completo
     // do IndexedDB hidrata conteúdo frio sem bloquear o primeiro desenho.
-    if(S.persistencia&&S.persistencia.hidratar)void S.persistencia.hidratar(DB).catch(()=>S.bus.emit('storage-falhou'));
+    S.state.pronto=(S.persistencia?.hidratar?S.persistencia.hidratar(DB):Promise.resolve(false)).then(ok=>{
+      if(DB.compactado&&!ok)throw new Error('O conteúdo completo do armazenamento ainda não foi recuperado.');
+      return true;
+    });
+    // Also attach a handler for callers that only use the synchronous API.
+    S.state.pronto.catch(()=>S.bus.emit('storage-falhou'));
     return DB;
   }
 
@@ -526,11 +532,17 @@ window.S = window.S || {};
     timerGravacao = setTimeout(() => { timerGravacao = null; gravarJa(); }, 700);
   }
   function gravarJa() {
-    DB.persistidoEm=Date.now();DB.compactado=false;
+    if(DB.compactado){S.bus.emit('storage-falhou');return false;}
+    DB.persistidoEm=Math.max(Date.now(),Number(DB.persistidoEm||0)+1);DB.compactado=false;
     const completo={ versao: 5, persistidoEm:DB.persistidoEm, compactado:false, atual: DB.atual, estudios: DB.estudios, acervoUsuario:DB.acervoUsuario };
-    if(S.persistencia&&S.persistencia.gravar)void S.persistencia.gravar(completo).catch(()=>S.bus.emit('storage-falhou'));
-    const projeção=S.persistencia&&S.persistencia.projecaoLocal?S.persistencia.projecaoLocal(completo):completo;
-    const ok = gravarLocal(CHAVE, projeção);
+    // A compact projection is safe only AFTER its complete snapshot commits.
+    // Failed IndexedDB writes must never replace usable local content by refs.
+    if(S.persistencia?.disponivel)void S.persistencia.gravar(completo).then(ok=>{
+      if(ok&&DB.persistidoEm===completo.persistidoEm){
+        if(!gravarLocal(CHAVE,S.persistencia.projecaoLocal(completo)))S.bus.emit('storage-falhou');
+      }
+    }).catch(()=>S.bus.emit('storage-falhou'));
+    const ok = gravarLocal(CHAVE, completo);
     if (!ok) S.bus.emit('storage-falhou');
     return ok;
   }
@@ -783,7 +795,7 @@ window.S = window.S || {};
   function promoverProduto(produtoId){
     const e=atual();if(!e)throw new Error('Nenhuma empresa selecionada.');const p=(e.arquivos||[]).find(x=>x.id===produtoId&&x.classe==='produto');if(!p)throw new Error('Somente produtos finais podem entrar no acervo do usuário.');
     const existente=(e.acervoUsuario||[]).find(x=>x.produtoOrigemId===p.id);if(existente)return existente;
-    const a=adicionarAcervo({nome:p.nome,tipo:p.tipo,conteudo:p.conteudo,tamanho:String(p.conteudo||'').length,origem:'produto final',produtoOrigemId:p.id,empresaOrigemId:e.id,projetoOrigemId:p.projectId,descricao:`Produto final v${p.versao||1} criado por ${p.autor||'equipe'}.`},'empresa');
+    const a=adicionarAcervo({nome:p.nome,tipo:p.tipo,conteudo:p.conteudo,pacote:p.pacote,tamanho:JSON.stringify(p.pacote||p.conteudo||'').length,origem:'produto final',produtoOrigemId:p.id,empresaOrigemId:e.id,projetoOrigemId:p.projectId,descricao:`Produto final v${p.versao||1} criado por ${p.autor||'equipe'}.`},'empresa');
     if(p.projectId)vincularAcervo(a.id,p.projectId);registrar(`${p.nome} foi promovido pelo dono ao acervo soberano.`,'acervo');return a;
   }
   function contextoAcervo(projectId,_limite){

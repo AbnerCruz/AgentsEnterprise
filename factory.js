@@ -91,13 +91,14 @@
     const t = String(tipo || 'md').toLowerCase();
     const notas = [];
     if(TIPOS_IMAGEM.includes(t)) return {pronto:/^data:image\//.test(texto),notas:/^data:image\//.test(texto)?[]:['imagem sem dados binários'],verificadoEm:Date.now(),tipo:t};
-    const minimo = ['json','csv','css','js','ts','py','sql'].includes(t) ? 80 : 200;
-    if (texto.trim().length < minimo) notas.push('conteúdo curto demais para uma entrega completa deste tipo');
-    if (!['json','csv','css','js'].includes(t) && texto.split(/\n/).length < 4) notas.push('estrutura insuficiente: poucas linhas');
+    // Length belongs to the task contract. Small stylesheets, licenses and
+    // valid data files must not fail an arbitrary prose-size requirement.
+    if (!texto.trim()) notas.push('arquivo vazio');
     PLACEHOLDERS.forEach(rx => { rx.lastIndex = 0; if (rx.test(texto)) notas.push('marcador de preenchimento encontrado: ' + rx.source); });
     const acaoHumanaFicticia=/\b(?:contatamos|contactamos|entramos em contato|enviamos (?:um |o )?(?:e-?mail|mensagem)|lemos (?:o |um )?e-?mail|telefonamos|ligamos para|realizamos (?:a |o )?(?:venda|pagamento|compra|cadastro|upload|deploy|publica[cç][aã]o externa)|publicamos (?:na|no|em)|recebemos confirma[cç][aã]o externa|assinamos (?:o |um )?contrato)\b/i;
     if(acaoHumanaFicticia.test(texto))notas.push('afirmação não verificável de ação humana ou externa encontrada');
     if (t === 'json') { try { JSON.parse(texto); } catch (_) { notas.push('JSON inválido'); } }
+    if(t==='js'&&!/^\s*(?:import|export)\b/m.test(texto)){try{new Function(texto);}catch(err){notas.push('JavaScript inválido: '+err.message);}}
     if (t === 'html' && !/<(?:html|body|main|section|article|div)[\s>]/i.test(texto)) notas.push('HTML sem estrutura utilizável');
     if (t === 'csv') {
       const linhas = texto.trim().split(/\n/).filter(Boolean);
@@ -135,7 +136,7 @@
     return validacao;
   }
 
-  function validarFinal(conteudo, tipo, briefing) {
+  function validarFinal(conteudo, tipo, briefing, escopo) {
     const base = aplicarRequisitosDeterministicos(validar(conteudo, tipo),conteudo,tipo,briefing);
     const notas = (base.notas || []).slice();
     const texto = String(conteudo || '');
@@ -150,7 +151,7 @@
       if (/^\s{0,3}#{1,6}\s+(?:notas? internas?|pend[eê]ncias? de revis[aã]o|checklist de publica[cç][aã]o|aprova[cç][oõ]es?|pr[oó]ximos passos internos?)\s*$/im.test(texto))
         notas.push('seção de processo interno encontrada no conteúdo final');
       const numerados=[...texto.matchAll(/^\s*(?:#{1,6}\s*)?(?:cap[ií]tulo|conto)\s+(\d+)\b/gim)].map(m=>Number(m[1])).filter(Number.isFinite);
-      if(numerados.length>=2&&!numerados.includes(1))notas.push('sequência de capítulos/contos incompleta: a entrega não contém o item 1');
+      if(!escopo?.peca&&numerados.length>=2&&!numerados.includes(1))notas.push('sequência de capítulos/contos incompleta: a entrega não contém o item 1');
     }
     return { pronto: notas.length === 0, prontoEstrutural: notas.length === 0, notas: notas.slice(0, 10), metricas:base.metricas, verificadoEm: Date.now(), tipo: t, gate: 'cliente-final' };
   }
@@ -241,6 +242,7 @@
     const ferramentas=S.ferramentas&&S.ferramentas.contexto?S.ferramentas.contexto(projeto&&projeto.id,base&&base.id):null;
     const acervoSoberano=S.acervo&&S.acervo.contexto?S.acervo.contexto(projeto&&projeto.id,8500):'Nenhuma referência soberana vinculada.';
     const amp=S.buff&&S.buff.preparar?S.buff.preparar(Object.assign({},op,{kit,contrato:op&&op.contrato,clienteVisivel}),{empresa:e}):null;
+    const pecaGerenciada=Boolean((e.tarefas||[]).find(t=>t.id===op?.taskId)?.productRunId);
     const integrarLocal=!base&&kit==='autonomo'&&/\b(?:edi[cç][aã]o integrada|integrar|unir|consolidar|montagem final)\b/i.test(`${op&&op.titulo||''} ${briefing}`);
     if(integrarLocal){const candidatos=(e.arquivos||[]).filter(a=>a.projectId===(projeto&&projeto.id)&&a.clienteVisivel&&a.classe!=='produto'&&TIPOS_TEXTO.includes(String(a.tipo||'').toLowerCase())&&String(a.conteudo||'').trim()),partes=candidatos.filter(a=>!candidatos.some(b=>b.baseArquivoId===a.id)).sort((a,b)=>Number(a.criadoEm||0)-Number(b.criadoEm||0));if(partes.length>=2){const conteudo=partes.map(a=>String(a.conteudo||'').trim()).join('\n\n');const nome=limparNome((projeto&&projeto.nome)||op.titulo||'produto-integrado','md');let validacao=aplicarRequisitosDeterministicos(validar(conteudo,'md'),conteudo,'md',briefing);if(op&&op.contrato&&S.operacao){const cv=S.operacao.validarContrato(op.contrato,[{nome,tipo:'md',conteudo}]);validacao.notas=(validacao.notas||[]).concat(cv.notas||[]);validacao.pronto=validacao.pronto&&cv.pronto;validacao.contrato=cv;}if(S.buff&&amp){const vb=S.buff.validar(conteudo,amp.spec);validacao.notas=(validacao.notas||[]).concat(vb.notas||[]).slice(0,12);validacao.pronto=validacao.pronto&&vb.pronto;validacao.amplificacao=vb;}return{arquivos:[{nome,tipo:'md',conteudo}],resumo:`Integração determinística de ${partes.length} peças, sem reescrita paga.`,validacao,classe:etapa,kit,viaIA:false,linhagem:null,baseArquivoId:null,operacao:'substituir',integracaoLocal:true};}}
     // Artes visuais usam um modelo dedicado; não desperdiçamos uma chamada de
@@ -300,7 +302,7 @@
       {id:'fatos',prio:3,max:350,texto:`FERRAMENTAS/MÉTRICAS: ${ferramentas?JSON.stringify(ferramentas):'indisponíveis'} | base=${metricasBase?JSON.stringify(metricasBase):'n/d'}`}
     ],Number(op&&op.contextoMax)||9000)+`\n\nINSTRUÇÃO DE SAÍDA: ${incremental?'Anexe somente a nova unidade, sem repetir a base.':modoSecao?`Corrija somente a seção "${alvoSecao.titulo}". No corpo, retorne SUBSTITUIR_SECAO: ${alvoSecao.titulo}, depois <<<SECAO>>>, depois a seção completa corrigida. Preserve o cabeçalho exato.`:modoPatch&&basePrompt.intervalo?`Substitua somente as linhas ${basePrompt.intervalo.de}-${basePrompt.intervalo.ate} usando SUBSTITUIR_LINHAS e escreva apenas o trecho novo.`:'Entregue a versão integral.'}`;
 
-    if(amp&&amp.spec.minPalavras>=1000&&!base&&kit==='texto'){
+    if(amp&&amp.spec.minPalavras>=1000&&!base&&kit==='texto'&&!pecaGerenciada){
       try{const schemaMapa={type:'object',properties:{batidas:{type:'array',minItems:3,maxItems:12,items:{type:'string',minLength:8}}},required:['batidas'],additionalProperties:false},gerarMapa=async i=>{const resposta=await S.ai.chamar({sistemaEstavel:'Planeje uma única peça textual. Não escreva a prosa. Retorne somente batidas concretas que cumpram a especificação.',sistemaEmpresa,pedido:`TAREFA: ${briefing}\nESPECIFICAÇÃO: ${JSON.stringify(amp.spec)}`,tipo:'pensamento',tokens:320,nivel:'leve',temperature:0.15,top_p:0.8,seed:6900+i,response_format:{type:'json_schema',json_schema:{name:'mapa_peca',strict:true,schema:schemaMapa}},agente:agente.nome,agenteId:agente.id,motivo:'mapa curto Best-of-N antes da prosa',taskId:op.taskId||null,projectId:op.projectId||null,kit,etapa}),valor=S.buff.extrairJSON(resposta&&resposta.texto),batidas=valor&&Array.isArray(valor.batidas)?valor.batidas.filter(x=>String(x).trim().length>=8):[];return{resposta,valor,batidas,valido:batidas.length>=3&&batidas.length<=12};},avaliarMapa=x=>{if(!x||!x.valido)return 0;const texto=x.batidas.join(' ').toLowerCase(),cobertura=(amp.spec.batidas||[]).filter(b=>texto.includes(String(b).toLowerCase())).length;return 100+x.batidas.length*2+cobertura*10;},melhorMapa=await S.buff.melhorDeN(gerarMapa,avaliarMapa,2),mapa=melhorMapa&&melhorMapa.valor;if(!mapa||!mapa.valido)throw new Error('os dois mapas falharam na validação local');pedidoVolatil+=`\n\nMAPA APROVADO PARA ESTA PEÇA (siga as batidas sem reproduzir o mapa no produto):\n${JSON.stringify(mapa.valor)}`;if(S.operacao)S.operacao.evento('producao.mapa_curto_escolhido',{taskId:op.taskId||null,pontuacao:melhorMapa.nota,batidas:mapa.batidas.length});}catch(err){if(S.operacao)S.operacao.evento('producao.mapa_curto_indisponivel',{taskId:op.taskId||null,motivo:String(err&&err.message||err).slice(0,180)});}
     }
 
@@ -325,7 +327,7 @@
       conteudo = texto.split(/\n/).filter(l => !/^\s*(ARQUIVO|TIPO|RESUMO|OPERACAO|PRONTO|ACERVO_ID|SOLICITACAO_ACERVO)\s*:/i.test(l)).join('\n').trim();
     }
     conteudo = conteudo.replace(/^```[a-z]*\n?|```$/gi, '').trim();
-    if (conteudo.length < 80) throw new Error('A IA de produção não devolveu conteúdo utilizável.');
+    if (!conteudo.trim()) throw new Error('A IA de produção não devolveu conteúdo utilizável.');
     if(modoSecao){
       const marcador=conteudo.match(/^\s*SUBSTITUIR_SECAO\s*:\s*([^\n]+)\s*\n<<<SECAO>>>\s*\n([\s\S]+)$/i);
       if(marcador&&marcador[1].trim()===alvoSecao.titulo){conteudo=aplicarSubstituicaoSecao(base.conteudo,alvoSecao.titulo,marcador[2]);}
@@ -351,7 +353,7 @@
     // Projetos multi-arquivo não são espremidos em um Markdown com nome .zip.
     // Cada bloco vira um arquivo persistente do mesmo projeto; a UI consegue
     // exportar o projeto inteiro como ZIP binário de verdade.
-    if (!base && pareceProjetoCompleto(briefing)) {
+    if (!base && (pareceProjetoCompleto(briefing)||/<<<ARQUIVO:/.test(conteudo))) {
       const bundle = parseBundle(conteudo);
       if (bundle.length >= 2) {
         const disponiveis=(e.arquivos||[]).filter(a=>a.projectId===(projeto&&projeto.id)).concat(bundle);
@@ -374,7 +376,9 @@
     // Em uma evolução, identidade de arquivo e formato pertencem à linhagem,
     // não à resposta do modelo. Isto impede renomeações acidentais a cada revisão.
     const tipo = op&&op.somenteLeitura?'md':(base ? tipoValido(base.tipo, kit) : tipoValido(campos.tipo, kit));
-    const nome = op&&op.somenteLeitura?limparNome(`relatorio-${inspecionado&&inspecionado.nome||op.titulo}`,tipo):(base ? limparNome(base.nome, tipo) : limparNome(campos.arquivo || (op && op.titulo) || 'entrega', tipo));
+    const nomeResposta = op&&op.somenteLeitura?limparNome(`relatorio-${inspecionado&&inspecionado.nome||op.titulo}`,tipo):(base ? limparNome(base.nome, tipo) : limparNome(campos.arquivo || (op && op.titulo) || 'entrega', tipo));
+    const expected=op?.contrato?.arquivosEsperados||[];
+    const nome=expected.length===1&&String(expected[0]).toLowerCase().endsWith('.'+tipo)&&!op?.somenteLeitura?limparCaminho(expected[0],tipo):nomeResposta;
     const disponiveis=(e.arquivos||[]).filter(a=>a.projectId===(projeto&&projeto.id)).concat({nome,tipo,conteudo});
     let validacao = (clienteVisivel && etapa === 'candidato')
       ? validarPacote(conteudo, tipo, disponiveis,briefing)
