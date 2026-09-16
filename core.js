@@ -130,16 +130,24 @@ window.S = window.S || {};
     e.missao = semMarcacao(e.missao, 'Entregar material útil e bem-feito.');
     e.tom = semMarcacao(e.tom, 'direto e caloroso');
     e.publico = semMarcacao(e.publico, 'pequenos negócios');
+    const instrucaoInferencia=/^a gerente deve inferir/i;
+    if(instrucaoInferencia.test(e.publico))e.publico='a definir';
     // Fundação estratégica persistente; empresas antigas passam por migração sem perder trabalho.
     e.fundacao = e.fundacao && typeof e.fundacao === 'object' ? e.fundacao : {};
     e.fundacao.versao = Number(e.fundacao.versao) || 0;
     e.fundacao.estado = String(e.fundacao.estado || (e.fundacao.versao >= 2 ? 'operacional' : 'migracao_pendente'));
     e.fundacao.perguntas = e.fundacao.perguntas && typeof e.fundacao.perguntas === 'object' ? e.fundacao.perguntas : {};
     ['ideia','objetivo','tipoProduto','publico','restricoes'].forEach(k => { e.fundacao.perguntas[k] = String(e.fundacao.perguntas[k] || ''); });
+    ['tipoProduto','publico'].forEach(k=>{if(instrucaoInferencia.test(e.fundacao.perguntas[k]))e.fundacao.perguntas[k]='';});
+    e.fundacao.chat=Array.isArray(e.fundacao.chat)?e.fundacao.chat.slice(-80):[];
+    e.fundacao.tentativasMaterializacao=Number(e.fundacao.tentativasMaterializacao)||0;
+    e.fundacao.materializacaoEscalada=Boolean(e.fundacao.materializacaoEscalada);
     e.fundacao.identidade = e.fundacao.identidade && typeof e.fundacao.identidade === 'object' ? e.fundacao.identidade : {};
     ['nome','slogan','missao','visao','valores','posicionamento','manifesto','tom','cores','tipografia','estiloVisual'].forEach(k => { e.fundacao.identidade[k] = String(e.fundacao.identidade[k] || ''); });
     e.fundacao.planoNegocio = String(e.fundacao.planoNegocio || '');
     e.fundacao.primeiroProduto = String(e.fundacao.primeiroProduto || '');
+    e.fundacao.tipoProdutoInferido=String(e.fundacao.tipoProdutoInferido||'');
+    e.fundacao.empresaAnteriorId=e.fundacao.empresaAnteriorId?String(e.fundacao.empresaAnteriorId):null;
     e.fundacao.forma=['serial','pacote','acervo','iterada','servico'].includes(e.fundacao.forma)?e.fundacao.forma:'iterada';
     e.fundacao.planoObra=Array.isArray(e.fundacao.planoObra)?e.fundacao.planoObra.slice(0,40):[];
     e.fundacao.planoObraTexto=String(e.fundacao.planoObraTexto||'').slice(0,24000);
@@ -331,7 +339,7 @@ window.S = window.S || {};
       }
     });
     e.arquivos.forEach(a => {
-      a.classe = ['esboco', 'prototipo', 'candidato', 'produto'].includes(a.classe) ? a.classe : 'esboco';
+      a.classe = ['referencia','esboco', 'prototipo', 'candidato', 'produto'].includes(a.classe) ? a.classe : 'esboco';
       delete a.qualidade;
       a.versao = Number(a.versao) || 1;
       a.versaoEdicao=Number(a.versaoEdicao)||0;
@@ -346,6 +354,11 @@ window.S = window.S || {};
       a.modelos=Array.isArray(a.modelos)?[...new Set(a.modelos.map(String))].slice(-30):[];
       a.linhagem = a.linhagem || slug(a.nome);
       a.tentativasAvaliacao = Number(a.tentativasAvaliacao) || 0;
+      if(a.classe==='referencia'){
+        a.clienteVisivel=false;a.escopo='interno';a.avaliado=true;a.liberadoPublicacao=false;
+        a.pipeline={versao:1,etapas:['referencia'],etapaAtual:'referencia',clienteVisivel:false};
+        return;
+      }
       const at=String((a.nome||'')+' '+(a.briefing||'')).toLowerCase();
       const pareceInterno=/plano[_ -]?de[_ -]?neg[oó]cio|roadmap|relat[oó]rio|auditoria|checklist|briefing|pesquisa|m[eé]trica|aprova[cç][aã]o|ata|planejamento|lembrete|documenta[cç][aã]o interna/.test(at);
       if(a.classe==='produto') a.clienteVisivel=true;

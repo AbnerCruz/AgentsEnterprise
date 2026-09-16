@@ -4,6 +4,17 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v69.1 — briefing íntegro e fundação auditável
+
+- Frases de instrução deixaram de ocupar `tipoProduto` e `publico`. Esses campos de entrada ficam vazios, enquanto a gerente devolve `tipo_produto` e `publico` explicitamente no schema estruturado; empresas já contaminadas são saneadas na carga.
+- A escolha defensiva de setores considera o tipo, ramo, produto, ideia e respostas reais. Empresas de software deixam de cair automaticamente na equipe padrão de conteúdo.
+- Fechar a conversa de fundação, inclusive pelo fundo do modal, descarta a empresa provisória, restaura a empresa anteriormente ativa e libera ou redistribui o caixa restante. O caixa só é reservado ao enviar a ideia, quando a primeira chamada realmente será feita.
+- Ideia, perguntas, respostas, tentativas, falhas, retries e conclusão passam a ser gravados simultaneamente no rastro da fundação e na sala de reuniões.
+- Identidade, plano de negócio, primeiro produto e plano de obra são persistidos como quatro documentos fundadores internos, visíveis e baixáveis na aba de artefatos, sem entrar no pipeline de revisão paga.
+- A materialização não é mais repetida pelo tick. Há no máximo um retry local explícito; a segunda falha escala uma decisão crítica, registra diagnóstico e mensagem visível, e encerra novas repetições.
+- O HUD distingue “fundação em andamento” de falha aguardando retomada, sem exibir um falso bloqueio durante trabalho normal.
+- Cache e URLs dos motores foram incrementados para v69.1.
+
 # v69 — fundação estruturada e correção de precisão
 
 - A fundação e o plano de obra agora usam `json_schema` estrito, com setores e destinos enumerados, oito a quinze peças e três ou quatro chefias. O mesmo contrato é validado localmente antes de qualquer materialização.
