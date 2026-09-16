@@ -154,6 +154,9 @@ window.S = window.S || {};
     e.fundacao.planoObraCongelado=Boolean(e.fundacao.planoObraCongelado);
     e.fundacao.equipePlanejada = Array.isArray(e.fundacao.equipePlanejada) ? e.fundacao.equipePlanejada.slice(0,7) : [];
     e.fundacao.ultimaTentativa = Number(e.fundacao.ultimaTentativa) || 0;
+    e.fundacao.etapaAtual = String(e.fundacao.etapaAtual || '');
+    e.fundacao.etapaAtualEm = Number(e.fundacao.etapaAtualEm) || 0;
+    e.fundacao.execucaoId = String(e.fundacao.execucaoId || '');
     e.fundacao.retomarApos = Number(e.fundacao.retomarApos||e.fundacao.proximaTentativa) || 0;
     delete e.fundacao.proximaTentativa;
     e.fundacao.tentativas = Number(e.fundacao.tentativas) || 0;
@@ -318,7 +321,7 @@ window.S = window.S || {};
     e.tarefas.forEach(t => {
       // Estados legados não podem deixar trabalho invisível para o quadro.
       if(['pendente','nova','todo','aguardando','fila'].includes(String(t.status||'').toLowerCase()))t.status='aberta';
-      if(!['aberta','fazendo','feita','incompleta','aguardando_decisao'].includes(t.status))t.status='aberta';
+      if(!['aberta','fazendo','feita','incompleta','aguardando_decisao','descartada'].includes(t.status))t.status='aberta';
       if(t.status==='incompleta'){t.incompleta=true;t.bloqueada=true;}
       t.projectId = t.projectId || (e.projetos[0] && e.projetos[0].id);
       // Kits continuam sendo apenas roteamento de capacidade; não definem um

@@ -4,6 +4,19 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v69.2 — fundação não bloqueante e autorrecuperável
+
+- O plano de obra congelado pode criar várias peças internas ligadas à mesma entrega-cliente; a restrição de uma frente interna continua valendo apenas para tarefas autônomas.
+- Contratações da fundação são persistidas imediatamente e a caminhada de chegada passou a ser apenas visual. Nenhuma animação pode bloquear documentos, tarefas ou a conclusão da fundação.
+- A fundação persiste `etapaAtual` e um marco temporal em cada transição relevante. Um watchdog de dois minutos invalida a execução parada, registra diagnóstico, fala na ata e abre decisão crítica visível.
+- O ciclo não aguarda a promessa da fundação e continua executando tarefas válidas enquanto uma fundação é recuperada. A análise financeira também funciona nesse estado quando já existe trabalho materializado.
+- Retentativas automáticas de materialização continuam proibidas, mas “Tentar agora” sempre permite uma nova tentativa local e gratuita de um plano congelado, inclusive após uma escalada anterior.
+- Tarefas sem artefato de um plano substituído são marcadas como descartadas e saem da fila. A materialização abre solicitações de contratação para todo setor necessário que ainda não possua especialista.
+- A interface mostra a etapa atual da fundação, mantém o botão de retomada disponível e oculta tarefas descartadas da fila operacional.
+- A ordem do fluxo de caixa foi coberta por regressão: a alocação da nova empresa ocorre antes da primeira chamada de alinhamento, evitando um falso diagnóstico de limite diário.
+- Adicionadas regressões para plano 10/10 com duas entregas-cliente, recuperação manual após escalada, watchdog, descarte persistente e operação com fundação interrompida.
+- Cache e URLs dos motores foram incrementados para v69.2.
+
 # v69.1 — briefing íntegro e fundação auditável
 
 - Frases de instrução deixaram de ocupar `tipoProduto` e `publico`. Esses campos de entrada ficam vazios, enquanto a gerente devolve `tipo_produto` e `publico` explicitamente no schema estruturado; empresas já contaminadas são saneadas na carga.
