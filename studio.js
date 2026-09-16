@@ -1698,11 +1698,6 @@ ${ultimaChance ? 'MODO ANTI-LOOP: esta linhagem já consumiu o máximo de corre�
     e.reuniao.mensagens=e.reuniao.mensagens.slice(-180);S.state.gravarJa();S.bus.emit('reuniao');S.bus.emit('projetos');S.bus.emit('trabalho');return s;
   }
 
-  function parseLista(v){ return String(v||'').split(/[,;|]/).map(x=>x.trim()).filter(Boolean).slice(0,8); }
-  function parsePlanoObra(texto){
-    const linhas=String(texto||'').split(/\n+/).filter(l=>/^\s*PE[CÇ]A\s*:/i.test(l)),out=[];
-    linhas.slice(0,40).forEach((linha,i)=>{const campos={};String(linha.replace(/^\s*PE[CÇ]A\s*:/i,'')).split(';').forEach(parte=>{const p=parte.indexOf('=');if(p>0)campos[normalizarFrase(parte.slice(0,p)).replace(/ /g,'_')]=parte.slice(p+1).trim();});const titulo=limparTexto(campos.titulo||`Peça ${i+1}`);if(!titulo)return;const destinoBruto=normalizarFrase(campos.destino),destino=/^(?:cliente(?: final)?|externo|externa|publico|publica|produto|entrega)$/.test(destinoBruto)?'cliente':'interno',aceite=parseLista(campos.aceite);let min=Math.max(0,Number(String(campos.min||'').replace(/\D/g,''))||0),max=Math.max(0,Number(String(campos.max||'').replace(/\D/g,''))||0);if(/(?:unidade|capitulo|episodio|aula)\s*\d+/i.test(normalizarFrase(titulo))&&destino==='cliente'){min=Math.max(min,1800);max=Math.max(max,2600);}if(/b[ií]blia|guia de projeto|c[aâ]none/i.test(titulo)&&destino==='interno'){min=Math.max(min,800);max=max?Math.max(max,1500):1500;}out.push({id:`peca_${i+1}`,ordem:i+1,titulo,setor:normalizarFrase(campos.setor||'producao').replace(/ /g,'_'),destino,aceite,min,max,arquivosEsperados:parseLista(campos.arquivo||campos.arquivos),depende:parseLista(campos.depende),kit:normalizarFrase(campos.kit||'').replace(/ /g,'_')});});return out;
-  }
   function kitDaPeca(p){if(S.factory.porId(p.kit))return p.kit;const s=p.setor,t=normalizarFrase(p.titulo);if(s==='criacao')return /capa|ilustracao|logo|visual/.test(t)?'visual':'texto';if(s==='desenvolvimento')return /site|pagina|landing|html/.test(t)?'pagina':'codigo';return{producao:'autonomo',operacoes:'dados',comercial:'comercial',financeiro:'financeiro',laboratorio:'laboratorio'}[s]||'autonomo';}
   function materializarPlanoObra(e,projeto,pecas){
     if(!pecas.length){registrarDiagnostico(e,'plano.vazio','O plano de obra congelado não contém peças materializáveis.',{projectId:projeto&&projeto.id});throw new Error('Plano de obra vazio: nenhuma tarefa pôde ser criada.');}const criadas=[],porTitulo=new Map(),clientes=pecas.filter(p=>p.destino==='cliente'),ordem=clientes.concat(pecas.filter(p=>p.destino!=='cliente'));let interno=0;
@@ -1714,11 +1709,6 @@ ${ultimaChance ? 'MODO ANTI-LOOP: esta linhagem já consumiu o máximo de corre�
     const biblia=pecas.find(p=>p.destino==='interno'&&/(b[ií]blia|guia de marca|gdd|tratamento|ementa|c[aâ]none)/i.test(p.titulo));if(biblia)projeto.bibliaTaskId=biblia.taskId||null;
     return criadas;
   }
-  function planoObraFallback(titulo,forma){
-    const serial=forma==='serial',base=serial?['Bíblia de continuidade','Sumário e arquitetura das unidades','Unidade 1','Unidade 2','Unidade 3','Unidade 4','Revisão de continuidade','Edição integrada','Empacotamento final','README e instruções de entrega']:['Guia do projeto','Arquitetura e mapa de componentes','Componente principal','Componente secundário','Integração funcional','Dados e conteúdo definitivo','Teste determinístico','Correções de acabamento','Empacotamento vendável','README e prévia'];
-    return base.map((nome,i)=>({id:`peca_${i+1}`,ordem:i+1,titulo:`${nome} — ${titulo}`.slice(0,180),setor:i===0?'criacao':i===1?'operacoes':i<6?(serial?'criacao':'desenvolvimento'):i===6?'laboratorio':'producao',destino:i===0||i===6?'interno':'cliente',aceite:i===0?['tom','regras','cânone']:i===6?['lint','contrato','realidade']:['conteúdo completo','sem placeholders'],min:i===0?800:(serial&&i>=2&&i<6?1800:0),max:i===0?1500:(serial&&i>=2&&i<6?2600:0),arquivosEsperados:[],depende:i?[(i===6?base[5]:base[i-1])]:[],kit:''}));
-  }
-
   function fundacaoContexto(e){
     const f=e.fundacao||{}, q=f.perguntas||{}, projeto=(e.projetos||[]).find(x=>x.status==='ativo')||(e.projetos||[])[0];
     const artefatos=(e.arquivos||[]).slice(0,10).map(a=>`${a.nome}[${a.classe||'arquivo'}]`).join('; ')||'nenhum';
@@ -1733,7 +1723,27 @@ PROJETO EXISTENTE: ${projeto?.nome||'nenhum'} | objetivo=${projeto?.objetivo||'n
 ARTEFATOS JÁ EXISTENTES: ${artefatos}
 TRABALHO ABERTO JÁ EXISTENTE: ${tarefas}
 ACERVO SOBERANO VINCULADO (SOMENTE LEITURA; NÃO CONTRADIZER):
-${S.acervo&&projeto?S.acervo.contexto(projeto.id,6500):'nenhuma referência vinculada'}`;
+	${S.acervo&&projeto?S.acervo.contexto(projeto.id,6500):'nenhuma referência vinculada'}`;
+  }
+
+  function pecasFundacaoJSON(lista){
+    return (lista||[]).map((p,i)=>{const titulo=limparTexto(p.titulo),destino=p.destino==='cliente'?'cliente':'interno';let min=Math.max(0,Number(p.min_palavras)||0),max=Math.max(0,Number(p.max_palavras)||0);if(/(?:unidade|capitulo|episodio|aula)\s*\d+/i.test(normalizarFrase(titulo))&&destino==='cliente'){min=Math.max(1800,Math.min(min||1800,2600));max=Math.max(min,Math.min(max||2600,2600));}if(/b[ií]blia|guia de projeto|c[aâ]none/i.test(titulo)&&destino==='interno'){min=Math.max(800,Math.min(min||800,1500));max=Math.max(min,Math.min(max||1500,1500));}return{id:`peca_${i+1}`,ordem:i+1,titulo,setor:String(p.setor),destino,aceite:(p.aceite||[]).map(limparTexto).filter(Boolean).slice(0,8),min,max,arquivosEsperados:(p.arquivos||[]).map(limparTexto).filter(Boolean).slice(0,8),depende:(p.depende||[]).map(limparTexto).filter(Boolean).slice(0,8),kit:String(p.kit||'')};});
+  }
+  async function gerarFundacaoEstruturada(e,prompt,pedido,gerente,modo){
+    if(!S.buff||!S.buff.validarFundacao||!S.buff.formatoFundacao)throw new Error('Camada de schema da fundação indisponível.');
+    let schemaDisponivel=true;
+    const emitir=async(indice,correcao)=>{
+      const op={sistemaEstavel:prompt,sistemaEmpresa:'',pedido:correcao||`${pedido}\nGere um objeto JSON completo e coerente. Não inclua markdown nem texto fora do JSON.`,tipo:'pensamento',nivel:'avancado',tokens:4200,temperature:0.18,top_p:0.82,seed:6900+indice,agente:gerente?.nome||'gerente',agenteId:gerente?.id,motivo:modo==='migracao'?'migração estruturada da fundação':'fundação estratégica estruturada',kit:'fundacao'};
+      if(schemaDisponivel)op.response_format=S.buff.formatoFundacao();
+      try{return await S.ai.chamar(op);}catch(err){if(schemaDisponivel&&/(?:response[_ -]?format|json.?schema|schema|HTTP 400|não suport)/i.test(String(err&&err.message||err))){schemaDisponivel=false;registrarDiagnostico(e,'fundacao.schema_fallback','O provedor recusou JSON Schema; a fundação mudou para JSON simples com a mesma validação local.',{erro:String(err&&err.message||err).slice(0,240)},'alerta');return S.ai.chamar(Object.assign({},op,{response_format:undefined,pedido:`${op.pedido}\nO provedor não aceita schema nativo. Respeite exatamente o schema descrito no sistema e retorne JSON simples válido.`}));}throw err;}
+    };
+    const gerar=async i=>{let resposta=await emitir(i),validacao=S.buff.validarFundacao(resposta&&resposta.texto);if(!validacao.pronto){registrarDiagnostico(e,'fundacao.candidato_invalido',`Candidato ${i+1} da fundação falhou na validação local.`,{erros:validacao.erros},'alerta');const pedidoCorrecao=`A resposta JSON abaixo é inválida. Corrija o objeto inteiro sem remover conteúdo válido.\nERROS EXATOS:\n- ${validacao.erros.join('\n- ')}\n\nJSON ANTERIOR:\n${String(resposta&&resposta.texto||'').slice(0,14000)}\n\nRetorne somente o JSON completo corrigido.`;resposta=await emitir(i,pedidoCorrecao);validacao=S.buff.validarFundacao(resposta&&resposta.texto);}return{resposta,validacao};};
+    let melhor=null;
+    try{melhor=await S.buff.melhorDeN(gerar,x=>x.validacao&&x.validacao.pontuacao||0,2);}catch(err){registrarDiagnostico(e,'fundacao.candidatos_indisponiveis','Os dois candidatos da fundação falharam antes da validação.',{erro:String(err&&err.message||err).slice(0,300),modo},'alerta');throw err;}
+    const escolhido=melhor&&melhor.valor;
+    if(!escolhido||!escolhido.validacao||!escolhido.validacao.pronto){const erros=escolhido&&escolhido.validacao&&escolhido.validacao.erros||['nenhum candidato válido'];registrarDiagnostico(e,'fundacao.schema_invalido','Nenhum dos dois candidatos da fundação passou pelo schema.',{erros});throw new Error(`Fundação estruturada inválida: ${erros.join('; ')}`);}
+    if(S.operacao)S.operacao.evento('fundacao.candidato_escolhido',{pontuacao:escolhido.validacao.pontuacao,pecas:escolhido.validacao.completos,clientes:escolhido.validacao.clientes,schemaNativo:schemaDisponivel},e);
+    return escolhido.validacao.valor;
   }
 
   /* A fundação tem duas etapas independentes: a chamada de IA e a
@@ -1767,46 +1777,16 @@ A empresa pode operar em SETE setores: criacao (Produto & Criação), desenvolvi
 
 ${fundacaoContexto(e)}
 
-RETORNE SOMENTE:
-NOME: <nome escolhido, sem asteriscos>
-RAMO: <ramo/categoria da empresa>
-SLOGAN: <frase curta>
-MISSAO: <missão>
-VISAO: <visão>
-VALORES: <3 a 5 valores separados por vírgula>
-POSICIONAMENTO: <uma frase>
-TOM: <tom de comunicação>
-CORES: <paleta/direção cromática>
-TIPOGRAFIA: <direção tipográfica>
-ESTILO_VISUAL: <direção visual>
-FORMA: <serial | pacote | acervo | iterada | servico>
-EQUIPE: <3 ou 4 setores necessários agora, separados por vírgula>
-FUNCIONARIO: nome=...; setor=...; cargo=...; tracos=...; comunicacao=...; prioridades=...; estilo=...; colaboracao=...; aversoes=...; experiencia=...
-FUNCIONARIO: nome=...; setor=...; cargo=...; tracos=...; comunicacao=...; prioridades=...; estilo=...; colaboracao=...; aversoes=...; experiencia=...
-FUNCIONARIO: nome=...; setor=...; cargo=...; tracos=...; comunicacao=...; prioridades=...; estilo=...; colaboracao=...; aversoes=...; experiencia=...
-FUNCIONARIO: nome=...; setor=...; cargo=...; tracos=...; comunicacao=...; prioridades=...; estilo=...; colaboracao=...; aversoes=...; experiencia=...
----
-PLANO DE NEGÓCIO
-<texto>
+RETORNE SOMENTE UM OBJETO JSON que satisfaça integralmente o schema abaixo. Não use markdown, comentários, campos adicionais ou valores fora dos enums. Toda peça deve ter título, setor, destino, aceite, faixa de palavras, arquivos, dependências e kit. Use de 8 a 15 peças e garanta pelo menos uma peça destinada ao cliente.
 
-PLANEJAMENTO DO PRIMEIRO PRODUTO
-<texto>
+SCHEMA JSON OBRIGATÓRIO:
+${JSON.stringify(S.buff&&S.buff.FUNDACAO_SCHEMA||{})}`;
 
-MANIFESTO
-<manifesto curto>
-
-PLANO_DE_OBRA:
-PECA: titulo=...; setor=criacao; destino=interno; aceite=...,...; min=800; max=1500; depende=
-PECA: titulo=...; setor=criacao; destino=cliente; aceite=...,...; min=...; max=...; depende=...`;
-
-    let r=null;
+    let fundacaoJSON=null;
     try{
-      /* Fundação é uma decisão estratégica de alto impacto: usa uma única
-         chamada avançada robusta da gerente, com teto explícito e uma única
-         continuação automática caso o provedor interrompa por comprimento. */
-      r=await S.ai.perguntar({sistema:prompt,pedido:modo==='migracao'?'Atualize a empresa existente usando os dados persistentes como fonte primária e conclua a nova fundação.':'Tome as decisões fundadoras agora, com coerência entre identidade, negócio e primeiro produto.',tipo:'pensamento',nivel:'avancado',tokens:5200,reasoning_effort:'low',agente:gerente?.nome||'gerente',agenteId:gerente?.id,motivo:modo==='migracao'?'migração da fundação':'fundação estratégica',kit:'fundacao'});
-    }catch(err){ r=null; e.fundacao.ultimoErro=String(err&&err.message||err).slice(0,400); }
-    if(!r||!String(r.texto||'').trim()){
+      fundacaoJSON=await gerarFundacaoEstruturada(e,prompt,modo==='migracao'?'Atualize a empresa existente usando os dados persistentes como fonte primária e conclua a nova fundação.':'Tome as decisões fundadoras agora, com coerência entre identidade, negócio e primeiro produto.',gerente,modo);
+    }catch(err){fundacaoJSON=null;e.fundacao.ultimoErro=String(err&&err.message||err).slice(0,400);}
+    if(!fundacaoJSON){
       e.fundacao.estado=modo==='migracao'?'migracao_pendente':'aguardando_IA';
       e.fundacao.ultimoErro=e.fundacao.ultimoErro||'A IA não devolveu a decisão fundadora.';
       const espera=Math.min(5*60*1000,15000*Math.pow(2,Math.min(4,Math.max(0,Number(e.fundacao.tentativas||1)-1))));
@@ -1817,31 +1797,23 @@ PECA: titulo=...; setor=criacao; destino=cliente; aceite=...,...; min=...; max=.
     }
 
     try{
-      const c=r.campos||{},identidade=e.fundacao.identidade=e.fundacao.identidade||{},map={nome:'nome',slogan:'slogan',missao:'missao',visao:'visao',valores:'valores',posicionamento:'posicionamento',tom:'tom',cores:'cores',tipografia:'tipografia',estilo_visual:'estiloVisual'};
-      Object.keys(map).forEach(k=>{if(c[k])identidade[map[k]]=limparTexto(c[k]);});
-      const corpo=String(r.corpo||r.texto||'').trim();
-      const pm=corpo.match(/PLANO DE NEGÓCIO\s*\n([\s\S]*?)(?:\n+PLANEJAMENTO DO PRIMEIRO PRODUTO\s*\n|$)/i);
-      const fm=corpo.match(/PLANEJAMENTO DO PRIMEIRO PRODUTO\s*\n([\s\S]*?)(?:\n+MANIFESTO\s*\n|$)/i);
-      const mm=corpo.match(/MANIFESTO\s*\n([\s\S]*?)(?:\n+PLANO_DE_OBRA\s*:|$)/i);
-      e.fundacao.planoNegocio=(pm?pm[1]:corpo).trim();
-      e.fundacao.primeiroProduto=(fm?fm[1]:corpo).trim();
-      identidade.manifesto=(mm?mm[1]:'').trim();
-      const planoTrecho=(String(r.texto||'').match(/PLANO_DE_OBRA\s*:\s*\n([\s\S]*)$/i)||[])[1]||'';
-      e.fundacao.forma=['serial','pacote','acervo','iterada','servico'].includes(normalizarFrase(c.forma).replace(/ /g,''))?normalizarFrase(c.forma).replace(/ /g,''):'iterada';
-      e.fundacao.planoObraTexto=planoTrecho.trim();e.fundacao.planoObra=parsePlanoObra(planoTrecho);e.fundacao.planoObraCongelado=true;
-      const tituloProdutoPlanejado=limparTexto(((e.fundacao.primeiroProduto.match(/(?:^|\n)#{0,3}\s*(?:Nome do produto|Produto|Nome)\s*:?\s*(.+)/i)||[])[1]||e.fundacao.planoObra.find(x=>x.destino==='cliente')?.titulo||'Primeiro produto')).slice(0,180);
+      const c=fundacaoJSON,identidade=e.fundacao.identidade=e.fundacao.identidade||{},map={nome:'nome',slogan:'slogan',missao:'missao',visao:'visao',valores:'valores',posicionamento:'posicionamento',tom:'tom',cores:'cores',tipografia:'tipografia',estilo_visual:'estiloVisual'};
+      Object.keys(map).forEach(k=>{if(c[k]!=null)identidade[map[k]]=Array.isArray(c[k])?c[k].map(limparTexto).filter(Boolean).join(', '):limparTexto(c[k]);});
+      e.fundacao.planoNegocio=String(c.plano_negocio||'').trim();
+      e.fundacao.primeiroProduto=String(c.primeiro_produto||'').trim();
+      identidade.manifesto=String(c.manifesto||'').trim();
+      e.fundacao.forma=String(c.forma||'iterada');
+      e.fundacao.planoObra=pecasFundacaoJSON(c.pecas);
+      e.fundacao.planoObraTexto=JSON.stringify(c.pecas,null,2);
+      e.fundacao.planoObraCongelado=true;e.fundacao.schemaVersao=1;
+      const tituloProdutoPlanejado=limparTexto(c.nome_produto||e.fundacao.planoObra.find(x=>x.destino==='cliente')?.titulo||'Primeiro produto').slice(0,180);
       if(identidade.nome&&similaridadeTexto(identidade.nome,tituloProdutoPlanejado)>0.58){const nomeCorrigido=await S.ai.perguntar({sistema:'Escolha somente um nome durável para a EMPRESA, nunca o título de seu produto. Retorne NOME: <nome>.',pedido:`Ramo: ${c.ramo||''}. Produto: ${tituloProdutoPlanejado}. Nome rejeitado por ser parecido com o produto: ${identidade.nome}`,tipo:'pensamento',nivel:'leve',tokens:80,reasoning_effort:'low',agente:gerente?.nome||'gerente',agenteId:gerente?.id,motivo:'corrigir nome da empresa',kit:'fundacao'});const novo=nomeCorrigido&&limparTexto(nomeCorrigido.campos&&nomeCorrigido.campos.nome);identidade.nome=novo&&similaridadeTexto(novo,tituloProdutoPlanejado)<=0.58?novo:`${limparTexto(c.ramo)||'Empresa'} ${gerente?.nome||'Studio'}`;}
       e.nome=identidade.nome||e.nome;e.ramo=limparTexto(c.ramo)||e.ramo||e.fundacao.perguntas.tipoProduto||'empresa de produto';e.missao=identidade.missao||e.missao;e.tom=identidade.tom||e.tom;e.publico=e.fundacao.perguntas.publico||e.publico;
       const validos=new Set(ESPECIALIDADES.map(x=>x.id));
       const aliases={criacao:['criação','criativa','design','produto','criacao','conteudo','conteúdo','editorial','escrita'],desenvolvimento:['desenvolvimento','software','programacao','programação','engenharia de software','frontend','backend','web'],comercial:['comercial','marketing','vendas','negócios','negocios','crescimento'],operacoes:['dados','data','analise','análise','analytics','operações','operacoes','qa'],financeiro:['financeiro','finanças','financas','custos','orçamento','orcamento','controladoria'],laboratorio:['laboratório','laboratorio','pesquisa','testes','experimentos','r&d'],producao:['produção','producao','acabamento','revisao','revisão','geral']};
       const normalizarEsp=(valor)=>{const v=limparTexto(valor).toLowerCase(); if(validos.has(v)) return v; for(const [id,arr] of Object.entries(aliases)){if(arr.some(a=>v===a || v.includes(a))) return id;} return null;};
-      let planejadas=parseLista(c.equipe).map(normalizarEsp).filter(Boolean);
-      const linhasFuncionarios=String(r.texto||'').split(/\n+/).filter(l=>/^\s*FUNCIONARIO\s*:/i.test(l));
-      const funcionarios=[];
-      linhasFuncionarios.slice(0,6).forEach(l=>{
-        const obj=parseFicha(l);
-        const esp=normalizarEsp(obj.setor||obj.cargo); if(esp){obj.especialidade=esp;funcionarios.push(obj);}
-      });
+      let planejadas=(c.equipe||[]).map(normalizarEsp).filter(Boolean);
+      const funcionarios=(c.funcionarios||[]).slice(0,4).map(f=>Object.assign({},f,{especialidade:normalizarEsp(f.setor||f.cargo)})).filter(f=>f.especialidade);
       if(funcionarios.length) planejadas=funcionarios.map(x=>x.especialidade);
       planejadas=[...new Set(planejadas)];
       const tipo=String(e.fundacao?.perguntas?.tipoProduto||'').toLowerCase();
@@ -1865,7 +1837,8 @@ PECA: titulo=...; setor=criacao; destino=cliente; aceite=...,...; min=...; max=.
       const pr=e.projetos?.find(x=>x.status==='ativo'&&x.tipo!=='site_institucional')||e.projetos?.find(x=>x.tipo!=='site_institucional'),produtoTit=tituloProdutoPlanejado;
       if(!pr)e.projetos=[{id:uid('proj'),nome:produtoTit,objetivo:e.fundacao.perguntas.objetivo||'Executar o planejamento do primeiro produto.',status:'ativo',criadoEm:Date.now(),tarefaIds:[],arquivoIds:[],atividade:[]}];else if(/primeiro produto|principal|planejamento inicial/i.test(pr.nome)){pr.nome=produtoTit||pr.nome;pr.objetivo=e.fundacao.perguntas.objetivo||pr.objetivo;}
       const active=e.projetos.find(x=>x.status==='ativo'&&x.tipo!=='site_institucional')||e.projetos[0];active.forma=e.fundacao.forma;active.dados=active.dados||{};active.dados.planoNegocio=e.fundacao.planoNegocio;active.dados.planejamentoProduto=e.fundacao.primeiroProduto;
-      let pecas=e.fundacao.planoObra;if(pecas.length<5){registrarDiagnostico(e,'plano.fallback','A resposta fundadora trouxe menos de cinco peças; o plano determinístico de recuperação foi ativado.',{recebidas:pecas.length,forma:e.fundacao.forma},'alerta');pecas=planoObraFallback(produtoTit,e.fundacao.forma);e.fundacao.planoObra=pecas;e.fundacao.planoObraTexto=pecas.map(p=>`PECA: titulo=${p.titulo}; setor=${p.setor}; destino=${p.destino}; aceite=${p.aceite.join(',')}; min=${p.min||''}; max=${p.max||''}; depende=${p.depende.join(',')}`).join('\n');}
+      const pecas=e.fundacao.planoObra;
+      if(pecas.length<8)throw new Error(`Pós-condição da fundação violada: o plano estruturado possui ${pecas.length} de pelo menos 8 peças.`);
       materializarPlanoObra(e,active,pecas);
     }catch(err){
       e.fundacao.ultimoErro=String(err&&err.message||err).slice(0,400);
@@ -1878,7 +1851,7 @@ PECA: titulo=...; setor=criacao; destino=cliente; aceite=...,...; min=...; max=.
       }
       S.state.gravar();S.bus.emit('reuniao');S.bus.emit('trabalho');S.bus.emit('trocou');return false;
     }
-    e.fundacao.versao=3;e.fundacao.estado='operacional';e.fundacao.concluidaEm=Date.now();e.fundacao.reuniaoInicialRealizada=Date.now();e.gerencia.recomendacao='Fundação concluída: identidade e plano de obra congelado. A equipe executa a próxima peça sem rediscutir o escopo.';
+    e.fundacao.versao=4;e.fundacao.estado='operacional';e.fundacao.concluidaEm=Date.now();e.fundacao.reuniaoInicialRealizada=Date.now();e.gerencia.recomendacao='Fundação concluída: identidade e plano de obra estruturado e congelado. A equipe executa a próxima peça sem rediscutir o escopo.';
     registrarReuniao('Sistema',`Fundação concluída${modo==='migracao'?' a partir dos dados persistentes':''}. ${e.nome} agora tem identidade, plano de negócio, primeiro produto e equipe definida.`,'fundacao');
     S.state.registrar(`${e.nome}: fundação concluída; identidade, plano de negócio e primeiro produto definidos.`,'ok');
     S.state.gravar();S.bus.emit('reuniao');S.bus.emit('equipe');S.bus.emit('trabalho');S.bus.emit('arquivos');S.bus.emit('trocou');

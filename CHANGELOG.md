@@ -4,6 +4,16 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v69 — fundação estruturada e correção de precisão
+
+- A fundação e o plano de obra agora usam `json_schema` estrito, com setores e destinos enumerados, oito a quinze peças e três ou quatro chefias. O mesmo contrato é validado localmente antes de qualquer materialização.
+- Provedores sem suporte ao schema nativo mudam de forma visível para JSON simples. Um candidato inválido recebe uma única correção dirigida contendo os erros exatos; nenhum campo ausente ou plano curto é aceito silenciosamente.
+- Fundação e plano usam Best-of-N automático com dois candidatos e juiz determinístico. O mapa curto que antecede peças textuais longas também compara dois candidatos, sem aplicar Best-of-N à prosa cara.
+- O fallback determinístico que escondia planos com menos de cinco peças foi removido do caminho de fundação. A pós-condição mínima agora falha alto e preserva um diagnóstico acionável no HUD.
+- Correções de artefatos com vários headings selecionam a seção citada no briefing, enviam somente essa seção ao modelo e aplicam a substituição localmente. Protocolo inválido força a tentativa seguinte a mudar para arquivo integral; não repete a mesma estratégia.
+- Pacotes continuam persistidos como arquivos independentes, portanto uma correção de pacote aponta para o arquivo-base específico em vez de reescrever os demais componentes.
+- Cache do aplicativo e URLs dos motores foram incrementados para v69.
+
 # v68 — falhas visíveis, produção por peça e simulação desacoplada
 
 - O relógio local da simulação agora roda fixo a cada 6 segundos para movimento, vitais, ócio e interação gratuita; somente o relógio de decisão usa backoff adaptativo.

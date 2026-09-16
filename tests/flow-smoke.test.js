@@ -73,6 +73,15 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.equal(S.factory.validarFinal(contaminado,'md').pronto,false,'checklist e comandos internos não podem chegar ao cliente');
   assert.equal(S.factory.validarFinal('CAPÍTULO 2\n\nTexto completo.\n\nCAPÍTULO 3\n\nOutro texto completo.','txt').pronto,false,'uma coleção numerada sem o primeiro item deve permanecer incompleta');
   assert.equal(S.factory.contarPalavras('Um conto com palavras reais.'),5);
+  const ficha=(nome,setor)=>({nome,setor,cargo:'Chefe de setor',tracos:'prático',comunicacao:'objetiva',prioridades:'qualidade',estilo:'iterativo',colaboracao:'handoffs claros',aversoes:'desperdício',experiencia:'projetos reais'});
+  const fundacaoValida={nome:'Editora Norte',ramo:'editora',slogan:'Histórias que ficam',missao:'Publicar narrativas úteis e memoráveis para leitores reais.',visao:'Ser referência editorial.',valores:['clareza','qualidade','respeito'],posicionamento:'ficção curta de alta qualidade',tom:'envolvente',cores:'azul e âmbar',tipografia:'serifada',estilo_visual:'editorial sóbrio',forma:'serial',equipe:['criacao','producao','financeiro'],funcionarios:[ficha('Bia','criacao'),ficha('Marina','producao'),ficha('Selma','financeiro')],plano_negocio:'Problema, público, proposta de valor, canais, operação, métricas, riscos e roadmap tratados como hipóteses verificáveis antes de qualquer investimento maior.',nome_produto:'Contos do Norte',primeiro_produto:'Livro curto com quatro contos conectados, público adulto, escopo explícito, entregáveis verificáveis, critérios de aceite e exclusões claras para o primeiro lançamento.',manifesto:'Escrevemos com precisão, imaginação e respeito pelo tempo do leitor.',pecas:Array.from({length:8},(_,i)=>({titulo:`Peça editorial ${i+1}`,setor:i<5?'criacao':'producao',destino:i===0?'interno':'cliente',aceite:['conteúdo completo e verificável'],min_palavras:i?1000:800,max_palavras:i?1800:1500,arquivos:[`peca-${i+1}.md`],depende:i?[`Peça editorial ${i}`]:[],kit:i<5?'texto':'autonomo'}))};
+  assert.equal(S.buff.FUNDACAO_SCHEMA.properties.pecas.minItems,8);assert.deepEqual(S.buff.FUNDACAO_SCHEMA.properties.pecas.items.properties.destino.enum,['cliente','interno']);
+  assert.equal(S.buff.validarFundacao(JSON.stringify(fundacaoValida)).pronto,true,'fundação completa deve passar pelo mesmo validador local do fallback');
+  assert.equal(S.buff.validarFundacao(JSON.stringify(Object.assign({},fundacaoValida,{pecas:fundacaoValida.pecas.slice(0,2)}))).pronto,false,'plano curto jamais pode ser aceito silenciosamente');
+  const melhor=await S.buff.melhorDeN(async i=>({i}),x=>x.i===1?20:10,2);assert.equal(melhor.valor.i,1,'Best-of-N precisa escolher pelo juiz determinístico');
+  const multi='# Capítulo Um\n\nTexto um.\n\n# Capítulo Dois\n\nTexto dois.\n\n# Capítulo Três\n\nTexto três.';
+  const alvo=S.factory.secaoAlvo(multi,'Corrigir o Capítulo Dois');assert.equal(alvo.titulo,'# Capítulo Dois');
+  const corrigido=S.factory.aplicarSubstituicaoSecao(multi,alvo.titulo,'# Capítulo Dois\n\nTexto dois corrigido e ampliado.');assert.match(corrigido,/Texto um/);assert.match(corrigido,/Texto dois corrigido/);assert.match(corrigido,/Texto três/);
   assert.equal(S.toolkit.aplicarPatch('antes\nalvo\ndepois','BUSCAR:\nalvo\nSUBSTITUIR:\nnovo'),'antes\nnovo\ndepois');
   assert.equal(S.toolkit.aplicarPatch('um\ndois\ntres\nquatro','SUBSTITUIR_LINHAS: 2-3\n---\nDOIS\nTRÊS'),'um\nDOIS\nTRÊS\nquatro');
   assert.equal(S.toolkit.lint({tipo:'json',conteudo:'{"ok":true}'}).valido,true);
@@ -266,8 +275,9 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.match(gameUi,/srBaixar/);assert.match(gameUi,/text\/markdown/);assert.match(gameUi,/ata-reuniao-/);
   const factorySource=fs.readFileSync(path.join(__dirname,'..','factory.js'),'utf8');assert.doesNotMatch(factorySource,/length\s*>\s*12000\s*\|\|\s*pedeCrescimento/,'tamanho do arquivo nunca pode ativar anexação automática');
   assert.match(factorySource,/conteudo\.length<10000/,'arquivos pequenos não devem pagar tentativas de patch');assert.match(factorySource,/TIPOS_POR_KIT/,'extensão precisa respeitar o kit da tarefa');
-  assert.match(factorySource,/json_schema/);assert.match(factorySource,/mapa curto antes da prosa/);
-  assert.match(index,/buff\.js\?v=68/);assert.ok(S.buff&&S.buff.validar,'camada de amplificação precisa estar carregada');
+  assert.match(factorySource,/json_schema/);assert.match(factorySource,/mapa curto Best-of-N antes da prosa/);assert.match(factorySource,/SUBSTITUIR_SECAO/);
+  assert.match(studioSource,/fundacao\.candidato_escolhido/);assert.match(studioSource,/formatoFundacao/);assert.doesNotMatch(studioSource,/A resposta fundadora trouxe menos de cinco peças/);
+  assert.match(index,/buff\.js\?v=69/);assert.ok(S.buff&&S.buff.validar,'camada de amplificação precisa estar carregada');
   assert.match(gameUi,/navigator\.wakeLock\.request\('screen'\)/);assert.match(gameUi,/Caixa executiva/);assert.match(gameUi,/data-enviar-humana/);
   for(const legado of ['classico.html','app.css','ui.js'])assert.equal(fs.existsSync(path.join(__dirname,'..',legado)),false,`${legado} deve ter sido removido`);
   console.log('flow-smoke: ok — trabalho/delegação/acervos/branch/pipeline/release/bundle/retention/caixa/zip/jogo');
