@@ -4,6 +4,17 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v71 — regressões reais da Arcana e revisão recuperável
+
+- Leitor de respostas aceita JSON e cabeçalhos Markdown. Revisão de peça solicita schema estruturado, preserva a última resposta para diagnóstico e aplica espera a todos os arquivos do pacote. Respostas ambíguas continuam sem aprovação automática.
+- Retomada após falha de revisão zera o contador e revisa o conteúdo preservado, sem reescrita paga quando a estrutura permanece válida. Uma recuperação local migra revisões já bloqueadas pelo protocolo anterior.
+- Tarefas genéricas anteriores ao plano são substituídas pelas peças oficiais; seus rascunhos ficam preservados e deixam de competir pela revisão.
+- Produção e revisão recebem fontes internas integrais. A bíblia passa a ser dependência das peças de cliente quando isso não cria ciclo. Mudança nas fontes invalida aceites anteriores de execuções ainda abertas.
+- Validação por capítulo respeita a faixa explícita “capítulos entre N–M palavras” da referência editorial. Mapas baseados exclusivamente em hover são devolvidos para implementação de toque/clique e teclado.
+- Obras seriais incluem leitor HTML estático responsivo com sumário; capítulos identificados são separados de guias na montagem do texto integrado.
+- Regressão usa os três capítulos, a bíblia e o mapa reais enviados pelo proprietário. Não inclui telemetria, credenciais ou logs pessoais. Testes passam por respostas textuais e JSON, não somente decisões já interpretadas.
+- Limite da verificação: testes locais não certificam qualidade literária nem substituem uma rodada com o provedor real. Nenhum saldo de IA foi consumido.
+
 # v70.1 — continuidade depois da entrega
 
 - Ao concluir todos os trabalhos atuais, a gerente planeja o próximo produto em um projeto separado, com briefing, especialidade disponível e arquivos esperados. O evento de conclusão dispara uma tentativa, sem deliberação repetida por relógio.

@@ -291,7 +291,7 @@ function salvar(etapa,base,conteudo,nome='produto.md'){
   assert.doesNotMatch(aiSource,/tipo==='conteudo'\?Math\.min\(2500/,'produção não pode manter o corte local fixo de 2500 tokens');
   assert.match(studioSource,/fundacao\.candidato_escolhido/);assert.match(studioSource,/formatoFundacao/);assert.doesNotMatch(studioSource,/A resposta fundadora trouxe menos de cinco peças/);
   assert.doesNotMatch(studioSource,/await\s+irPara\(chegada/,'a fundação nunca pode aguardar uma animação cosmética');assert.doesNotMatch(studioSource,/await\s+processarFundacaoAtual\(\)/,'o ciclo não pode ficar preso à promessa da fundação');
-  assert.match(index,/buff\.js\?v=70\.1/);assert.ok(S.buff&&S.buff.validar,'camada de amplificação precisa estar carregada');
+  assert.match(index,/buff\.js\?v=71\.0/);assert.ok(S.buff&&S.buff.validar,'camada de amplificação precisa estar carregada');
   assert.match(gameUi,/navigator\.wakeLock\.request\('screen'\)/);assert.match(gameUi,/Caixa executiva/);assert.match(gameUi,/data-enviar-humana/);
   assert.match(gameUi,/S\.economia\.definirCaixa\(alocacao\.valor[\s\S]{0,500}perguntarAlinhamentoFundacao/,'o caixa da empresa deve ser alocado antes da primeira chamada de fundação');
   for(const legado of ['classico.html','app.css','ui.js'])assert.equal(fs.existsSync(path.join(__dirname,'..',legado)),false,`${legado} deve ter sido removido`);

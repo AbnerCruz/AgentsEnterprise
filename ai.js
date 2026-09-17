@@ -683,6 +683,8 @@
   /* ---------- leitura de resposta em linhas CHAVE: valor ---------- */
   function campos(texto) {
     const saida = {};
+    const jsonText=String(texto||'').trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');
+    try{const parsed=JSON.parse(jsonText);if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))return Object.fromEntries(Object.entries(parsed).map(([k,v])=>[k.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(),v]));}catch(_){}
     /* Os campos vivem sempre ANTES do separador. Sem esse corte, uma linha
        como "Nome: Crônicas de Eldoria" dentro do plano sobrescrevia o NOME
        da empresa decidido no cabeçalho. */
@@ -690,6 +692,7 @@
     const corte = bruto.indexOf('\n---');
     const cabecalho = corte >= 0 ? bruto.slice(0, corte) : bruto;
     cabecalho.split(/\n+/).forEach(linha => {
+      linha=linha.replace(/^\s*(?:#{1,6}\s+|[-*]\s+)?\*\*([^*]+)\*\*\s*:?\s*/,(_,label)=>label.replace(/:$/,'')+': ');
       const m = linha.match(/^\s*[-*]?\s*([A-Za-zÀ-ú0-9_ ]{2,28}?)\s*[:=]\s*([\s\S]+)$/);
       if (!m) return;
       const k = m[1].trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
@@ -730,6 +733,7 @@
       const r = await chamar(op);
       return { campos: campos(r.texto), corpo: corpo(r.texto), texto: r.texto };
     } catch (e) {
+      if(op.erroDetalhado)return {campos:{},texto:'',erro:String(e&&e.message||e)};
       return null;
     }
   }

@@ -37,7 +37,7 @@ S.ai={...originalAi,configuracaoCompleta:()=>true,temChave:()=>true,disponivel:(
   let body=bodies[name];if(name==='styles.css'&&badCss){body='';badCss=false;}
   return{texto:`ARQUIVO: ${name}\nTIPO: ${name.split('.').pop()}\nRESUMO: arquivo implementado\nOPERACAO: substituir\nPRONTO: sim\n---\n${body}`,modelo:'fixture'};
  },
- perguntar:async op=>{calls.push(op);if(op.motivo==='alinhamento da fundação')return{texto:'Qual função e público?'};if(op.motivo==='aceite de peça do produto')return{campos:{decisao:'aceitar',motivo:'Atende ao escopo individual.'}};if(op.motivo==='release do produto montado')return{campos:{decisao:'publicar',motivo:'Pacote completo.'}};throw new Error('Unexpected AI request: '+op.motivo);}
+ perguntar:async op=>{calls.push(op);if(op.motivo==='alinhamento da fundação')return{texto:'Qual função e público?'};if(op.motivo==='aceite de peça do produto')return{texto:'```json\n{"decisao":"aceitar","motivo":"Atende ao escopo individual."}\n```'};if(op.motivo==='release do produto montado')return{texto:'**DECISÃO:** publicar\n**MOTIVO:** Pacote completo.'};throw new Error('Unexpected AI request: '+op.motivo);}
 };
 (async()=>{
  const e=S.studio.iniciarFundacao();await S.studio.perguntarAlinhamentoFundacao(e,'Quero uma empresa que produza um aplicativo de lista de compras.');S.studio.responderAlinhamentoFundacao(e,'Pessoas fazendo compras, versão temporária sem persistência.',[]);
@@ -79,6 +79,8 @@ S.ai={...originalAi,configuracaoCompleta:()=>true,temChave:()=>true,disponivel:(
  await S.produtos.advance(serial,g);assert.equal(book.status,'liberado',book.ultimoErro);
  const bookProduct=serial.arquivos.find(a=>a.id===book.produtoId),whole=bookProduct.pacote.find(a=>a.nome==='obra-completa.md');assert.match(whole.conteudo,/Capítulo I[\s\S]+Capítulo II/);assert.ok(!whole.conteudo.includes('Referência interna'));
  assert.equal(serial.arquivos.filter(a=>a.classe==='produto').length,1,'chapters must not publish individually');
+ assert.match(bookProduct.pacote.find(a=>a.nome==='index.html').conteudo,/aria-label="Capítulos"/);
+ assert.ok(!whole.conteudo.includes('Guia de Lore'));
  // A completed company must plan another product once, without changing its release.
  const oldQuestion=S.ai.perguntar,releaseSnapshot=JSON.stringify(bookProduct.pacote);let nextCalls=0;
  S.ai.perguntar=async op=>{if(op.motivo==='planejar próximo produto'){nextCalls++;return{campos:{nome:'Conto da travessia',kit:'autonomo',arquivos:'travessia.md',briefing:'Produza um conto completo sobre uma travessia, com conflito e desfecho. Entregue prosa pronta para o leitor.'}};}return oldQuestion(op);};
@@ -103,6 +105,20 @@ S.ai={...originalAi,configuracaoCompleta:()=>true,temChave:()=>true,disponivel:(
  const question=S.ai.perguntar;S.ai.perguntar=async()=>null;
  for(let i=0;i<3;i++)await S.produtos.review(cycle,{id:'gerente',nome:'Gerente'},af[0]);
  assert.equal(paused.status,'aguardando_decisao');const decision=cycle.decisoesCriticas.find(d=>d.tarefaId===paused.id&&d.status==='pendente');assert.ok(decision,'review failures must have a visible actionable decision');
- S.studio.responderDecisaoCritica(decision.id,'O provedor voltou; revisar novamente.');assert.equal(paused.status,'aberta');assert.equal(paused.bloqueada,false);S.ai.perguntar=question;
- console.log('product-run: ok — foundation → real production → recovery → piece acceptance → assembly → manager release → ZIP → reload; no manual publication');
+ S.studio.responderDecisaoCritica(decision.id,'O provedor voltou; revisar novamente.');assert.equal(paused.status,'feita');assert.equal(S.produtos.pieceFor(cycle,paused).status,'revisando');assert.equal(S.produtos.pieceFor(cycle,paused).falhasRevisao,0);assert.equal(paused.bloqueada,false);S.ai.perguntar=question;
+ // Real failed Arcana deliveries, not idealized model decisions.
+ const real=JSON.parse(fs.readFileSync(path.join(__dirname,'fixtures/arcana-deliveries.json'),'utf8'));
+ cycle.arquivos.push({id:'bible',projectId:'cy',nome:'biblia.md',clienteVisivel:false,conteudo:real['bibleuniverso-docx.md'],classe:'prototipo'});
+ const loose={projectId:'cy',contratoAceitacao:{}};
+ for(let i=1;i<=3;i++){
+   const v=S.produtos.validatePiece(cycle,loose,[{nome:`chapters/chapter${i}.md`,tipo:'md',conteudo:real[`chapters_chapter${i}.md`]}]);
+   assert.equal(v.pronto,false);assert.ok(v.notas.some(n=>n.includes('1500–2500')),'per-chapter policy from real bible must be enforced');
+ }
+ assert.equal(S.produtos.validatePiece(cycle,loose,[{nome:'map/index.html',tipo:'html',conteudo:real['map_index.html']}]).pronto,false,'hover-only real map must require touch support');
+ assert.ok(S.produtos.references(cycle,'cy').includes('Liora'));assert.ok(S.produtos.references(cycle,'cy').includes('Revisão final por QA'));
+ for(const text of ['DECISAO: aceitar\nMOTIVO: atende','**DECISÃO:** aceitar\n**MOTIVO:** atende','{"decisao":"aceitar","motivo":"atende"}'])assert.equal(S.produtos.decision({texto:text},['aceitar','corrigir']).decisao,'aceitar');
+ assert.throws(()=>S.produtos.decision({texto:'O material parece bom.'},['aceitar','corrigir']));
+ const obsolete={id:'generic-old',projectId:'cy',titulo:'Materializar próximo produto real',origem:'invariante de produto real',status:'aberta',clienteVisivel:true};cycle.tarefas.push(obsolete);cycle.arquivos.push({id:'draft-old',taskId:obsolete.id,projectId:'cy',nome:'draft.md',conteudo:'Rascunho preservado',classe:'esboco'});
+ S.produtos.recover(cycle);assert.equal(obsolete.status,'descartada');assert.equal(cycle.arquivos.find(a=>a.id==='draft-old').conteudo,'Rascunho preservado');
+ console.log('product-run: ok — raw review parsing, Arcana regressions, foundation → production → recovery → acceptance → assembly → ZIP → reload');
 })().catch(err=>{console.error(err);process.exitCode=1;});
