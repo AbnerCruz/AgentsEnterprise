@@ -4,6 +4,13 @@ Histórico consolidado de alterações do projeto. A partir da v53, todas as nov
 
 ---
 
+# v70.1 — continuidade depois da entrega
+
+- Ao concluir todos os trabalhos atuais, a gerente planeja o próximo produto em um projeto separado, com briefing, especialidade disponível e arquivos esperados. O evento de conclusão dispara uma tentativa, sem deliberação repetida por relógio.
+- Plano inválido ou tarefa rejeitada gera decisão visível; uma resposta do proprietário permite nova tentativa. Recarregar durante o planejamento permite retomá-lo.
+- Recuperação do plano fundador usa o projeto das tarefas originais, evitando associá-lo a outro projeto após reordenação.
+- Testes offline cobrem próximo produto, ausência de chamadas duplicadas, falha visível, retomada e preservação do pacote publicado. Sem chamadas pagas de IA.
+
 # v70 — produto composto, aceite por peça e recuperação visível
 
 - Novo `product-run.js`: cada projeto acompanha um produto e suas peças, separando produção, aceite, montagem e release. Peças não podem ser publicadas isoladamente pelo fluxo antigo.

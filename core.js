@@ -439,6 +439,7 @@ window.S = window.S || {};
     e.tarefas.forEach(t=>{delete t.proximaTentativa;delete t._agenteEmExecucao;if(t.status==='fazendo'){t.status='aberta';recuperadas++;}});
     e.arquivos.forEach(a=>{delete a.proximaAvaliacao;});
     for(const r of e.productRuns||[]){delete r._publicando;for(const p of r.pecas||[])delete p._revisando;}
+    if(e.gerencia?.proximoProduto?.status==='planejando')e.gerencia.proximoProduto.status='retomar';
     if(e.reuniao.reuniaoAtiva){delete e.reuniao.reuniaoAtiva;e.reuniao.mensagens.push({id:uid('m'),t:Date.now(),quem:'Sistema',texto:'Reunião interrompida pelo fechamento do jogo foi encerrada; o trabalho voltou à fila.',tipo:'recuperacao'});e.reuniao.mensagens=e.reuniao.mensagens.slice(-180);recuperadas++;}
     if(recuperadas)e.log.push({t:Date.now(),texto:`Recuperação de sessão: ${recuperadas} estado(s) transitório(s) voltaram ao fluxo operacional.`,tag:'recuperacao',agente:null});
     if(e.log.length>2000)e.log.splice(0,e.log.length-2000);

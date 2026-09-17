@@ -69,7 +69,8 @@
     log(e,'Retomada: '+t.titulo+'. O conteúdo anterior foi preservado.');save();return true;
   }
   function recover(e){
-    const project=e.projetos.find(p=>p.tipo!=='site_institucional'&&p.status==='ativo');
+    const plannedTask=e.tarefas.find(t=>e.fundacao?.planoObra?.some(p=>p.taskId===t.id));
+    const project=e.projetos.find(p=>p.id===plannedTask?.projectId);
     if(project&&e.fundacao?.planoObra?.length)attach(e,project,e.fundacao.planoObra);
     for(const t of e.tarefas)register(e,t);
     for(const t of e.tarefas){
@@ -90,6 +91,34 @@
       const visit=t=>{if(done.has(t.id))return;if(visiting.has(t.id))throw new Error('Dependência circular em '+t.titulo);visiting.add(t.id);for(const id of t.dependsOn||[]){const dep=e.tarefas.find(x=>x.id===id);if(!dep)throw new Error('Dependência ausente em '+t.titulo+': '+id);if(active(dep))visit(dep);}visiting.delete(t.id);done.add(t.id);};
       try{tasks.forEach(visit);}catch(err){signal(e,r,null,err.message);}
     }
+  }
+  async function next(e,g){
+    const runs=e.productRuns||[];
+    if(!g||g.ocupado||S.ai.estado?.pausado||!S.ai.disponivel(g.id)||S.ai.orcamentoIndisponivel?.())return false;
+    if(!runs.some(r=>r.status==='liberado')||runs.some(r=>!['liberado','substituido'].includes(r.status))||e.tarefas.some(active))return false;
+    const key=hash(runs.filter(r=>r.status==='liberado').map(r=>r.produtoId));
+    const previous=e.gerencia.proximoProduto;
+    if(previous?.chave===key&&previous.status!=='retomar')return false;
+    const state=e.gerencia.proximoProduto={chave:key,status:'planejando',orientacao:previous?.orientacao||''};
+    g.ocupado=true;save();
+    try{
+      const result=await S.ai.perguntar({agente:g.nome,agenteId:g.id,nivel:'padrao',tokens:1600,motivo:'planejar próximo produto',sistema:'Você é a gerente. A equipe concluiu os produtos atuais. Planeje um próximo produto concreto e de escopo viável, coerente com a empresa e distinto do que já existe. Não produza o conteúdo. Use uma especialidade disponível. Responda NOME: nome do novo produto\nKIT: texto | pagina | codigo | dados | autonomo | comercial\nARQUIVOS: caminhos separados por vírgula\nBRIEFING: requisitos completos, critérios verificáveis e relação com os produtos anteriores. Não invente vendas nem dados externos.',pedido:`EMPRESA: ${e.nome}\nMISSÃO: ${e.missao}\nPÚBLICO: ${e.publico}\nEQUIPE: ${e.equipe.map(f=>f.especialidade).join(', ')}\nPRODUTOS CONCLUÍDOS:\n${runs.filter(r=>r.status==='liberado').map(r=>r.nome+': '+(e.projetos.find(p=>p.id===r.projectId)?.objetivo||'')).join('\n')}\nORIENTAÇÃO DO PROPRIETÁRIO: ${state.orientacao}`});
+      if(S.state.atual()!==e){state.status='retomar';return false;}
+      const c=result?.campos||{},name=String(c.nome||'').trim(),brief=String(c.briefing||'').trim(),kit=String(c.kit||'').trim();
+      const names=String(c.arquivos||'').split(',').map(x=>x.trim()).filter(Boolean);
+      const spec=S.factory.porId(kit);
+      if(!name||!brief||!names.length||names.some(n=>!/^([\w-]+\/)*[\w.-]+\.[a-z0-9]+$/i.test(n)||n.includes('..'))||new Set(names).size!==names.length||spec?.id!==kit||!e.equipe.some(f=>f.papel==='func'&&f.especialidade===spec.especialidade))throw new Error('O plano não definiu nome, briefing, arquivos válidos e uma especialidade disponível.');
+      if(e.projetos.some(p=>S.util.slug(p.nome)===S.util.slug(name)))throw new Error('A gerente repetiu um produto existente sem definir uma nova proposta.');
+      const project={id:S.util.uid('proj'),nome:name,objetivo:brief,status:'ativo',tipo:'produto',forma:'pacote',criadoEm:Date.now(),tarefaIds:[],arquivoIds:[],atividade:[],acervoIds:[]};
+      e.projetos.push(project);
+      const task=S.studio.novaTarefa({titulo:name,briefing:brief+'\nEntregue o pacote completo: '+names.join(', '),kit,projectId:project.id,clienteVisivel:true,etapaDestino:'esboco',contratoAceitacao:{arquivosEsperados:names,secoesObrigatorias:[],referenciasDevemResolver:true},origem:'próximo produto planejado pela gerente'});
+      if(!task){e.projetos=e.projetos.filter(p=>p.id!==project.id);throw new Error('A criação da tarefa foi rejeitada; consulte o diagnóstico da fila.');}
+      state.status='criado';state.projectId=project.id;log(e,`${g.nome} planejou o próximo produto: ${name}. A equipe recebeu o escopo e os arquivos esperados.`);return true;
+    }catch(err){
+      state.status='erro';state.erro=String(err.message||err);
+      e.decisoesCriticas=e.decisoesCriticas||[];
+      e.decisoesCriticas.push({id:S.util.uid('dec'),tipo:'proximo_produto',status:'pendente',criadaEm:Date.now(),titulo:'Planejamento do próximo produto precisa de ajuste',texto:state.erro+' Informe a orientação para uma nova tentativa.'});log(e,state.erro);return false;
+    }finally{g.ocupado=false;save();}
   }
   function register(e,t){
     if(t.productRunId||t.planoPecaId||t.status==='descartada'||t.cancelada)return;
@@ -212,5 +241,5 @@
     }catch(err){r.falhasRevisao=Number(r.falhasRevisao||0)+1;r.revisarApos=Date.now()+30000;if(r.falhasRevisao>=3)signal(e,r,null,'Falha na montagem/revisão final: '+err.message);else r.status='produzindo';return true;}
     finally{delete r._publicando;g.ocupado=false;save();}
   }
-  S.produtos={attach,register,recover,delivered,review,advance,assemble,validatePiece,runFor,pieceFor,signal,retry};
+  S.produtos={attach,register,recover,delivered,review,advance,assemble,validatePiece,runFor,pieceFor,signal,retry,next};
 })(window.S);

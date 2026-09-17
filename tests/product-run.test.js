@@ -79,6 +79,18 @@ S.ai={...originalAi,configuracaoCompleta:()=>true,temChave:()=>true,disponivel:(
  await S.produtos.advance(serial,g);assert.equal(book.status,'liberado',book.ultimoErro);
  const bookProduct=serial.arquivos.find(a=>a.id===book.produtoId),whole=bookProduct.pacote.find(a=>a.nome==='obra-completa.md');assert.match(whole.conteudo,/Capítulo I[\s\S]+Capítulo II/);assert.ok(!whole.conteudo.includes('Referência interna'));
  assert.equal(serial.arquivos.filter(a=>a.classe==='produto').length,1,'chapters must not publish individually');
+ // A completed company must plan another product once, without changing its release.
+ const oldQuestion=S.ai.perguntar,releaseSnapshot=JSON.stringify(bookProduct.pacote);let nextCalls=0;
+ S.ai.perguntar=async op=>{if(op.motivo==='planejar próximo produto'){nextCalls++;return{campos:{nome:'Conto da travessia',kit:'autonomo',arquivos:'travessia.md',briefing:'Produza um conto completo sobre uma travessia, com conflito e desfecho. Entregue prosa pronta para o leitor.'}};}return oldQuestion(op);};
+ assert.equal(await S.produtos.next(serial,g),true);assert.equal(nextCalls,1);
+ assert.equal(await S.produtos.next(serial,g),false);assert.equal(nextCalls,1,'active work must suppress repeated planning');
+ const nextTask=serial.tarefas.find(t=>t.titulo==='Conto da travessia');assert.ok(nextTask?.productRunId);assert.deepEqual(nextTask.contratoAceitacao.arquivosEsperados,['travessia.md']);
+ serial.projetos.reverse();S.produtos.recover(serial);assert.equal(serial.productRuns.filter(r=>r.planoHash).length,1,'foundation must remain attached to its original project');assert.equal(JSON.stringify(bookProduct.pacote),releaseSnapshot);
+ nextTask.status='descartada';serial.productRuns.find(r=>r.id===nextTask.productRunId).status='substituido';serial.gerencia.proximoProduto.status='retomar';
+ S.ai.perguntar=async()=>{nextCalls++;return null;};assert.equal(await S.produtos.next(serial,g),false);const failedCalls=nextCalls;
+ await S.produtos.next(serial,g);assert.equal(nextCalls,failedCalls,'failed plan must not retry every tick');
+ const nextDecision=serial.decisoesCriticas.find(d=>d.tipo==='proximo_produto'&&d.status==='pendente');assert.ok(nextDecision);S.studio.responderDecisaoCritica(nextDecision.id,'Planeje um conto curto.');assert.equal(serial.gerencia.proximoProduto.status,'retomar');
+ S.ai.perguntar=oldQuestion;
  // Missing/cyclic dependencies escalate visibly without spending on retries.
  const cycle=S.state.normalizarEstudio({id:'cycle',nome:'Ciclo',projetos:[{id:'cy',nome:'Produto',status:'ativo',tarefaIds:[],arquivoIds:[],atividade:[]}],fundacao:{versao:4,estado:'operacional'}});S.DB.estudios.push(cycle);S.DB.atual=cycle.id;
  const cyclicPlan=[{id:'cy1',ordem:1,titulo:'Primeira parte',destino:'cliente',kit:'texto',setor:'criacao',aceite:['coerente'],min:0,max:0,arquivosEsperados:['a.md'],depende:['Segunda parte']},{id:'cy2',ordem:2,titulo:'Segunda parte',destino:'cliente',kit:'texto',setor:'criacao',aceite:['coerente'],min:0,max:0,arquivosEsperados:['b.md'],depende:['Primeira parte']}];cycle.fundacao.planoObra=cyclicPlan;S.studio.materializarPlanoObra(cycle,cycle.projetos[0],cyclicPlan);S.produtos.recover(cycle);assert.equal(cycle.productRuns[0].status,'precisa_ajuste');assert.ok(cycle.decisoesCriticas.some(d=>/circular/.test(d.texto)));

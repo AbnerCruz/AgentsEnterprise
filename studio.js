@@ -1259,6 +1259,7 @@
       if(t)S.produtos.retry(e,t,texto);
       else if(r){r.status='produzindo';r.ultimoErro='';r.falhasRevisao=0;r.revisarApos=0;}
     }
+    if(d.tipo==='proximo_produto'&&e.gerencia.proximoProduto){e.gerencia.proximoProduto.status='retomar';e.gerencia.proximoProduto.orientacao=texto;}
     if(d.tipo==='orcamento_tarefa'&&d.tarefaId){
       const t=(e.tarefas||[]).find(x=>x.id===d.tarefaId);if(t){t.orcamentoTokens=S.operacao&&S.operacao.normalizarOrcamento?S.operacao.normalizarOrcamento(t.orcamentoTokens,t):(t.orcamentoTokens||{});t.status='aberta';t.para=null;t.bloqueada=false;t.retomarAposIA=0;t._agenteEmExecucao=null;delete t.motivoEscalada;delete t.escaladaAoDono;delete t.renovacoesOrcamento;}
     }
@@ -2449,7 +2450,7 @@ ${JSON.stringify(S.buff&&S.buff.FUNDACAO_SCHEMA||{})}`;
       // houver trabalho executável, a equipe produz; quando a fila esvazia, a
       // gerente define imediatamente a próxima evolução de produto real.
       if(!abertasGerencia.length){
-        trabalhoGerencia=Promise.resolve(garantirInvarianteProduto(e,g));
+        trabalhoGerencia=S.produtos?S.produtos.next(e,g):Promise.resolve(garantirInvarianteProduto(e,g));
       }
       }
     }

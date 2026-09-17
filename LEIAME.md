@@ -1,4 +1,4 @@
-# Agents Enterprise — v70
+# Agents Enterprise — v70.1
 
 > Migração para servidor em andamento: consulte [docs/ARQUITETURA_SERVIDOR.md](docs/ARQUITETURA_SERVIDOR.md) e o contrato inicial em [server/openapi.yaml](server/openapi.yaml). O jogo publicado continua usando o motor local até a importação e o worker durável estarem validados.
 
